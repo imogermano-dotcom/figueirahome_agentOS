@@ -1,5 +1,5 @@
-app = "figueirahome-api"
-primary_region = "mad"
+app = "figueirahome-agentos"
+primary_region = "ams"
 
 [build]
   dockerfile = "Dockerfile"
