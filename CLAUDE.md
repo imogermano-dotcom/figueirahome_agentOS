@@ -17,7 +17,7 @@ Plataforma de IA para agência imobiliária em Portugal:
 
 | Camada | Tecnologia |
 |---|---|
-| Frontend | React + Tailwind v4 (Vite) → Vercel |
+| Frontend | React + Tailwind v4 (Vite) → Cloudflare Pages |
 | Backend | FastAPI (Python, async) → Fly.io |
 | Base de dados | Supabase (PostgreSQL + Auth) |
 | Telefonia | Telnyx (Call Control + Media Streaming) |
@@ -64,7 +64,7 @@ frontend/src/
 
 ---
 
-## Estado actual — Handoff 2026-06-15
+## Estado actual — Handoff 2026-06-16
 
 ### Fases concluídas
 
@@ -100,7 +100,13 @@ frontend/src/
 - `supabase/migrations/0003_rls.sql` — RLS habilitado em todas as 6 tabelas `agente_*`
 - Política `auth_full_access` para `authenticated` em cada tabela
 - `anon` bloqueado por defeito; `service_role` (backend) bypassa automaticamente
-- Aplicar migration no Supabase dashboard (SQL Editor)
+
+**Deploy ✅** — Stack em produção
+- Backend: `https://figueirahome-agentos.fly.dev` (Fly.io, região `ams`, auto-stop com `min_machines_running=0`)
+- Frontend: `https://figueirahome-agentos.pages.dev` (Cloudflare Pages, build Vite)
+- CORS: permite `frontend_url` + regex `*.figueirahome-agentos.pages.dev` (preview deploys)
+- Secrets Fly.io: Anthropic, OpenAI, Supabase, Meta vars, FRONTEND_URL todos configurados
+- Git: `https://github.com/imogermano-dotcom/figueirahome_agentOS`
 
 ### Tabelas activas (prefixo `agente_`)
 
@@ -121,14 +127,12 @@ Migration `0001` não aplicada ao remoto (marcada via `migration repair`). Não 
 |---|---|
 | Credenciais Telnyx (3 vars) | ❌ — bloqueia chamadas de voz |
 | Número PT +351 Telnyx | ❌ — requer regulatory requirement group |
-| Credenciais Meta (4 vars) | ❌ — bloqueia WhatsApp real |
-| ngrok URL muda no arranque | ⚠️ — atualizar webhook Meta manualmente |
+| Credenciais Meta (4 vars) | ❌ — bloqueia WhatsApp real (vars no Fly.io mas WABA não configurado) |
 
 ### Próximos passos
 
-1. **Deploy Fly.io** — mover de local+ngrok para produção
-2. **WhatsApp real** — criar Meta App, configurar WABA, preencher vars
-3. **Telnyx PT** — preencher regulatory requirement, comprar +351
+1. **WhatsApp real** — criar Meta App, configurar WABA, actualizar webhook para URL Fly.io
+2. **Telnyx PT** — preencher regulatory requirement, comprar +351
 
 ---
 

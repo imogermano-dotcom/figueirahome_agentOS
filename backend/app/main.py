@@ -22,6 +22,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if settings.environment == "development" else [settings.frontend_url],
+    allow_origin_regex=r"https://[a-z0-9]+\.figueirahome-agentos\.pages\.dev" if settings.environment == "production" else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
