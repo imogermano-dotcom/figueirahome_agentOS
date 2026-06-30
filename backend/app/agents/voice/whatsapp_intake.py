@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import re
 from datetime import datetime, timezone
 
 import httpx
@@ -102,6 +103,18 @@ _SAVE_TOOL = [
 ]
 
 _MAX_TOOL_ITERATIONS = 3
+
+_SEARCH_RE = re.compile(
+    r"\b(t[0-9]\b|quarto|apartamento|moradia|terreno|comercial|"
+    r"comprar?|vender?|arrendar?|arrendamento|venda|"
+    r"\d{4,}|figueira|coimbra|leiria|aveiro|zona|localiza|imovel|imóvel|"
+    r"pre[cç]o|or[cç]amento|euros?|barato|disponiv)",
+    re.IGNORECASE,
+)
+
+
+def _has_search_criteria(text: str) -> bool:
+    return bool(_SEARCH_RE.search(text))
 
 
 def _pesquisar_imoveis(filtros: dict) -> str:
@@ -278,9 +291,10 @@ async def get_response(from_number: str, mensagem_user: str) -> str:
 
     response_text = "Ocorreu um erro. Tenta novamente."
     dados_guardados = False
+    force_search = _has_search_criteria(mensagem_user)
 
     async with httpx.AsyncClient(timeout=60.0) as client:
-        for _ in range(_MAX_TOOL_ITERATIONS):
+        for iteration in range(_MAX_TOOL_ITERATIONS):
             payload = {
                 "model": "claude-sonnet-4-6",
                 "max_tokens": 512,
@@ -288,6 +302,8 @@ async def get_response(from_number: str, mensagem_user: str) -> str:
                 "tools": _SAVE_TOOL,
                 "messages": claude_messages,
             }
+            if force_search and iteration == 0:
+                payload["tool_choice"] = {"type": "tool", "name": "pesquisar_imoveis"}
 
             resp = await client.post(url, headers=headers, json=payload)
             resp.raise_for_status()
