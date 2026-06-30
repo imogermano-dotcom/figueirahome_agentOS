@@ -7,7 +7,7 @@ import httpx
 
 from app.agents.broker.conversation import load_conversation, save_conversation
 from app.config import settings
-from app.db.supabase_client import get_supabase
+from app.db.supabase_client import get_supabase, get_supabase_imoveis
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,7 @@ Instruções:
 - Não termines a conversa sem teres pelo menos o nome e o tipo de interesse.
 - Quando tiveres todos os dados, confirma-os com o cliente e despede-te de forma cordial.
 - Usa a tool guardar_dados_cliente quando tiveres dados suficientes para registar.
+- Usa a tool pesquisar_imoveis quando o cliente perguntar sobre imóveis disponíveis, quiser ver opções, ou mencionar tipo/quartos/zona/preço.
 - As tuas respostas devem ser directas e adequadas para mensagens de texto.
 """
 
@@ -38,12 +39,45 @@ Instruções:
 - Cumprimenta pelo nome e continua a conversa de forma natural.
 - NÃO voltes a pedir dados que já temos (nome, tipo de interesse, etc.).
 - Podes actualizar dados se o cliente mencionar mudanças (ex: novo orçamento, nova zona).
-- Se o cliente pedir informações sobre imóveis ou o mercado, responde de forma útil e profissional.
+- Se o cliente pedir imóveis ou mencionar tipo/quartos/zona/preço, usa a tool pesquisar_imoveis para mostrar opções reais do portefólio.
 - Usa a tool guardar_dados_cliente se o cliente fornecer novos dados relevantes a actualizar.
 - As tuas respostas devem ser directas e adequadas para mensagens de texto.
 """
 
+_SEARCH_TOOL = {
+    "name": "pesquisar_imoveis",
+    "description": "Pesquisa imóveis disponíveis na base de dados da agência. Usa quando o cliente pedir imóveis, quiser saber o que há disponível, ou mencionar tipo, quartos, zona ou preço.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "natureza": {
+                "type": "string",
+                "description": "Tipo de imóvel: Apartamento, Moradia, Terreno, Comercial, etc.",
+            },
+            "quartos": {
+                "type": "integer",
+                "description": "Número de quartos (T0=0, T1=1, T2=2, etc.)",
+            },
+            "concelho": {
+                "type": "string",
+                "description": "Concelho ou localização (ex: Figueira da Foz, Coimbra)",
+            },
+            "tipo_negocio": {
+                "type": "string",
+                "enum": ["venda", "arrendamento"],
+                "description": "Se é para compra (venda) ou arrendamento",
+            },
+            "preco_max": {
+                "type": "number",
+                "description": "Preço máximo em euros",
+            },
+        },
+        "required": [],
+    },
+}
+
 _SAVE_TOOL = [
+    _SEARCH_TOOL,
     {
         "name": "guardar_dados_cliente",
         "description": "Guarda os dados recolhidos do cliente na base de dados. Chama esta tool quando tiveres pelo menos o nome e o tipo de interesse.",
@@ -62,10 +96,64 @@ _SAVE_TOOL = [
             },
             "required": ["nome", "tipo_interesse", "resumo"],
         },
-    }
+    },
 ]
 
 _MAX_TOOL_ITERATIONS = 3
+
+
+def _pesquisar_imoveis(filtros: dict) -> str:
+    supabase = get_supabase_imoveis()
+    query = supabase.table("imoveis").select(
+        "imovel_ref,natureza,quartos,area_util,venda_preco,arrendamento_preco,concelho,freguesia,descricao,disponibilidade"
+    )
+
+    natureza = filtros.get("natureza")
+    quartos = filtros.get("quartos")
+    concelho = filtros.get("concelho")
+    tipo_negocio = filtros.get("tipo_negocio")
+    preco_max = filtros.get("preco_max")
+
+    if natureza:
+        query = query.ilike("natureza", f"%{natureza}%")
+    if quartos is not None:
+        query = query.eq("quartos", quartos)
+    if concelho:
+        query = query.ilike("concelho", f"%{concelho}%")
+    if tipo_negocio == "venda":
+        query = query.gt("venda_preco", 0)
+        if preco_max:
+            query = query.lte("venda_preco", preco_max)
+    elif tipo_negocio == "arrendamento":
+        query = query.gt("arrendamento_preco", 0)
+        if preco_max:
+            query = query.lte("arrendamento_preco", preco_max)
+
+    resp = query.limit(5).execute()
+    if not resp.data:
+        return "Não foram encontrados imóveis com esses critérios."
+
+    linhas = []
+    for r in resp.data:
+        preco = ""
+        if tipo_negocio == "arrendamento" and r.get("arrendamento_preco"):
+            preco = f"{r['arrendamento_preco']}€/mês"
+        elif r.get("venda_preco") and r["venda_preco"] > 0:
+            preco = f"{r['venda_preco']}€"
+
+        partes = [
+            f"Ref {r.get('imovel_ref', '?')}",
+            r.get("natureza", ""),
+            f"T{r['quartos']}" if r.get("quartos") is not None else "",
+            f"{r['area_util']}m²" if r.get("area_util") else "",
+            preco,
+            r.get("freguesia") or r.get("concelho", ""),
+        ]
+        linhas.append(" | ".join(p for p in partes if p))
+        if r.get("descricao"):
+            linhas.append(f"  {r['descricao'][:120]}")
+
+    return "\n".join(linhas)
 
 
 def _lookup_cliente(telefone: str) -> dict | None:
@@ -150,13 +238,22 @@ def _save_to_db(dados: dict, from_number: str) -> None:
         cliente_id = result.data[0]["id"] if result.data else None
 
     if cliente_id and dados.get("tipo_interesse"):
-        supabase.table("agente_leads").insert(
-            {
-                "cliente_id": cliente_id,
-                "estado": "novo",
-                "notas": dados.get("resumo"),
-            }
-        ).execute()
+        lead_existente = (
+            supabase.table("agente_leads")
+            .select("id")
+            .eq("cliente_id", cliente_id)
+            .not_.in_("estado", ["fechado", "perdido"])
+            .limit(1)
+            .execute()
+        )
+        if not lead_existente.data:
+            supabase.table("agente_leads").insert(
+                {
+                    "cliente_id": cliente_id,
+                    "estado": "novo",
+                    "notas": dados.get("resumo"),
+                }
+            ).execute()
 
     logger.info("Cliente WhatsApp guardado: %s", telefone)
 
@@ -202,9 +299,23 @@ async def get_response(from_number: str, mensagem_user: str) -> str:
                 tool_results = []
 
                 for block in content_blocks:
-                    if block.get("type") == "tool_use" and block["name"] == "guardar_dados_cliente":
+                    if block.get("type") != "tool_use":
+                        continue
+
+                    loop = asyncio.get_event_loop()
+
+                    if block["name"] == "pesquisar_imoveis":
+                        try:
+                            resultado = await loop.run_in_executor(
+                                None, _pesquisar_imoveis, block.get("input", {})
+                            )
+                            tool_result_content = resultado
+                        except Exception:
+                            logger.exception("Erro ao pesquisar imóveis para %s", from_number)
+                            tool_result_content = "Erro ao pesquisar imóveis."
+
+                    elif block["name"] == "guardar_dados_cliente":
                         dados = block.get("input", {})
-                        loop = asyncio.get_event_loop()
                         try:
                             await loop.run_in_executor(None, _save_to_db, dados, from_number)
                             dados_guardados = True
@@ -213,11 +324,14 @@ async def get_response(from_number: str, mensagem_user: str) -> str:
                             logger.exception("Erro ao guardar dados WhatsApp de %s", from_number)
                             tool_result_content = "Erro ao guardar dados."
 
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block["id"],
-                            "content": tool_result_content,
-                        })
+                    else:
+                        tool_result_content = "Tool desconhecida."
+
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block["id"],
+                        "content": tool_result_content,
+                    })
 
                 claude_messages.append({"role": "user", "content": tool_results})
                 continue

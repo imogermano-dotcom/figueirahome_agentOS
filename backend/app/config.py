@@ -12,9 +12,13 @@ class Settings(BaseSettings):
     telnyx_public_key: str = ""
     telnyx_phone_number: str = ""
 
-    # Supabase
+    # Supabase — projecto principal
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+
+    # Supabase — projecto imóveis (segunda base)
+    supabase_imoveis_url: str = ""
+    supabase_imoveis_key: str = ""
 
     # OpenAI
     openai_api_key: str = ""
