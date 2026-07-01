@@ -286,8 +286,10 @@ async def get_response(from_number: str, mensagem_user: str) -> str:
     headers = {
         "x-api-key": settings.anthropic_api_key,
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
         "content-type": "application/json",
     }
+    system_payload = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
 
     response_text = "Ocorreu um erro. Tenta novamente."
     dados_guardados = False
@@ -298,7 +300,7 @@ async def get_response(from_number: str, mensagem_user: str) -> str:
             payload = {
                 "model": "claude-sonnet-4-6",
                 "max_tokens": 512,
-                "system": system_prompt,
+                "system": system_payload,
                 "tools": _SAVE_TOOL,
                 "messages": claude_messages,
             }
