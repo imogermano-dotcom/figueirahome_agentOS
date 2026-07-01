@@ -19,7 +19,7 @@ Plataforma de IA para agência imobiliária em Portugal:
 |---|---|
 | Frontend | React + Tailwind v4 (Vite) → Cloudflare Pages |
 | Backend | FastAPI (Python, async) → Fly.io |
-| Base de dados | Supabase (PostgreSQL + Auth) |
+| Base de dados | Supabase (PostgreSQL + Auth) — 2 projectos |
 | Telefonia | Telnyx (Call Control + Media Streaming) |
 | STT | OpenAI Whisper (PT) |
 | IA | Claude API — Sonnet 4.6 (httpx directo, não SDK) |
@@ -33,13 +33,13 @@ Backend **obrigatoriamente** em Fly.io — WebSockets persistentes para streamin
 
 ```
 backend/app/
-├── main.py          ← FastAPI v0.4.0 + CORS + routers
-├── config.py        ← pydantic-settings
-├── api/             ← clientes, imoveis, leads, config, dashboard, broker (CRUD + auth)
+├── main.py          ← FastAPI + CORS + routers
+├── config.py        ← pydantic-settings (inclui SUPABASE_IMOVEIS_*)
+├── api/             ← clientes, imoveis, leads, config, dashboard, broker
 ├── agents/
 │   ├── voice/       ← webhook Telnyx, audio_ws, whatsapp_intake, save_call
 │   └── broker/      ← tools, conversation, claude_agent, channels/whatsapp/
-├── db/supabase_client.py
+├── db/supabase_client.py  ← get_supabase() + get_supabase_imoveis()
 └── models/          ← Pydantic (6 entidades)
 
 frontend/src/
@@ -51,26 +51,23 @@ frontend/src/
 
 ---
 
-## Estado actual — Handoff 2026-06-20
+## Estado actual — Handoff 2026-07-01
 
-### Tudo em produção ✅
+### Produção ✅
 
 | Componente | URL | Estado |
 |---|---|---|
 | Backend | `https://figueirahome-agentos.fly.dev` | ✅ Fly.io `ams`, auto-stop |
 | Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages |
-| WhatsApp | webhook verificado + agente a responder | ✅ end-to-end funcional |
-| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master actualizado |
+| WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
+| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master |
 
-### Fases concluídas
+### Implementado (sessão 2026-07-01)
 
-- **Fase 1** — Fundação: FastAPI, auth Supabase, routing, layout
-- **Fase 2** — Agente de Voz: pipeline Telnyx → STT → Claude → TTS (código completo; bloqueado por credenciais)
-- **Fase 3a** — WhatsApp: webhook Meta, `whatsapp_intake.py`, histórico `agente_conversas`
-- **Fase 4a** — Backend CRUD: clientes, imóveis, leads, config, dashboard, `require_auth`
-- **Fase 4b** — Frontend dark mode: todas as páginas funcionais, tema zinc-950
-- **Fase 4c** — RLS Supabase: 6 tabelas `agente_*`, política `auth_full_access`
-- **Deploy** — Fly.io + Cloudflare Pages + CORS preview deploys + secrets configurados
+- **Pesquisa imóveis WhatsApp** — tool `pesquisar_imoveis` em `whatsapp_intake.py`; liga ao 2.º Supabase (`zphasvfopnbzwnaidsnw`, tabela `imoveis`); keyword regex + `tool_choice` forçado garantem que Claude chama a tool em vez de prometer callback
+- **Dedup de leads** — `_save_to_db` verifica lead activo antes de inserir
+- **Aging de conversas** — `conversation.py`: nova thread após 48h de inactividade (`_CONVERSATION_TTL_HOURS = 48`)
+- **Prompt caching** — system prompt enviado como lista com `cache_control: ephemeral`; header `anthropic-beta: prompt-caching-2024-07-31`
 
 ### Tabelas activas
 
@@ -81,8 +78,8 @@ frontend/src/
 ### Ambiente local
 
 - Python: `C:\Users\joaoa\AppData\Local\Programs\Python\Python312\python.exe`
-- Backend: `localhost:8000` — arrancar com `Start-Process -WindowStyle Hidden`
-- Frontend: `localhost:5173` (Vite)
+- fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app figueirahome-agentos` (a partir de `backend/`)
+- Backend: `localhost:8000` | Frontend: `localhost:5173`
 - `backend/.env` — Supabase ✅, Anthropic ✅, OpenAI ✅, Telnyx ❌, Meta ❌ (local)
 
 ### Bloqueadores activos
@@ -92,26 +89,26 @@ frontend/src/
 | Credenciais Telnyx (3 vars) | ❌ bloqueia chamadas de voz |
 | Número PT +351 Telnyx | ❌ requer regulatory requirement group |
 
-> Meta/WhatsApp: credenciais no Fly.io ✅, WABA configurado ✅, a funcionar em produção.
-
 ### Próximos passos
 
-1. **Telnyx PT** — preencher regulatory requirement, comprar +351, configurar secrets Fly.io
+1. **Handoff broker** — tool `escalar_para_broker` no agente WhatsApp: marca lead como `aguarda_broker`, envia WhatsApp ao número do corretor com resumo. Requer `BROKER_WHATSAPP_NUMBER` em secrets.
+2. **Formatação imóveis** — emojis e markdown WhatsApp na resposta do agente
+3. **Telnyx PT** — preencher regulatory requirement, comprar +351, configurar secrets Fly.io
 
 ---
 
 ## Decisões arquitecturais
 
-- **Agente unificado**: `agente_config[agente='voz']` é a persona de atendimento ao cliente em todos os canais (voz, WhatsApp, web). `agente_config[agente='broker']` é exclusivo para uso interno do corretor.
+- **Agente unificado**: `agente_config[agente='voz']` é a persona de atendimento ao cliente (voz, WhatsApp, web). `agente_config[agente='broker']` é exclusivo para uso interno do corretor.
+- **Dois clientes Supabase**: `get_supabase()` para CRM/agente; `get_supabase_imoveis()` para portefólio (`zphasvfopnbzwnaidsnw`). Lazy singletons em `db/supabase_client.py`.
+- **Tool forcing WhatsApp**: quando user menciona critérios de pesquisa (regex `_SEARCH_RE`), `tool_choice: {"type":"tool","name":"pesquisar_imoveis"}` é forçado na iteração 0. Sem este mecanismo Claude ignorava as tools e prometia callbacks.
+- **Prompt caching**: system prompt como lista com `cache_control: ephemeral` + beta header. Cache hits custam 10% do preço normal.
+- **Aging de conversas**: `load_conversation` verifica `atualizado_em`; se > 48h retorna `None, []` e `save_conversation` cria nova linha.
 - **Tailwind v4** via `@tailwindcss/vite` — sem `tailwind.config.js`
-- **Supabase URL** frontend: sem `/rest/v1/` no fim
-- **Auth backend**: `require_auth` FastAPI Depends por router; RLS activo
+- **Auth backend**: `require_auth` FastAPI Depends por router; RLS activo (service_role_key no backend = bypass automático)
 - **Supabase backend**: sync via `asyncio.run_in_executor()` (supabase-py é síncrono)
-- **Reconhecimento cliente WhatsApp**: lookup por telefone antes de Claude; prompt split novo/existente
-- **TTS** via `speak()` REST, não via WebSocket
-- **µ-law decode** manual — sem `audioop` (removido no Python 3.13)
+- **TTS** via `speak()` REST, não via WebSocket; **µ-law decode** manual (sem `audioop`, removido no Python 3.13)
 - **Extracção de dados voz**: só no hangup (Claude tool use sobre transcrição completa)
-- **Webhook signature Telnyx**: verificada em `production`, ignorada em `development`
 - **CORS**: `frontend_url` + regex `*.figueirahome-agentos.pages.dev` para preview deploys
 
 ## Bugs conhecidos
