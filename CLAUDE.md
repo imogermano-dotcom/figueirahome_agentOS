@@ -51,7 +51,7 @@ frontend/src/
 
 ---
 
-## Estado actual — Handoff 2026-07-01
+## Estado actual — Handoff 2026-07-08
 
 ### Produção ✅
 
@@ -60,14 +60,23 @@ frontend/src/
 | Backend | `https://figueirahome-agentos.fly.dev` | ✅ Fly.io `ams`, auto-stop |
 | Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages |
 | WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
+| Login portal | imagem de fundo `marina_por_do_sol.jpg` | ✅ corrigido (ficheiro estava untracked, nunca tinha sido deployado) |
 | Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master |
 
-### Implementado (sessão 2026-07-01)
+### Implementado (cumulativo)
 
 - **Pesquisa imóveis WhatsApp** — tool `pesquisar_imoveis` em `whatsapp_intake.py`; liga ao 2.º Supabase (`zphasvfopnbzwnaidsnw`, tabela `imoveis`); keyword regex + `tool_choice` forçado garantem que Claude chama a tool em vez de prometer callback
-- **Dedup de leads** — `_save_to_db` verifica lead activo antes de inserir
+- **Dedup de leads** — `_save_to_db` verifica lead activo (`estado not in [fechado, perdido]`) antes de inserir
 - **Aging de conversas** — `conversation.py`: nova thread após 48h de inactividade (`_CONVERSATION_TTL_HOURS = 48`)
 - **Prompt caching** — system prompt enviado como lista com `cache_control: ephemeral`; header `anthropic-beta: prompt-caching-2024-07-31`
+- **Login portal** — imagem de fundo commitada e no ar (estava a faltar em produção por nunca ter sido versionada)
+
+### Planeado, não implementado
+
+- **`escalar_para_broker`** — tool no agente WhatsApp (`whatsapp_intake.py`), a seguir o padrão de `pesquisar_imoveis`/`guardar_dados_cliente`:
+  - Nova tool schema em `_SAVE_TOOL`; handler faz update de `agente_leads.estado = "aguarda_broker"` (valor novo, coluna já é `text` livre — sem migration) e chama `send_text_message` (já existe em `agents/broker/channels/whatsapp/meta_api.py`) para o número do corretor
+  - Novo setting `broker_whatsapp_number` em `config.py`
+  - **Bloqueador:** falta número WhatsApp do corretor para o secret `BROKER_WHATSAPP_NUMBER` (Fly.io)
 
 ### Tabelas activas
 
@@ -88,10 +97,11 @@ frontend/src/
 |---|---|
 | Credenciais Telnyx (3 vars) | ❌ bloqueia chamadas de voz |
 | Número PT +351 Telnyx | ❌ requer regulatory requirement group |
+| Número WhatsApp do corretor | ❌ bloqueia implementação de `escalar_para_broker` |
 
 ### Próximos passos
 
-1. **Handoff broker** — tool `escalar_para_broker` no agente WhatsApp: marca lead como `aguarda_broker`, envia WhatsApp ao número do corretor com resumo. Requer `BROKER_WHATSAPP_NUMBER` em secrets.
+1. **`escalar_para_broker`** — plano pronto (ver acima); falta só o número do corretor para codificar
 2. **Formatação imóveis** — emojis e markdown WhatsApp na resposta do agente
 3. **Telnyx PT** — preencher regulatory requirement, comprar +351, configurar secrets Fly.io
 
