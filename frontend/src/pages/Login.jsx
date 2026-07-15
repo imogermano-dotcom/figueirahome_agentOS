@@ -35,8 +35,8 @@ export default function Login() {
       <div className="absolute inset-0 bg-black/50" />
 
       <div className="relative z-10 px-12 py-10 w-full max-w-sm">
-        <h1 className="text-5xl font-light text-white mb-2">Bem-vindo!</h1>
-        <p className="text-white/70 text-base mb-10">Figueirahome — Painel de Gestão</p>
+        <h1 className="text-5xl font-light text-white mb-2">Figueirahome — Agent OS</h1>
+        <p className="text-white/70 text-base mb-10">Painel de Gestão</p>
 
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* Email field */}
