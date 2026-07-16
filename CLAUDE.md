@@ -51,7 +51,7 @@ frontend/src/
 
 ---
 
-## Estado actual — Handoff 2026-07-08
+## Estado actual — Handoff 2026-07-16
 
 ### Produção ✅
 
@@ -60,8 +60,8 @@ frontend/src/
 | Backend | `https://figueirahome-agentos.fly.dev` | ✅ Fly.io `ams`, auto-stop |
 | Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages |
 | WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
-| Login portal | imagem de fundo `marina_por_do_sol.jpg` | ✅ corrigido (ficheiro estava untracked, nunca tinha sido deployado) |
-| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master |
+| Rebrand painel | título login + label sidebar → "Agent OS" | ✅ ao vivo |
+| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, sem commits pendentes |
 
 ### Implementado (cumulativo)
 
@@ -69,10 +69,11 @@ frontend/src/
 - **Dedup de leads** — `_save_to_db` verifica lead activo (`estado not in [fechado, perdido]`) antes de inserir
 - **Aging de conversas** — `conversation.py`: nova thread após 48h de inactividade (`_CONVERSATION_TTL_HOURS = 48`)
 - **Prompt caching** — system prompt enviado como lista com `cache_control: ephemeral`; header `anthropic-beta: prompt-caching-2024-07-31`
-- **Login portal** — imagem de fundo commitada e no ar (estava a faltar em produção por nunca ter sido versionada)
+- **Rebrand "Agent OS"** (sessão 2026-07-16) — `frontend/src/pages/Login.jsx`: título em duas linhas ("Figueirahome" + "Agent OS" centrado por baixo, `inline-block` + `text-center`); `frontend/src/components/Sidebar.jsx`: label pós-login trocado de "Painel de gestão" para "Agent OS", cor `text-zinc-600` → `text-white` (falta de nitidez)
 
 ### Planeado, não implementado
 
+- **Reformulação Agentes + Dashboard** — pedido pelo utilizador, escopo ainda por definir; utilizador vai trazer plano próprio na próxima sessão. **Seguir regra de fase nova: primeira resposta = plano, não código.**
 - **`escalar_para_broker`** — tool no agente WhatsApp (`whatsapp_intake.py`), a seguir o padrão de `pesquisar_imoveis`/`guardar_dados_cliente`:
   - Nova tool schema em `_SAVE_TOOL`; handler faz update de `agente_leads.estado = "aguarda_broker"` (valor novo, coluna já é `text` livre — sem migration) e chama `send_text_message` (já existe em `agents/broker/channels/whatsapp/meta_api.py`) para o número do corretor
   - Novo setting `broker_whatsapp_number` em `config.py`
@@ -88,7 +89,7 @@ frontend/src/
 
 - Python: `C:\Users\joaoa\AppData\Local\Programs\Python\Python312\python.exe`
 - fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app figueirahome-agentos` (a partir de `backend/`)
-- Backend: `localhost:8000` | Frontend: `localhost:5173`
+- Backend: `localhost:8000` | Frontend: `localhost:5173` (não corria no fim desta sessão)
 - `backend/.env` — Supabase ✅, Anthropic ✅, OpenAI ✅, Telnyx ❌, Meta ❌ (local)
 
 ### Bloqueadores activos
@@ -101,9 +102,10 @@ frontend/src/
 
 ### Próximos passos
 
-1. **`escalar_para_broker`** — plano pronto (ver acima); falta só o número do corretor para codificar
-2. **Formatação imóveis** — emojis e markdown WhatsApp na resposta do agente
-3. **Telnyx PT** — preencher regulatory requirement, comprar +351, configurar secrets Fly.io
+1. **Reformulação Agentes + Dashboard** — aguarda plano do utilizador → planificação conjunta antes de codificar
+2. **`escalar_para_broker`** — plano pronto (ver acima); falta só o número do corretor para codificar
+3. **Formatação imóveis** — emojis e markdown WhatsApp na resposta do agente
+4. **Telnyx PT** — preencher regulatory requirement, comprar +351, configurar secrets Fly.io
 
 ---
 
