@@ -23,7 +23,7 @@ export default function Sidebar() {
         <span className="font-bold text-base tracking-tight bg-gradient-to-r from-blue-400 to-violet-400 bg-clip-text text-transparent">
           Figueirahome
         </span>
-        <p className="text-zinc-600 text-xs mt-0.5">Painel de gestão</p>
+        <p className="text-zinc-600 text-xs mt-0.5">Agent OS</p>
       </div>
 
       <nav className="flex-1 py-3 overflow-y-auto space-y-0.5 px-2">
