@@ -60,6 +60,7 @@ function PortfolioTab() {
   const [loading, setLoading] = useState(true)
   const [dispFiltro, setDispFiltro] = useState('')
   const [concelhoFiltro, setConcelhoFiltro] = useState('')
+  const [refFiltro, setRefFiltro] = useState('')
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState(EMPTY_IMOVEL)
   const [saving, setSaving] = useState(false)
@@ -72,12 +73,13 @@ function PortfolioTab() {
     const params = new URLSearchParams()
     if (dispFiltro) params.set('disponibilidade', dispFiltro)
     if (concelhoFiltro) params.set('concelho', concelhoFiltro)
+    if (refFiltro) params.set('imovel_ref', refFiltro)
     try { setImoveis(await api.get(`/api/imoveis?${params}`)) }
     catch { setError('Erro ao carregar imóveis.') }
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [dispFiltro, concelhoFiltro])
+  useEffect(() => { load() }, [dispFiltro, concelhoFiltro, refFiltro])
 
   function openNew() { setForm(EMPTY_IMOVEL); setModal('new') }
   function openEdit(im) {
@@ -145,6 +147,8 @@ function PortfolioTab() {
       {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
       <div className="flex gap-3 mb-4">
+        <input placeholder="Filtrar por referência…" value={refFiltro} onChange={e => setRefFiltro(e.target.value)}
+          className="bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600 rounded-lg px-3 py-2 text-sm w-48 focus:outline-none focus:border-blue-500 transition-colors" />
         <input placeholder="Filtrar por concelho…" value={concelhoFiltro} onChange={e => setConcelhoFiltro(e.target.value)}
           className="bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:border-blue-500 transition-colors" />
         <select value={dispFiltro} onChange={e => setDispFiltro(e.target.value)}

@@ -31,6 +31,7 @@ async def listar_imoveis(
     fonte: Optional[str] = Query(None),
     natureza: Optional[str] = Query(None),
     concelho: Optional[str] = Query(None),
+    imovel_ref: Optional[str] = Query(None),
 ):
     def _fetch():
         q = get_supabase().table(TABLE).select("*").order("data_alteracao", desc=True)
@@ -42,6 +43,8 @@ async def listar_imoveis(
             q = q.eq("natureza", natureza)
         if concelho:
             q = q.ilike("concelho", f"%{concelho}%")
+        if imovel_ref:
+            q = q.ilike("imovel_ref", f"%{imovel_ref}%")
         return q.execute()
 
     resp = await _run(_fetch)
