@@ -34,85 +34,81 @@ Backend **obrigatoriamente** em Fly.io — WebSockets persistentes para streamin
 ```
 backend/app/
 ├── main.py          ← FastAPI + CORS + routers
-├── config.py        ← pydantic-settings (inclui SUPABASE_IMOVEIS_*)
-├── api/             ← clientes, imoveis, leads, config, dashboard, broker
+├── config.py        ← pydantic-settings (SUPABASE_*, SUPABASE_IMOVEIS_*, EGOREALESTATE_*)
+├── api/             ← clientes, imoveis, imoveis_sync, leads, tarefas, config, dashboard, broker
 ├── agents/
 │   ├── voice/       ← webhook Telnyx, audio_ws, whatsapp_intake, save_call
 │   └── broker/      ← tools, conversation, claude_agent, channels/whatsapp/
-├── db/supabase_client.py  ← get_supabase() + get_supabase_imoveis()
-└── models/          ← Pydantic (6 entidades)
+├── integrations/    ← egorealestate.py (cliente API), imoveis_sync.py (upsert)
+├── db/supabase_client.py  ← get_supabase() [dados, projecto unificado] + get_supabase_auth() [só login]
+└── models/          ← Pydantic (imovel, cliente, lead, tarefa, ...)
 
 frontend/src/
 ├── App.jsx          ← React Router v6
 ├── components/      ← Layout, Sidebar (dark), ProtectedRoute
-├── pages/           ← Dashboard, Clientes, Imoveis, Leads, Agente1, Agente2, Config
+├── pages/           ← Dashboard, Clientes, Imoveis (abas: Portfólio/Tarefas/Sincronização), Leads, Agente1, Agente2, Config
 └── lib/             ← supabase.js, api.js
 ```
 
 ---
 
-## Estado actual — Handoff 2026-07-16
+## Estado actual — Handoff 2026-07-21
 
-### Produção ✅
+### Produção
 
 | Componente | URL | Estado |
 |---|---|---|
-| Backend | `https://figueirahome-agentos.fly.dev` | ✅ Fly.io `ams`, auto-stop |
-| Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages |
-| WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
-| Rebrand painel | título login + label sidebar → "Agent OS" | ✅ ao vivo |
-| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, sem commits pendentes |
+| Backend | `https://figueirahome-agentos.fly.dev` | ✅ Fly.io `ams`, auto-stop — **secrets eGO ainda não postos** (ver bloqueadores) |
+| Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages — **build local com o portal novo não foi deployado ainda** |
+| WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional, sem alterações nesta sessão |
+| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, 3 commits locais (`5127884`, `921eddf`, `afe9335`) — **push não feito** |
 
-### Implementado (cumulativo)
+### Implementado (sessão 2026-07-21 — reformulação imóveis, fases A–E)
 
-- **Pesquisa imóveis WhatsApp** — tool `pesquisar_imoveis` em `whatsapp_intake.py`; liga ao 2.º Supabase (`zphasvfopnbzwnaidsnw`, tabela `imoveis`); keyword regex + `tool_choice` forçado garantem que Claude chama a tool em vez de prometer callback
-- **Dedup de leads** — `_save_to_db` verifica lead activo (`estado not in [fechado, perdido]`) antes de inserir
-- **Aging de conversas** — `conversation.py`: nova thread após 48h de inactividade (`_CONVERSATION_TTL_HOURS = 48`)
-- **Prompt caching** — system prompt enviado como lista com `cache_control: ephemeral`; header `anthropic-beta: prompt-caching-2024-07-31`
-- **Rebrand "Agent OS"** (sessão 2026-07-16) — `frontend/src/pages/Login.jsx`: título em duas linhas ("Figueirahome" + "Agent OS" centrado por baixo, `inline-block` + `text-center`); `frontend/src/components/Sidebar.jsx`: label pós-login trocado de "Painel de gestão" para "Agent OS", cor `text-zinc-600` → `text-white` (falta de nitidez)
-
-### Planeado, não implementado
-
-- **Reformulação Agentes + Dashboard** — pedido pelo utilizador, escopo ainda por definir; utilizador vai trazer plano próprio na próxima sessão. **Seguir regra de fase nova: primeira resposta = plano, não código.**
-- **`escalar_para_broker`** — tool no agente WhatsApp (`whatsapp_intake.py`), a seguir o padrão de `pesquisar_imoveis`/`guardar_dados_cliente`:
-  - Nova tool schema em `_SAVE_TOOL`; handler faz update de `agente_leads.estado = "aguarda_broker"` (valor novo, coluna já é `text` livre — sem migration) e chama `send_text_message` (já existe em `agents/broker/channels/whatsapp/meta_api.py`) para o número do corretor
-  - Novo setting `broker_whatsapp_number` em `config.py`
-  - **Bloqueador:** falta número WhatsApp do corretor para o secret `BROKER_WHATSAPP_NUMBER` (Fly.io)
+- **Base de dados unificada**: todas as tabelas (`imoveis`, `agente_clientes`, `agente_leads`, `agente_chamadas`, `agente_conversas`, `agente_config`, `agente_tarefas`) vivem agora no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`, settings `supabase_imoveis_*`). O projecto original (`supabase_url/key`) fica **só como Auth** (10 contas reais de corretores — não dá pra migrar hashes de password via API) e como backup frio dos dados antigos. `get_supabase()` = dados (unificado); `get_supabase_auth()` = só valida login. Migrations `0004`, `0005` (obsoleta, ver nota no ficheiro), `0006`.
+- **Tabela `imoveis` real** (não a aspiracional dos docs antigos): `imovel_ref` é a chave (sem uuid `id`), ~48 colunas incl. `ego_id`/`ego_atualizado_em`/`fotos`/`portais` já vindas de um import anterior do eGO. Só faltava `fonte` (migration `0004`).
+- **Sync eGO Real Estate** — `backend/app/integrations/egorealestate.py` (cliente REST) + `imoveis_sync.py` (upsert por `imovel_ref`, cursor incremental = `max(ego_atualizado_em)`). Endpoint `POST /api/imoveis/sync/egorealestate` (JWT ou `X-Sync-Secret`). Cron diário `.github/workflows/sync-imoveis.yml`. **Validado em produção real** — mapeamento acertado contra a API viva (`BusinessName` vem em PT: "Venda"/"Arrendamento"; `Rooms`/`Floor` usam sentinela `INT32_MIN` p/ vazio; upsert por `imovel_ref`, não `ego_id`, por ser a PK real; dedup defensivo p/ referências duplicadas que o próprio eGO devolve).
+- **Web scraper — SKIPPED conscientemente**: `figueirahome.com` é gerado pela própria eGO (redundante); `figueirahome.pt` real ainda não existe e vai ser alimentado pela nossa BD, não o contrário; Idealista/Imovirtual já syndicados via eGO. Necessidade real (imóveis não-publicados) exige CRM scraping autenticado — adiado, precisa de credenciais.
+- **Tarefas** (`agente_tarefas`) — entidade genérica, CRUD em `backend/app/api/tarefas.py`, campo `imovel_ref` opcional (sem FK cross-projecto).
+- **Portal `/imoveis`** — passou de listagem CRUD a 3 abas: Portfólio (campos reais), Tarefas, Sincronização (botão manual + resultado do último sync). Dashboard ganhou card "Tarefas pendentes".
 
 ### Tabelas activas
 
-`agente_clientes`, `agente_imoveis`, `agente_leads`, `agente_chamadas`, `agente_conversas`, `agente_config`
-
-> Migration `0001` marcada via `migration repair` — **não reaplicar**.
+Projecto unificado (`supabase_imoveis_*`): `imoveis`, `agente_clientes`, `agente_leads`, `agente_chamadas`, `agente_conversas`, `agente_config`, `agente_tarefas`.
+Projecto original (`supabase_url/key`): só Auth (10 contas) + tabelas antigas como backup frio, não usadas pelo backend.
 
 ### Ambiente local
 
 - Python: `C:\Users\joaoa\AppData\Local\Programs\Python\Python312\python.exe`
-- fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app figueirahome-agentos` (a partir de `backend/`)
-- Backend: `localhost:8000` | Frontend: `localhost:5173` (não corria no fim desta sessão)
-- `backend/.env` — Supabase ✅, Anthropic ✅, OpenAI ✅, Telnyx ❌, Meta ❌ (local)
+- fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app figueirahome-agentos` (a partir de `backend/`) — **sem sessão activa nesta máquina, precisa `flyctl auth login` antes de correr secrets/deploy**
+- Backend `localhost:8000` / Frontend `localhost:5173` — ambos testados e a funcionar nesta sessão
+- `backend/.env` — Supabase (ambos os projectos) ✅, Anthropic ✅, OpenAI ✅, eGO Real Estate ✅ (key colada pelo utilizador), Telnyx ❌, Meta ❌
 
 ### Bloqueadores activos
 
 | Item | Estado |
 |---|---|
+| Push do git + deploy Fly.io/Cloudflare | ❌ commits locais só, nada em produção ainda |
+| Secrets Fly.io `EGOREALESTATE_API_KEY`/`EGOREALESTATE_SYNC_SECRET` | ❌ só em `.env` local, precisa `flyctl auth login` primeiro |
+| GitHub Secret `EGOREALESTATE_SYNC_SECRET` (cron) | ❌ por configurar |
 | Credenciais Telnyx (3 vars) | ❌ bloqueia chamadas de voz |
 | Número PT +351 Telnyx | ❌ requer regulatory requirement group |
-| Número WhatsApp do corretor | ❌ bloqueia implementação de `escalar_para_broker` |
+| Número WhatsApp do corretor | ❌ bloqueia `escalar_para_broker` |
 
 ### Próximos passos
 
-1. **Reformulação Agentes + Dashboard** — aguarda plano do utilizador → planificação conjunta antes de codificar
-2. **`escalar_para_broker`** — plano pronto (ver acima); falta só o número do corretor para codificar
-3. **Formatação imóveis** — emojis e markdown WhatsApp na resposta do agente
-4. **Telnyx PT** — preencher regulatory requirement, comprar +351, configurar secrets Fly.io
+1. **Deploy** — push do git, `flyctl auth login` + `flyctl secrets set` (eGO key + sync secret) + `flyctl deploy`, confirmar Cloudflare Pages apanha o build novo do frontend
+2. **`escalar_para_broker`** — plano antigo continua válido (ver secção Decisões abaixo se precisares dos detalhes); falta só o número do corretor
+3. **Reformulação Agentes + Dashboard** — ainda por planear, era o pedido original antes de imóveis ter aberto esta sessão inteira
+4. **eGO — imóveis não-publicados** — só via CRM scraping autenticado (adiado), ou confirmar com a agência se há forma de a API devolver rascunhos
+5. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io
 
 ---
 
 ## Decisões arquitecturais
 
 - **Agente unificado**: `agente_config[agente='voz']` é a persona de atendimento ao cliente (voz, WhatsApp, web). `agente_config[agente='broker']` é exclusivo para uso interno do corretor.
-- **Dois clientes Supabase**: `get_supabase()` para CRM/agente; `get_supabase_imoveis()` para portefólio (`zphasvfopnbzwnaidsnw`). Lazy singletons em `db/supabase_client.py`.
+- **Dois projectos Supabase, papéis divididos**: `get_supabase()` = todos os dados (projecto `zphasvfopnbzwnaidsnw`, dados unificados desde 2026-07-21); `get_supabase_auth()` = só validação de login (projecto original, onde vivem as contas reais). Backend usa sempre `service_role_key` para dados — nunca passa o JWT ao Postgres — por isso um token emitido pelo projecto de Auth valida-se normalmente mesmo com os dados noutro projecto (RLS nunca chega a ser avaliado). Lazy singletons em `db/supabase_client.py`.
 - **Tool forcing WhatsApp**: quando user menciona critérios de pesquisa (regex `_SEARCH_RE`), `tool_choice: {"type":"tool","name":"pesquisar_imoveis"}` é forçado na iteração 0. Sem este mecanismo Claude ignorava as tools e prometia callbacks.
 - **Prompt caching**: system prompt como lista com `cache_control: ephemeral` + beta header. Cache hits custam 10% do preço normal.
 - **Aging de conversas**: `load_conversation` verifica `atualizado_em`; se > 48h retorna `None, []` e `save_conversation` cria nova linha.
