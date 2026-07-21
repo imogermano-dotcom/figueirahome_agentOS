@@ -56,24 +56,70 @@ create table clientes (
 );
 
 -- ──────────────────────────────────────────────
--- IMOVEIS
+-- IMOVEIS — vive no PROJECTO SECUNDÁRIO Supabase
+-- (supabase_imoveis_url/key, id zphasvfopnbzwnaidsnw), NÃO no principal.
+-- Tabela real, alimentada originalmente por export do eGO Real Estate CRM.
+-- Chave de negócio é `imovel_ref` (não há coluna `id` uuid separada).
+-- Migration 0004 adiciona só `fonte`; o resto já existia em produção.
 -- ──────────────────────────────────────────────
 create table imoveis (
-  id              uuid primary key default uuid_generate_v4(),
-  referencia      text,
-  tipo            text,        -- 'apartamento' | 'moradia' | 'terreno' | 'comercial' | ...
-  fonte           text not null default 'manual',
-                               -- 'idealista' | 'imovirtual' | 'agente_voz' | 'manual' | 'csv'
-  localizacao     text,
-  preco           numeric,
-  area            numeric,     -- m2
-  quartos         integer,
-  descricao       text,
-  fotos           jsonb default '[]'::jsonb,   -- array de URLs
-  estado          text default 'disponivel',   -- 'disponivel' | 'reservado' | 'vendido'
-  criado_em       timestamptz default now(),
-  atualizado_em   timestamptz default now()
+  imovel_ref            text primary key,
+  natureza              text,        -- 'Apartamento' | 'Moradia' | ...
+  disponibilidade       text,        -- 'Disponível' | 'Em Prospecção' | 'Por validar' | 'Retirado'
+  estado                text,        -- condição: 'Novo' | 'Usado' | 'Renovado' | 'Recuperado' | ...
+  fonte                 text not null default 'manual',
+                                     -- 'egorealestate' | 'site_proprio' | 'idealista' | 'imovirtual' | 'manual' | 'csv'
+  titulo                text,
+  descricao             text,
+  proprietario          text,
+  angariador            text,
+  vendedor              text,
+  quartos               integer,
+  casas_banho           integer,
+  suites                integer,
+  piso                  text,
+  num_pisos             integer,
+  numero                text,
+  fracao                text,
+  area_util             numeric,
+  area_bruta            numeric,
+  area_terreno          numeric,
+  conservacao           text,
+  certificacao_energetica text,
+  venda_preco           numeric,
+  arrendamento_preco    numeric,
+  comissao_agencia      numeric,
+  comissao_angariador   numeric,
+  comissao_vendedor     numeric,
+  exclusividade         text,
+  morada                text,
+  codigo_postal         text,
+  concelho              text,
+  freguesia             text,
+  zona                  text,
+  piscina               boolean,
+  garagem                boolean,
+  jardim                boolean,
+  terraco               boolean,
+  varanda                boolean,
+  vista_mar             boolean,
+  vista_praia           boolean,
+  ar_condicionado       boolean,
+  elevador              boolean,
+  aquecimento_central   boolean,
+  arrecadacao           boolean,
+  estacionamento        boolean,
+  portais               text,        -- lista de portais onde está syndicado (via eGO), texto separado por vírgulas
+  foto_principal        text,
+  fotos                 jsonb default '[]'::jsonb,   -- array de URLs (eGO CDN)
+  ego_id                bigint,      -- ID da propriedade no eGO Real Estate (null = nunca sincronizado)
+  ego_atualizado_em     timestamptz,
+  data_criacao          date,
+  data_alteracao        date
 );
+create unique index idx_imoveis_ego_id on imoveis(ego_id) where ego_id is not null;
+create index idx_imoveis_fonte on imoveis(fonte);
+create index idx_imoveis_disponibilidade on imoveis(disponibilidade);
 
 -- ──────────────────────────────────────────────
 -- LEADS
@@ -81,7 +127,7 @@ create table imoveis (
 create table leads (
   id              uuid primary key default uuid_generate_v4(),
   cliente_id      uuid references clientes(id) on delete cascade,
-  imovel_id       uuid references imoveis(id) on delete set null,
+  imovel_ref      text,        -- sem FK real: imoveis vive noutro projecto Supabase (ver secção IMOVEIS acima)
   estado          text default 'novo',   -- 'novo' | 'contactado' | 'visita' | 'proposta' | 'fechado' | 'perdido'
   notas           text,
   criado_em       timestamptz default now(),
@@ -143,10 +189,8 @@ insert into config_agentes (agente, persona, instrucoes) values
 -- Índices úteis
 -- ──────────────────────────────────────────────
 create index idx_leads_cliente on leads(cliente_id);
-create index idx_leads_imovel on leads(imovel_id);
+create index idx_leads_imovel on leads(imovel_ref);
 create index idx_chamadas_cliente on chamadas(cliente_id);
-create index idx_imoveis_estado on imoveis(estado);
-create index idx_imoveis_fonte on imoveis(fonte);
 create index idx_conversas_canal on conversas(canal);
 ```
 
@@ -162,7 +206,7 @@ create index idx_conversas_canal on conversas(canal);
 | Tabela | RLS | Política |
 |---|---|---|
 | `agente_clientes` | ✅ | `auth_full_access` — authenticated |
-| `agente_imoveis` | ✅ | `auth_full_access` — authenticated |
+| `agente_imoveis` | ✅ | **deprecated** (Fase A reformulação imóveis) — sem leitura/escrita nova, dashboard/API/broker usam `imoveis` no projecto secundário |
 | `agente_leads` | ✅ | `auth_full_access` — authenticated |
 | `agente_chamadas` | ✅ | `auth_full_access` — authenticated |
 | `agente_conversas` | ✅ | `auth_full_access` — authenticated |

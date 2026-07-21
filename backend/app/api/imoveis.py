@@ -2,24 +2,23 @@ import asyncio
 import csv
 import io
 import logging
-from datetime import datetime, timezone
+from datetime import date
 from typing import Optional
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 
 from app.api.deps import require_auth
-from app.db.supabase_client import get_supabase
+from app.db.supabase_client import get_supabase_imoveis
 from app.models.imovel import ImovelCreate, ImovelUpdate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", dependencies=[Depends(require_auth)])
 
-TABLE = "agente_imoveis"
+TABLE = "imoveis"
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _hoje() -> str:
+    return date.today().isoformat()
 
 
 async def _run(fn):
@@ -28,31 +27,31 @@ async def _run(fn):
 
 @router.get("/imoveis")
 async def listar_imoveis(
-    estado: Optional[str] = Query(None),
+    disponibilidade: Optional[str] = Query(None),
     fonte: Optional[str] = Query(None),
-    tipo: Optional[str] = Query(None),
-    localizacao: Optional[str] = Query(None),
+    natureza: Optional[str] = Query(None),
+    concelho: Optional[str] = Query(None),
 ):
     def _fetch():
-        q = get_supabase().table(TABLE).select("*").order("criado_em", desc=True)
-        if estado:
-            q = q.eq("estado", estado)
+        q = get_supabase_imoveis().table(TABLE).select("*").order("data_alteracao", desc=True)
+        if disponibilidade:
+            q = q.eq("disponibilidade", disponibilidade)
         if fonte:
             q = q.eq("fonte", fonte)
-        if tipo:
-            q = q.eq("tipo", tipo)
-        if localizacao:
-            q = q.ilike("localizacao", f"%{localizacao}%")
+        if natureza:
+            q = q.eq("natureza", natureza)
+        if concelho:
+            q = q.ilike("concelho", f"%{concelho}%")
         return q.execute()
 
     resp = await _run(_fetch)
     return resp.data
 
 
-@router.get("/imoveis/{imovel_id}")
-async def obter_imovel(imovel_id: UUID):
+@router.get("/imoveis/{imovel_ref}")
+async def obter_imovel(imovel_ref: str):
     def _fetch():
-        return get_supabase().table(TABLE).select("*").eq("id", str(imovel_id)).single().execute()
+        return get_supabase_imoveis().table(TABLE).select("*").eq("imovel_ref", imovel_ref).single().execute()
 
     try:
         resp = await _run(_fetch)
@@ -65,20 +64,19 @@ async def obter_imovel(imovel_id: UUID):
 async def criar_imovel(body: ImovelCreate):
     def _insert():
         data = body.model_dump(exclude_none=True)
-        data["criado_em"] = _now()
-        data["atualizado_em"] = _now()
-        return get_supabase().table(TABLE).insert(data).execute()
+        data["data_alteracao"] = _hoje()
+        return get_supabase_imoveis().table(TABLE).insert(data).execute()
 
     resp = await _run(_insert)
     return resp.data[0] if resp.data else {}
 
 
-@router.put("/imoveis/{imovel_id}")
-async def atualizar_imovel(imovel_id: UUID, body: ImovelUpdate):
+@router.put("/imoveis/{imovel_ref}")
+async def atualizar_imovel(imovel_ref: str, body: ImovelUpdate):
     def _update():
         data = body.model_dump(exclude_none=True)
-        data["atualizado_em"] = _now()
-        return get_supabase().table(TABLE).update(data).eq("id", str(imovel_id)).execute()
+        data["data_alteracao"] = _hoje()
+        return get_supabase_imoveis().table(TABLE).update(data).eq("imovel_ref", imovel_ref).execute()
 
     resp = await _run(_update)
     if not resp.data:
@@ -86,10 +84,10 @@ async def atualizar_imovel(imovel_id: UUID, body: ImovelUpdate):
     return resp.data[0]
 
 
-@router.delete("/imoveis/{imovel_id}", status_code=204)
-async def apagar_imovel(imovel_id: UUID):
+@router.delete("/imoveis/{imovel_ref}", status_code=204)
+async def apagar_imovel(imovel_ref: str):
     def _delete():
-        return get_supabase().table(TABLE).delete().eq("id", str(imovel_id)).execute()
+        return get_supabase_imoveis().table(TABLE).delete().eq("imovel_ref", imovel_ref).execute()
 
     await _run(_delete)
 
@@ -103,34 +101,44 @@ async def importar_imoveis_csv(file: UploadFile = File(...)):
     text = content.decode("utf-8-sig")
     reader = csv.DictReader(io.StringIO(text))
 
-    campos_validos = {"referencia", "tipo", "localizacao", "preco", "area", "quartos", "descricao", "estado"}
-    rows = []
-    now = _now()
+    campos_texto = {
+        "imovel_ref", "natureza", "disponibilidade", "estado", "titulo", "descricao",
+        "morada", "codigo_postal", "concelho", "freguesia", "zona",
+    }
+    campos_numero = {"quartos", "casas_banho", "suites", "num_pisos"}
+    campos_decimal = {"area_util", "area_bruta", "area_terreno", "venda_preco", "arrendamento_preco"}
+    hoje = _hoje()
 
+    rows = []
     for row in reader:
-        record = {"fonte": "csv", "criado_em": now, "atualizado_em": now}
-        for campo in campos_validos:
+        if not row.get("imovel_ref", "").strip():
+            continue
+        record = {"fonte": "csv", "data_alteracao": hoje}
+        for campo in campos_texto:
             val = row.get(campo, "").strip()
             if val:
-                if campo in ("preco", "area"):
-                    try:
-                        record[campo] = float(val)
-                    except ValueError:
-                        pass
-                elif campo == "quartos":
-                    try:
-                        record[campo] = int(val)
-                    except ValueError:
-                        pass
-                else:
-                    record[campo] = val
+                record[campo] = val
+        for campo in campos_numero:
+            val = row.get(campo, "").strip()
+            if val:
+                try:
+                    record[campo] = int(val)
+                except ValueError:
+                    pass
+        for campo in campos_decimal:
+            val = row.get(campo, "").strip()
+            if val:
+                try:
+                    record[campo] = float(val)
+                except ValueError:
+                    pass
         rows.append(record)
 
     if not rows:
-        raise HTTPException(status_code=400, detail="CSV sem linhas válidas.")
+        raise HTTPException(status_code=400, detail="CSV sem linhas válidas (falta imovel_ref).")
 
     def _insert():
-        return get_supabase().table(TABLE).insert(rows).execute()
+        return get_supabase_imoveis().table(TABLE).upsert(rows, on_conflict="imovel_ref").execute()
 
     resp = await _run(_insert)
     return {"importados": len(resp.data) if resp.data else 0}

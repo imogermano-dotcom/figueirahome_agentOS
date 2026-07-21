@@ -1,7 +1,9 @@
 import asyncio
+import hmac
 import logging
 
 from fastapi import Header, HTTPException
+from app.config import settings
 from app.db.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
@@ -25,3 +27,15 @@ async def require_auth(authorization: str = Header(None)):
     except Exception:
         logger.warning("Falha na validação do token auth.")
         raise HTTPException(status_code=401, detail="Token inválido.")
+
+
+async def require_sync_access(
+    authorization: str = Header(None),
+    x_sync_secret: str = Header(None, alias="X-Sync-Secret"),
+):
+    """Aceita JWT normal (botão do dashboard) OU X-Sync-Secret (cron)."""
+    if settings.egorealestate_sync_secret and x_sync_secret and hmac.compare_digest(
+        x_sync_secret, settings.egorealestate_sync_secret
+    ):
+        return "sync-secret"
+    return await require_auth(authorization)

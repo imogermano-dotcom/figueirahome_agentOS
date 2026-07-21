@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime
 
-from app.db.supabase_client import get_supabase
+from app.db.supabase_client import get_supabase, get_supabase_imoveis
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +31,15 @@ TOOL_DEFINITIONS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "tipo": {"type": "string", "description": "Tipo de imóvel (ex: moradia, apartamento)"},
-                "localizacao": {"type": "string", "description": "Localização/zona (parcial)"},
+                "natureza": {"type": "string", "description": "Tipo de imóvel (ex: moradia, apartamento)"},
+                "concelho": {"type": "string", "description": "Concelho/zona (parcial)"},
                 "preco_max": {"type": "number", "description": "Preço máximo em euros"},
                 "preco_min": {"type": "number", "description": "Preço mínimo em euros"},
-                "estado": {
+                "disponibilidade": {
                     "type": "string",
-                    "enum": ["disponivel", "vendido", "arrendado", "reservado"],
+                    "enum": ["Disponível", "Em Prospecção", "Por validar", "Retirado"],
                 },
-                "fonte": {"type": "string", "description": "Origem do imóvel (manual, csv, agente_voz, etc.)"},
+                "fonte": {"type": "string", "description": "Origem do imóvel (egorealestate, manual, csv, etc.)"},
             },
         },
     },
@@ -84,24 +84,26 @@ async def consultar_clientes(filtros: dict) -> list[dict]:
 
 
 async def consultar_imoveis(filtros: dict) -> list[dict]:
-    supabase = get_supabase()
+    supabase = get_supabase_imoveis()
     loop = asyncio.get_event_loop()
 
     def _query():
-        q = supabase.table("agente_imoveis").select("*")
-        if filtros.get("tipo"):
-            q = q.ilike("tipo", f"%{filtros['tipo']}%")
-        if filtros.get("localizacao"):
-            q = q.ilike("localizacao", f"%{filtros['localizacao']}%")
+        q = supabase.table("imoveis").select("*")
+        if filtros.get("natureza"):
+            q = q.ilike("natureza", f"%{filtros['natureza']}%")
+        if filtros.get("concelho"):
+            q = q.ilike("concelho", f"%{filtros['concelho']}%")
+        # preco_max/min aplicam-se ao preço de venda — pedidos de arrendamento
+        # devem usar a tool de pesquisa do WhatsApp, mais especializada.
         if filtros.get("preco_max") is not None:
-            q = q.lte("preco", filtros["preco_max"])
+            q = q.lte("venda_preco", filtros["preco_max"])
         if filtros.get("preco_min") is not None:
-            q = q.gte("preco", filtros["preco_min"])
-        if filtros.get("estado"):
-            q = q.eq("estado", filtros["estado"])
+            q = q.gte("venda_preco", filtros["preco_min"])
+        if filtros.get("disponibilidade"):
+            q = q.eq("disponibilidade", filtros["disponibilidade"])
         if filtros.get("fonte"):
             q = q.eq("fonte", filtros["fonte"])
-        return q.order("criado_em", desc=True).limit(20).execute()
+        return q.order("data_alteracao", desc=True).limit(20).execute()
 
     resp = await loop.run_in_executor(None, _query)
     return resp.data or []

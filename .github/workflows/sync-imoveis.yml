@@ -1,0 +1,16 @@
+name: Sync imóveis (eGO Real Estate)
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 06:00 UTC diariamente
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chamar endpoint de sync
+        run: |
+          curl -sf -X POST "https://figueirahome-agentos.fly.dev/api/imoveis/sync/egorealestate" \
+            -H "X-Sync-Secret: ${{ secrets.EGOREALESTATE_SYNC_SECRET }}" \
+            --max-time 120

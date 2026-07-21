@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     supabase_imoveis_url: str = ""
     supabase_imoveis_key: str = ""
 
+    # eGO Real Estate — CRM da agência (fonte de verdade para imóveis)
+    egorealestate_api_key: str = ""
+    egorealestate_base_url: str = "http://websiteapi.egorealestate.com"
+    egorealestate_language: str = "PT-PT"
+    egorealestate_sync_secret: str = ""  # header X-Sync-Secret, usado pelo cron (GitHub Actions)
+
     # OpenAI
     openai_api_key: str = ""
 
