@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 
 from app.api.deps import require_auth
-from app.db.supabase_client import get_supabase_imoveis
+from app.db.supabase_client import get_supabase
 from app.models.imovel import ImovelCreate, ImovelUpdate
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ async def listar_imoveis(
     concelho: Optional[str] = Query(None),
 ):
     def _fetch():
-        q = get_supabase_imoveis().table(TABLE).select("*").order("data_alteracao", desc=True)
+        q = get_supabase().table(TABLE).select("*").order("data_alteracao", desc=True)
         if disponibilidade:
             q = q.eq("disponibilidade", disponibilidade)
         if fonte:
@@ -51,7 +51,7 @@ async def listar_imoveis(
 @router.get("/imoveis/{imovel_ref}")
 async def obter_imovel(imovel_ref: str):
     def _fetch():
-        return get_supabase_imoveis().table(TABLE).select("*").eq("imovel_ref", imovel_ref).single().execute()
+        return get_supabase().table(TABLE).select("*").eq("imovel_ref", imovel_ref).single().execute()
 
     try:
         resp = await _run(_fetch)
@@ -65,7 +65,7 @@ async def criar_imovel(body: ImovelCreate):
     def _insert():
         data = body.model_dump(exclude_none=True)
         data["data_alteracao"] = _hoje()
-        return get_supabase_imoveis().table(TABLE).insert(data).execute()
+        return get_supabase().table(TABLE).insert(data).execute()
 
     resp = await _run(_insert)
     return resp.data[0] if resp.data else {}
@@ -76,7 +76,7 @@ async def atualizar_imovel(imovel_ref: str, body: ImovelUpdate):
     def _update():
         data = body.model_dump(exclude_none=True)
         data["data_alteracao"] = _hoje()
-        return get_supabase_imoveis().table(TABLE).update(data).eq("imovel_ref", imovel_ref).execute()
+        return get_supabase().table(TABLE).update(data).eq("imovel_ref", imovel_ref).execute()
 
     resp = await _run(_update)
     if not resp.data:
@@ -87,7 +87,7 @@ async def atualizar_imovel(imovel_ref: str, body: ImovelUpdate):
 @router.delete("/imoveis/{imovel_ref}", status_code=204)
 async def apagar_imovel(imovel_ref: str):
     def _delete():
-        return get_supabase_imoveis().table(TABLE).delete().eq("imovel_ref", imovel_ref).execute()
+        return get_supabase().table(TABLE).delete().eq("imovel_ref", imovel_ref).execute()
 
     await _run(_delete)
 
@@ -138,7 +138,7 @@ async def importar_imoveis_csv(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="CSV sem linhas válidas (falta imovel_ref).")
 
     def _insert():
-        return get_supabase_imoveis().table(TABLE).upsert(rows, on_conflict="imovel_ref").execute()
+        return get_supabase().table(TABLE).upsert(rows, on_conflict="imovel_ref").execute()
 
     resp = await _run(_insert)
     return {"importados": len(resp.data) if resp.data else 0}

@@ -9,6 +9,7 @@ from app.api.clientes import router as clientes_router
 from app.api.imoveis import router as imoveis_router
 from app.api.imoveis_sync import router as imoveis_sync_router
 from app.api.leads import router as leads_router
+from app.api.tarefas import router as tarefas_router
 from app.api.config import router as config_router
 from app.api.dashboard import router as dashboard_router
 from app.config import settings
@@ -37,6 +38,7 @@ app.include_router(clientes_router)
 app.include_router(imoveis_router)
 app.include_router(imoveis_sync_router)
 app.include_router(leads_router)
+app.include_router(tarefas_router)
 app.include_router(config_router)
 app.include_router(dashboard_router)
 

@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from fastapi import APIRouter, Depends
 
 from app.api.deps import require_auth
-from app.db.supabase_client import get_supabase, get_supabase_imoveis
+from app.db.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", dependencies=[Depends(require_auth)])
@@ -37,7 +37,7 @@ async def dashboard():
         )
 
         imoveis_disponiveis = (
-            get_supabase_imoveis()
+            get_supabase()
             .table("imoveis")
             .select("imovel_ref", count="exact")
             .eq("disponibilidade", "Disponível")
@@ -51,11 +51,19 @@ async def dashboard():
             .execute()
         )
 
+        tarefas_pendentes = (
+            db.table("agente_tarefas")
+            .select("id", count="exact")
+            .eq("estado", "pendente")
+            .execute()
+        )
+
         return {
             "chamadas_hoje": chamadas.count or 0,
             "leads_novos": leads_novos.count or 0,
             "imoveis_disponiveis": imoveis_disponiveis.count or 0,
             "conversas_hoje": conversas_hoje.count or 0,
+            "tarefas_pendentes": tarefas_pendentes.count or 0,
         }
 
     return await _run(_fetch)

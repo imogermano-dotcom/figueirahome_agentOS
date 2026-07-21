@@ -2,6 +2,12 @@
 
 > Estrutura completa da base de dados. Nomes de tabelas e colunas em português, snake_case. Todas as tabelas têm `id` UUID e `criado_em` timestamp por defeito.
 
+## Dois projectos Supabase — o que vive onde (desde migration 0006, 2026-07-21)
+
+- **Projecto UNIFICADO** (`supabase_imoveis_url/key` no `.env` — nome histórico, é o projecto principal de dados agora): todas as tabelas — `imoveis`, `agente_clientes`, `agente_leads`, `agente_chamadas`, `agente_conversas`, `agente_config`, `agente_tarefas`. `backend/app/db/supabase_client.py::get_supabase()` aponta para aqui.
+- **Projecto ORIGINAL** (`supabase_url/key` — nome histórico, "principal"): fica **só como Auth** — as 10 contas de login dos corretores/admin vivem lá (Supabase não permite copiar hashes de password via API). `get_supabase_auth()` aponta para aqui, usado apenas em `deps.py::require_auth` para validar o token. Sem tabelas de dados novas aqui — as antigas (`agente_clientes` etc.) ficam como backup frio, não lidas nem escritas pelo backend.
+- Isto funciona porque o backend usa sempre `service_role_key` para aceder a dados (nunca passa o JWT do utilizador ao Postgres) — a validação de RLS nunca chega a ser avaliada, por isso não há problema de "RLS não reconhece token doutro projecto".
+
 ---
 
 ## Visão geral das tabelas
@@ -14,6 +20,7 @@
 | `chamadas` | Histórico de chamadas atendidas pelo Agente 1. |
 | `conversas` | Histórico de conversas do Agente 2, por canal. |
 | `config_agentes` | Persona e instruções configuráveis de cada agente. |
+| `agente_tarefas` | Tarefas genéricas (não exclusivas de imóveis) do corretor/agência. |
 
 ---
 
@@ -117,7 +124,7 @@ create table imoveis (
   data_criacao          date,
   data_alteracao        date
 );
-create unique index idx_imoveis_ego_id on imoveis(ego_id) where ego_id is not null;
+create unique index idx_imoveis_ego_id on imoveis(ego_id);  -- integridade (Postgres permite múltiplos NULL); sync eGO faz upsert por imovel_ref, não por este
 create index idx_imoveis_fonte on imoveis(fonte);
 create index idx_imoveis_disponibilidade on imoveis(disponibilidade);
 
@@ -127,7 +134,7 @@ create index idx_imoveis_disponibilidade on imoveis(disponibilidade);
 create table leads (
   id              uuid primary key default uuid_generate_v4(),
   cliente_id      uuid references clientes(id) on delete cascade,
-  imovel_ref      text,        -- sem FK real: imoveis vive noutro projecto Supabase (ver secção IMOVEIS acima)
+  imovel_id       uuid,        -- sem FK, sempre null na prática hoje; ligação leads↔imoveis por fazer (fora de âmbito da migration 0006)
   estado          text default 'novo',   -- 'novo' | 'contactado' | 'visita' | 'proposta' | 'fechado' | 'perdido'
   notas           text,
   criado_em       timestamptz default now(),
@@ -186,10 +193,28 @@ insert into config_agentes (agente, persona, instrucoes) values
  'Responde sempre em Português de Portugal. Consulta a base de dados antes de responder. Sê directo e preciso.');
 
 -- ──────────────────────────────────────────────
+-- AGENTE_TAREFAS — migration 0005 (projecto PRINCIPAL)
+-- Entidade genérica de tarefas, não exclusiva de imóveis.
+-- ──────────────────────────────────────────────
+create table agente_tarefas (
+  id            uuid primary key default uuid_generate_v4(),
+  titulo        text not null,
+  descricao     text,
+  imovel_ref    text,                       -- sem FK: imoveis vive noutro projecto Supabase
+  estado        text default 'pendente',    -- 'pendente' | 'em_curso' | 'concluida' | 'cancelada'
+  prazo         date,
+  responsavel   text,
+  criado_em     timestamptz default now(),
+  atualizado_em timestamptz default now()
+);
+create index idx_agente_tarefas_estado on agente_tarefas(estado);
+create index idx_agente_tarefas_imovel on agente_tarefas(imovel_ref);
+
+-- ──────────────────────────────────────────────
 -- Índices úteis
 -- ──────────────────────────────────────────────
 create index idx_leads_cliente on leads(cliente_id);
-create index idx_leads_imovel on leads(imovel_ref);
+create index idx_leads_imovel on leads(imovel_id);
 create index idx_chamadas_cliente on chamadas(cliente_id);
 create index idx_conversas_canal on conversas(canal);
 ```
@@ -211,6 +236,7 @@ create index idx_conversas_canal on conversas(canal);
 | `agente_chamadas` | ✅ | `auth_full_access` — authenticated |
 | `agente_conversas` | ✅ | `auth_full_access` — authenticated |
 | `agente_config` | ✅ | `auth_full_access` — authenticated |
+| `agente_tarefas` | ✅ | `auth_full_access` — authenticated (migration 0005) |
 
 ### Verificação
 

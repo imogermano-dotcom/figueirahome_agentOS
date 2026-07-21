@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timezone
 
 from app.config import settings
-from app.db.supabase_client import get_supabase_imoveis
+from app.db.supabase_client import get_supabase
 from app.integrations import egorealestate
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ async def _run(fn):
 async def _last_synced_at() -> datetime | None:
     def _fetch():
         return (
-            get_supabase_imoveis()
+            get_supabase()
             .table("imoveis")
             .select("ego_atualizado_em")
             .eq("fonte", "egorealestate")
@@ -95,7 +95,7 @@ async def _last_synced_at() -> datetime | None:
 
 async def _existing_refs(refs: list[str]) -> set[str]:
     def _fetch():
-        return get_supabase_imoveis().table("imoveis").select("imovel_ref").in_("imovel_ref", refs).execute()
+        return get_supabase().table("imoveis").select("imovel_ref").in_("imovel_ref", refs).execute()
 
     resp = await _run(_fetch)
     return {r["imovel_ref"] for r in resp.data}
@@ -156,7 +156,7 @@ async def sync_egorealestate() -> dict:
     existentes = await _existing_refs(refs)
 
     def _upsert():
-        return get_supabase_imoveis().table("imoveis").upsert(records, on_conflict="imovel_ref").execute()
+        return get_supabase().table("imoveis").upsert(records, on_conflict="imovel_ref").execute()
 
     await _run(_upsert)
 

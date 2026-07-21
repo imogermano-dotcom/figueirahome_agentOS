@@ -4,7 +4,7 @@ import logging
 
 from fastapi import Header, HTTPException
 from app.config import settings
-from app.db.supabase_client import get_supabase
+from app.db.supabase_client import get_supabase_auth
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ async def require_auth(authorization: str = Header(None)):
     token = authorization.removeprefix("Bearer ").strip()
     if not token:
         raise HTTPException(status_code=401, detail="Não autenticado.")
-    supabase = get_supabase()
+    supabase = get_supabase_auth()
     loop = asyncio.get_event_loop()
     try:
         resp = await loop.run_in_executor(None, lambda: supabase.auth.get_user(token))

@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime
 
-from app.db.supabase_client import get_supabase, get_supabase_imoveis
+from app.db.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ async def consultar_clientes(filtros: dict) -> list[dict]:
 
 
 async def consultar_imoveis(filtros: dict) -> list[dict]:
-    supabase = get_supabase_imoveis()
+    supabase = get_supabase()
     loop = asyncio.get_event_loop()
 
     def _query():

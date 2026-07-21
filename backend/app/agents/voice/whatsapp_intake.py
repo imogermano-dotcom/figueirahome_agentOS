@@ -8,7 +8,7 @@ import httpx
 
 from app.agents.broker.conversation import load_conversation, save_conversation
 from app.config import settings
-from app.db.supabase_client import get_supabase, get_supabase_imoveis
+from app.db.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ def _has_search_criteria(text: str) -> bool:
 
 
 def _pesquisar_imoveis(filtros: dict) -> str:
-    supabase = get_supabase_imoveis()
+    supabase = get_supabase()
     query = supabase.table("imoveis").select(
         "imovel_ref,natureza,quartos,area_util,venda_preco,arrendamento_preco,concelho,freguesia,descricao,disponibilidade"
     )
