@@ -58,10 +58,11 @@ frontend/src/
 
 | Componente | URL | Estado |
 |---|---|---|
-| Backend | `https://figueirahome-agentos.fly.dev` | ✅ Fly.io `ams`, auto-stop — **secrets eGO ainda não postos** (ver bloqueadores) |
-| Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages — **build local com o portal novo não foi deployado ainda** |
+| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado, secrets eGO postos (`EGOREALESTATE_API_KEY`/`SYNC_SECRET`) |
+| Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push, portal de imóveis live |
 | WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional, sem alterações nesta sessão |
-| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, 3 commits locais (`5127884`, `921eddf`, `afe9335`) — **push não feito** |
+| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ testado manualmente (`workflow_dispatch`), GitHub Secret posto |
+| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed (último: `e0c4657`) |
 
 ### Implementado (sessão 2026-07-21 — reformulação imóveis, fases A–E)
 
@@ -88,20 +89,16 @@ Projecto original (`supabase_url/key`): só Auth (10 contas) + tabelas antigas c
 
 | Item | Estado |
 |---|---|
-| Push do git + deploy Fly.io/Cloudflare | ❌ commits locais só, nada em produção ainda |
-| Secrets Fly.io `EGOREALESTATE_API_KEY`/`EGOREALESTATE_SYNC_SECRET` | ❌ só em `.env` local, precisa `flyctl auth login` primeiro |
-| GitHub Secret `EGOREALESTATE_SYNC_SECRET` (cron) | ❌ por configurar |
 | Credenciais Telnyx (3 vars) | ❌ bloqueia chamadas de voz |
 | Número PT +351 Telnyx | ❌ requer regulatory requirement group |
 | Número WhatsApp do corretor | ❌ bloqueia `escalar_para_broker` |
 
 ### Próximos passos
 
-1. **Deploy** — push do git, `flyctl auth login` + `flyctl secrets set` (eGO key + sync secret) + `flyctl deploy`, confirmar Cloudflare Pages apanha o build novo do frontend
-2. **`escalar_para_broker`** — plano antigo continua válido (ver secção Decisões abaixo se precisares dos detalhes); falta só o número do corretor
-3. **Reformulação Agentes + Dashboard** — ainda por planear, era o pedido original antes de imóveis ter aberto esta sessão inteira
-4. **eGO — imóveis não-publicados** — só via CRM scraping autenticado (adiado), ou confirmar com a agência se há forma de a API devolver rascunhos
-5. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io
+1. **Reformulação Agentes + Dashboard** — era o pedido original antes de imóveis ter aberto esta sessão inteira; ainda por planear
+2. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor
+3. **eGO — imóveis não-publicados** — só via CRM scraping autenticado (adiado nesta sessão), ou confirmar com a agência se há forma de a API devolver rascunhos
+4. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io
 
 ---
 
