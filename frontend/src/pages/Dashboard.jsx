@@ -34,6 +34,14 @@ const cards = [
     glow: 'shadow-amber-500/20',
     text: 'from-amber-300 to-orange-400',
   },
+  {
+    key: 'tarefas_pendentes',
+    label: 'Tarefas pendentes',
+    icon: '✓',
+    gradient: 'from-rose-500 to-pink-600',
+    glow: 'shadow-rose-500/20',
+    text: 'from-rose-300 to-pink-400',
+  },
 ]
 
 export default function Dashboard() {

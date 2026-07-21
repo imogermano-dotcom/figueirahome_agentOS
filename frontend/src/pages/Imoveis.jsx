@@ -2,17 +2,30 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { supabase } from '../lib/supabase'
 
-const TIPOS = ['apartamento', 'moradia', 'terreno', 'comercial']
-const ESTADOS = ['disponivel', 'reservado', 'vendido']
-const EMPTY_FORM = { referencia: '', tipo: '', localizacao: '', preco: '', area: '', quartos: '', descricao: '', estado: 'disponivel' }
+const DISPONIBILIDADES = ['Disponível', 'Em Prospecção', 'Por validar', 'Retirado']
+const TAREFA_ESTADOS = ['pendente', 'em_curso', 'concluida', 'cancelada']
+const EMPTY_IMOVEL = {
+  imovel_ref: '', natureza: '', disponibilidade: 'Disponível', estado: '',
+  concelho: '', freguesia: '', venda_preco: '', arrendamento_preco: '',
+  area_util: '', quartos: '', descricao: '',
+}
+const EMPTY_TAREFA = { titulo: '', descricao: '', imovel_ref: '', estado: 'pendente', prazo: '', responsavel: '' }
 
 const inputCls = "w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition-colors"
 const selectCls = "w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-500 transition-colors"
 
-const estadoBadge = {
-  disponivel: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20',
-  reservado: 'bg-amber-500/15 text-amber-400 border border-amber-500/20',
-  vendido: 'bg-zinc-700 text-zinc-500',
+const disponibilidadeBadge = {
+  'Disponível': 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20',
+  'Em Prospecção': 'bg-blue-500/15 text-blue-400 border border-blue-500/20',
+  'Por validar': 'bg-amber-500/15 text-amber-400 border border-amber-500/20',
+  'Retirado': 'bg-zinc-700 text-zinc-500',
+}
+
+const tarefaBadge = {
+  pendente: 'bg-amber-500/15 text-amber-400 border border-amber-500/20',
+  em_curso: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',
+  concluida: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20',
+  cancelada: 'bg-zinc-700 text-zinc-500',
 }
 
 function Modal({ title, onClose, children }) {
@@ -38,13 +51,17 @@ function Field({ label, children }) {
   )
 }
 
-export default function Imoveis() {
+function fmtEuro(v) {
+  return v ? `${Number(v).toLocaleString('pt-PT')} €` : '—'
+}
+
+function PortfolioTab() {
   const [imoveis, setImoveis] = useState([])
   const [loading, setLoading] = useState(true)
-  const [estadoFiltro, setEstadoFiltro] = useState('')
-  const [localFiltro, setLocalFiltro] = useState('')
+  const [dispFiltro, setDispFiltro] = useState('')
+  const [concelhoFiltro, setConcelhoFiltro] = useState('')
   const [modal, setModal] = useState(null)
-  const [form, setForm] = useState(EMPTY_FORM)
+  const [form, setForm] = useState(EMPTY_IMOVEL)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [importing, setImporting] = useState(false)
@@ -53,40 +70,45 @@ export default function Imoveis() {
   async function load() {
     setLoading(true)
     const params = new URLSearchParams()
-    if (estadoFiltro) params.set('estado', estadoFiltro)
-    if (localFiltro) params.set('localizacao', localFiltro)
+    if (dispFiltro) params.set('disponibilidade', dispFiltro)
+    if (concelhoFiltro) params.set('concelho', concelhoFiltro)
     try { setImoveis(await api.get(`/api/imoveis?${params}`)) }
     catch { setError('Erro ao carregar imóveis.') }
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [estadoFiltro, localFiltro])
+  useEffect(() => { load() }, [dispFiltro, concelhoFiltro])
 
-  function openNew() { setForm(EMPTY_FORM); setModal('new') }
+  function openNew() { setForm(EMPTY_IMOVEL); setModal('new') }
   function openEdit(im) {
-    setForm({ referencia: im.referencia||'', tipo: im.tipo||'', localizacao: im.localizacao||'',
-      preco: im.preco??'', area: im.area??'', quartos: im.quartos??'', descricao: im.descricao||'', estado: im.estado||'disponivel' })
+    setForm({
+      imovel_ref: im.imovel_ref || '', natureza: im.natureza || '', disponibilidade: im.disponibilidade || 'Disponível',
+      estado: im.estado || '', concelho: im.concelho || '', freguesia: im.freguesia || '',
+      venda_preco: im.venda_preco ?? '', arrendamento_preco: im.arrendamento_preco ?? '',
+      area_util: im.area_util ?? '', quartos: im.quartos ?? '', descricao: im.descricao || '',
+    })
     setModal(im)
   }
 
   async function handleSave(e) {
     e.preventDefault(); setSaving(true)
     const body = { ...form,
-      preco: form.preco !== '' ? Number(form.preco) : undefined,
-      area: form.area !== '' ? Number(form.area) : undefined,
+      venda_preco: form.venda_preco !== '' ? Number(form.venda_preco) : undefined,
+      arrendamento_preco: form.arrendamento_preco !== '' ? Number(form.arrendamento_preco) : undefined,
+      area_util: form.area_util !== '' ? Number(form.area_util) : undefined,
       quartos: form.quartos !== '' ? Number(form.quartos) : undefined,
     }
     Object.keys(body).forEach(k => body[k] === undefined && delete body[k])
     try {
-      modal === 'new' ? await api.post('/api/imoveis', body) : await api.put(`/api/imoveis/${modal.id}`, body)
+      modal === 'new' ? await api.post('/api/imoveis', body) : await api.put(`/api/imoveis/${encodeURIComponent(modal.imovel_ref)}`, body)
       setModal(null); load()
     } catch (err) { setError(err.message) }
     setSaving(false)
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(ref) {
     if (!confirm('Apagar este imóvel?')) return
-    try { await api.delete(`/api/imoveis/${id}`); load() }
+    try { await api.delete(`/api/imoveis/${encodeURIComponent(ref)}`); load() }
     catch (err) { setError(err.message) }
   }
 
@@ -108,10 +130,7 @@ export default function Imoveis() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Imóveis</h1>
-          <p className="text-zinc-500 text-sm mt-0.5">{imoveis.length} imóve{imoveis.length !== 1 ? 'is' : 'l'}</p>
-        </div>
+        <p className="text-zinc-500 text-sm">{imoveis.length} imóve{imoveis.length !== 1 ? 'is' : 'l'}</p>
         <div className="flex gap-2">
           <label className={`cursor-pointer border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-zinc-200 text-sm font-medium px-4 py-2 rounded-lg transition-all ${importing ? 'opacity-50 pointer-events-none' : ''}`}>
             {importing ? 'A importar…' : 'Importar CSV'}
@@ -126,12 +145,12 @@ export default function Imoveis() {
       {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
 
       <div className="flex gap-3 mb-4">
-        <input placeholder="Filtrar por localização…" value={localFiltro} onChange={e => setLocalFiltro(e.target.value)}
+        <input placeholder="Filtrar por concelho…" value={concelhoFiltro} onChange={e => setConcelhoFiltro(e.target.value)}
           className="bg-zinc-900 border border-zinc-800 text-zinc-100 placeholder-zinc-600 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:border-blue-500 transition-colors" />
-        <select value={estadoFiltro} onChange={e => setEstadoFiltro(e.target.value)}
+        <select value={dispFiltro} onChange={e => setDispFiltro(e.target.value)}
           className="bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors">
-          <option value="">Todos os estados</option>
-          {ESTADOS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+          <option value="">Todas as disponibilidades</option>
+          {DISPONIBILIDADES.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
 
@@ -140,33 +159,35 @@ export default function Imoveis() {
           <thead>
             <tr className="border-b border-white/5 text-left text-zinc-500 text-xs uppercase tracking-widest">
               <th className="px-4 py-3">Referência</th>
-              <th className="px-4 py-3">Tipo</th>
-              <th className="px-4 py-3">Localização</th>
-              <th className="px-4 py-3">Preço</th>
+              <th className="px-4 py-3">Natureza</th>
+              <th className="px-4 py-3">Concelho</th>
+              <th className="px-4 py-3">Venda</th>
+              <th className="px-4 py-3">Arrendamento</th>
               <th className="px-4 py-3">Quartos</th>
-              <th className="px-4 py-3">Estado</th>
+              <th className="px-4 py-3">Disponibilidade</th>
               <th className="px-4 py-3">Fonte</th>
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={8} className="px-4 py-8 text-center text-zinc-600">A carregar…</td></tr>}
-            {!loading && imoveis.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-zinc-600">Sem imóveis.</td></tr>}
+            {loading && <tr><td colSpan={9} className="px-4 py-8 text-center text-zinc-600">A carregar…</td></tr>}
+            {!loading && imoveis.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-zinc-600">Sem imóveis.</td></tr>}
             {imoveis.map(im => (
-              <tr key={im.id} className="border-b border-white/5 hover:bg-white/3 transition-colors">
-                <td className="px-4 py-3 font-medium text-zinc-100">{im.referencia || '—'}</td>
-                <td className="px-4 py-3 text-zinc-400">{im.tipo || '—'}</td>
-                <td className="px-4 py-3 text-zinc-400">{im.localizacao || '—'}</td>
-                <td className="px-4 py-3 text-zinc-400">{im.preco ? `${Number(im.preco).toLocaleString('pt-PT')} €` : '—'}</td>
+              <tr key={im.imovel_ref} className="border-b border-white/5 hover:bg-white/3 transition-colors">
+                <td className="px-4 py-3 font-medium text-zinc-100">{im.imovel_ref}</td>
+                <td className="px-4 py-3 text-zinc-400">{im.natureza || '—'}</td>
+                <td className="px-4 py-3 text-zinc-400">{im.concelho || '—'}</td>
+                <td className="px-4 py-3 text-zinc-400">{fmtEuro(im.venda_preco)}</td>
+                <td className="px-4 py-3 text-zinc-400">{im.arrendamento_preco ? `${fmtEuro(im.arrendamento_preco)}/mês` : '—'}</td>
                 <td className="px-4 py-3 text-zinc-400">{im.quartos ?? '—'}</td>
                 <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${estadoBadge[im.estado] || 'bg-zinc-700 text-zinc-400'}`}>{im.estado}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${disponibilidadeBadge[im.disponibilidade] || 'bg-zinc-700 text-zinc-400'}`}>{im.disponibilidade || '—'}</span>
                 </td>
                 <td className="px-4 py-3 text-zinc-600 text-xs">{im.fonte}</td>
                 <td className="px-4 py-3">
                   <div className="flex gap-3 justify-end">
                     <button onClick={() => openEdit(im)} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">Editar</button>
-                    <button onClick={() => handleDelete(im.id)} className="text-xs text-red-500 hover:text-red-400 transition-colors">Apagar</button>
+                    <button onClick={() => handleDelete(im.imovel_ref)} className="text-xs text-red-500 hover:text-red-400 transition-colors">Apagar</button>
                   </div>
                 </td>
               </tr>
@@ -179,20 +200,151 @@ export default function Imoveis() {
         <Modal title={modal === 'new' ? 'Novo imóvel' : 'Editar imóvel'} onClose={() => setModal(null)}>
           <form onSubmit={handleSave} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Referência"><input className={inputCls} value={form.referencia} onChange={e => setForm(f => ({ ...f, referencia: e.target.value }))} /></Field>
-              <Field label="Tipo">
-                <select className={selectCls} value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
-                  <option value="">— seleccionar —</option>
-                  {TIPOS.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+              <Field label="Referência">
+                <input className={inputCls} value={form.imovel_ref} disabled={modal !== 'new'}
+                  onChange={e => setForm(f => ({ ...f, imovel_ref: e.target.value }))} />
+              </Field>
+              <Field label="Natureza"><input className={inputCls} value={form.natureza} onChange={e => setForm(f => ({ ...f, natureza: e.target.value }))} /></Field>
+              <Field label="Concelho"><input className={inputCls} value={form.concelho} onChange={e => setForm(f => ({ ...f, concelho: e.target.value }))} /></Field>
+              <Field label="Freguesia"><input className={inputCls} value={form.freguesia} onChange={e => setForm(f => ({ ...f, freguesia: e.target.value }))} /></Field>
+              <Field label="Preço venda (€)"><input type="number" className={inputCls} value={form.venda_preco} onChange={e => setForm(f => ({ ...f, venda_preco: e.target.value }))} /></Field>
+              <Field label="Preço arrendamento (€)"><input type="number" className={inputCls} value={form.arrendamento_preco} onChange={e => setForm(f => ({ ...f, arrendamento_preco: e.target.value }))} /></Field>
+              <Field label="Área útil (m²)"><input type="number" className={inputCls} value={form.area_util} onChange={e => setForm(f => ({ ...f, area_util: e.target.value }))} /></Field>
+              <Field label="Quartos"><input type="number" className={inputCls} value={form.quartos} onChange={e => setForm(f => ({ ...f, quartos: e.target.value }))} /></Field>
+              <Field label="Disponibilidade">
+                <select className={selectCls} value={form.disponibilidade} onChange={e => setForm(f => ({ ...f, disponibilidade: e.target.value }))}>
+                  {DISPONIBILIDADES.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </Field>
-              <Field label="Localização"><input className={inputCls} value={form.localizacao} onChange={e => setForm(f => ({ ...f, localizacao: e.target.value }))} /></Field>
-              <Field label="Preço (€)"><input type="number" className={inputCls} value={form.preco} onChange={e => setForm(f => ({ ...f, preco: e.target.value }))} /></Field>
-              <Field label="Área (m²)"><input type="number" className={inputCls} value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))} /></Field>
-              <Field label="Quartos"><input type="number" className={inputCls} value={form.quartos} onChange={e => setForm(f => ({ ...f, quartos: e.target.value }))} /></Field>
+              <Field label="Condição"><input className={inputCls} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))} placeholder="Novo, Usado, ..." /></Field>
+            </div>
+            <Field label="Descrição"><textarea className={inputCls} rows={3} value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} /></Field>
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" onClick={() => setModal(null)} className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">Cancelar</button>
+              <button type="submit" disabled={saving} className="bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg disabled:opacity-50 transition-all">
+                {saving ? 'A guardar…' : 'Guardar'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+function TarefasTab() {
+  const [tarefas, setTarefas] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [estadoFiltro, setEstadoFiltro] = useState('')
+  const [modal, setModal] = useState(null)
+  const [form, setForm] = useState(EMPTY_TAREFA)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function load() {
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (estadoFiltro) params.set('estado', estadoFiltro)
+    try { setTarefas(await api.get(`/api/tarefas?${params}`)) }
+    catch { setError('Erro ao carregar tarefas.') }
+    setLoading(false)
+  }
+
+  useEffect(() => { load() }, [estadoFiltro])
+
+  function openNew() { setForm(EMPTY_TAREFA); setModal('new') }
+  function openEdit(t) {
+    setForm({
+      titulo: t.titulo || '', descricao: t.descricao || '', imovel_ref: t.imovel_ref || '',
+      estado: t.estado || 'pendente', prazo: t.prazo || '', responsavel: t.responsavel || '',
+    })
+    setModal(t)
+  }
+
+  async function handleSave(e) {
+    e.preventDefault(); setSaving(true)
+    const body = { ...form }
+    if (!body.prazo) delete body.prazo
+    if (!body.imovel_ref) delete body.imovel_ref
+    try {
+      modal === 'new' ? await api.post('/api/tarefas', body) : await api.put(`/api/tarefas/${modal.id}`, body)
+      setModal(null); load()
+    } catch (err) { setError(err.message) }
+    setSaving(false)
+  }
+
+  async function handleDelete(id) {
+    if (!confirm('Apagar esta tarefa?')) return
+    try { await api.delete(`/api/tarefas/${id}`); load() }
+    catch (err) { setError(err.message) }
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <p className="text-zinc-500 text-sm">{tarefas.length} tarefa{tarefas.length !== 1 ? 's' : ''}</p>
+        <button onClick={openNew} className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-blue-500/20">
+          + Nova tarefa
+        </button>
+      </div>
+
+      {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+
+      <div className="flex gap-3 mb-4">
+        <select value={estadoFiltro} onChange={e => setEstadoFiltro(e.target.value)}
+          className="bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors">
+          <option value="">Todos os estados</option>
+          {TAREFA_ESTADOS.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+        </select>
+      </div>
+
+      <div className="bg-zinc-900 border border-white/5 rounded-2xl overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-white/5 text-left text-zinc-500 text-xs uppercase tracking-widest">
+              <th className="px-4 py-3">Título</th>
+              <th className="px-4 py-3">Imóvel</th>
+              <th className="px-4 py-3">Responsável</th>
+              <th className="px-4 py-3">Prazo</th>
+              <th className="px-4 py-3">Estado</th>
+              <th className="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && <tr><td colSpan={6} className="px-4 py-8 text-center text-zinc-600">A carregar…</td></tr>}
+            {!loading && tarefas.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-zinc-600">Sem tarefas.</td></tr>}
+            {tarefas.map(t => (
+              <tr key={t.id} className="border-b border-white/5 hover:bg-white/3 transition-colors">
+                <td className="px-4 py-3 font-medium text-zinc-100">{t.titulo}</td>
+                <td className="px-4 py-3 text-zinc-400">{t.imovel_ref || '—'}</td>
+                <td className="px-4 py-3 text-zinc-400">{t.responsavel || '—'}</td>
+                <td className="px-4 py-3 text-zinc-400">{t.prazo || '—'}</td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${tarefaBadge[t.estado] || 'bg-zinc-700 text-zinc-400'}`}>{t.estado.replace('_', ' ')}</span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex gap-3 justify-end">
+                    <button onClick={() => openEdit(t)} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">Editar</button>
+                    <button onClick={() => handleDelete(t.id)} className="text-xs text-red-500 hover:text-red-400 transition-colors">Apagar</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {modal && (
+        <Modal title={modal === 'new' ? 'Nova tarefa' : 'Editar tarefa'} onClose={() => setModal(null)}>
+          <form onSubmit={handleSave} className="space-y-4">
+            <Field label="Título"><input required className={inputCls} value={form.titulo} onChange={e => setForm(f => ({ ...f, titulo: e.target.value }))} /></Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Imóvel (referência)"><input className={inputCls} value={form.imovel_ref} onChange={e => setForm(f => ({ ...f, imovel_ref: e.target.value }))} /></Field>
+              <Field label="Responsável"><input className={inputCls} value={form.responsavel} onChange={e => setForm(f => ({ ...f, responsavel: e.target.value }))} /></Field>
+              <Field label="Prazo"><input type="date" className={inputCls} value={form.prazo} onChange={e => setForm(f => ({ ...f, prazo: e.target.value }))} /></Field>
               <Field label="Estado">
                 <select className={selectCls} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
-                  {ESTADOS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                  {TAREFA_ESTADOS.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
                 </select>
               </Field>
             </div>
@@ -206,6 +358,83 @@ export default function Imoveis() {
           </form>
         </Modal>
       )}
+    </div>
+  )
+}
+
+function SincronizacaoTab() {
+  const [syncing, setSyncing] = useState(false)
+  const [resultado, setResultado] = useState(null)
+  const [error, setError] = useState('')
+
+  async function handleSync() {
+    setSyncing(true); setError(''); setResultado(null)
+    try { setResultado(await api.post('/api/imoveis/sync/egorealestate')) }
+    catch (err) { setError(err.message) }
+    setSyncing(false)
+  }
+
+  return (
+    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 max-w-md">
+      <h2 className="font-semibold text-white mb-1">eGO Real Estate</h2>
+      <p className="text-zinc-500 text-sm mb-4">Sincroniza o portefólio com o CRM. Corre automaticamente todos os dias; podes também disparar manualmente.</p>
+      <button onClick={handleSync} disabled={syncing}
+        className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50">
+        {syncing ? 'A sincronizar…' : 'Sincronizar agora'}
+      </button>
+
+      {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
+
+      {resultado && (
+        <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+          <div>
+            <p className="text-2xl font-bold text-emerald-400">{resultado.criados}</p>
+            <p className="text-xs text-zinc-500 uppercase tracking-wide">Criados</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-blue-400">{resultado.atualizados}</p>
+            <p className="text-xs text-zinc-500 uppercase tracking-wide">Actualizados</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold text-red-400">{resultado.erros}</p>
+            <p className="text-xs text-zinc-500 uppercase tracking-wide">Erros</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const TABS = [
+  { key: 'portfolio', label: 'Portfólio' },
+  { key: 'tarefas', label: 'Tarefas' },
+  { key: 'sync', label: 'Sincronização' },
+]
+
+export default function Imoveis() {
+  const [aba, setAba] = useState('portfolio')
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-white">Imóveis</h1>
+        <p className="text-zinc-500 text-sm mt-0.5">Portefólio, tarefas e sincronização</p>
+      </div>
+
+      <div className="flex gap-1 mb-6 border-b border-white/5">
+        {TABS.map(t => (
+          <button key={t.key} onClick={() => setAba(t.key)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              aba === t.key ? 'border-blue-500 text-white' : 'border-transparent text-zinc-500 hover:text-zinc-300'
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {aba === 'portfolio' && <PortfolioTab />}
+      {aba === 'tarefas' && <TarefasTab />}
+      {aba === 'sync' && <SincronizacaoTab />}
     </div>
   )
 }
