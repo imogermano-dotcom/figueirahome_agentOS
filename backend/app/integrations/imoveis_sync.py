@@ -173,10 +173,10 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict]]
 _TAREFA_DIVERGENCIA_PREFIX = "eGO disponibilidade divergente"
 
 
-async def _flag_divergencia_sem_ego_id(refs: list[str]) -> list[dict]:
+async def _flag_divergencia(refs: list[str], motivo: str, tipo: str) -> list[dict]:
     """Linha marcada 'Disponível' que não aparece na lista CRM-Disponível e
-    nunca foi ligada a um ego_id — sem forma directa de a localizar no CRM
-    (precisaria de pesquisa por referência), sinalizar em vez de adivinhar."""
+    que não conseguimos reler automaticamente (sem `ego_id` conhecido, ou sem
+    permissão de acesso à ficha no CRM) — sinalizar em vez de adivinhar."""
     if not refs:
         return []
 
@@ -200,7 +200,7 @@ async def _flag_divergencia_sem_ego_id(refs: list[str]) -> list[dict]:
     tarefas = [
         {
             "titulo": f"{_TAREFA_DIVERGENCIA_PREFIX} — {ref}",
-            "descricao": "Marcado 'Disponível' no Supabase mas não aparece na lista de Disponíveis do CRM, e nunca foi ligado a um ego_id para reler o estado real automaticamente. Confirmar manualmente no CRM.",
+            "descricao": f"Marcado 'Disponível' no Supabase mas não aparece na lista de Disponíveis do CRM. {motivo} Confirmar manualmente no CRM.",
             "imovel_ref": ref,
         }
         for ref in novos
@@ -210,7 +210,7 @@ async def _flag_divergencia_sem_ego_id(refs: list[str]) -> list[dict]:
         return get_supabase().table("agente_tarefas").insert(tarefas).execute()
 
     await _run(_insert)
-    return [{"imovel_ref": ref, "tipo": "divergencia_sem_ego_id", "descricao": "tarefa criada"} for ref in novos]
+    return [{"imovel_ref": ref, "tipo": tipo, "descricao": "tarefa criada"} for ref in novos]
 
 
 async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
@@ -233,6 +233,12 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
         if not crm_items:
             return 0, []
 
+        # Calculado ANTES do dedup abaixo: se uma referência duplicada tem uma
+        # cópia Disponível e outra copia noutro estado, ainda conta como
+        # Disponível para os Casos 1/3 — só a Caso 2 (update de 1 linha) é
+        # que só pode aplicar um dos dois, daí o dedup ser só para essa parte.
+        crm_disponiveis_refs = {i["imovel_ref"] for i in crm_items if i["imovel_ref"] and i["crm_disponibilidade"] == "Disponível"}
+
         # O eGO por vezes devolve a mesma Reference em 2 propriedades distintas
         # (mesmo problema já conhecido do upsert da Web API, ver sync_egorealestate)
         # — a nossa tabela só tem uma linha por imovel_ref, por isso mantemos só a
@@ -246,7 +252,6 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
             by_ref[i["imovel_ref"]] = i
         crm_items = list(by_ref.values())
         refs = list(by_ref)
-        crm_disponiveis_refs = {ref for ref, item in by_ref.items() if item["crm_disponibilidade"] == "Disponível"}
 
         def _fetch_existentes():
             return (
@@ -322,14 +327,23 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
         stale = [r for r in resp_disp.data if r["imovel_ref"] not in crm_disponiveis_refs]
 
         sem_ego_id = [r["imovel_ref"] for r in stale if not r["ego_id"]]
-        detalhes.extend(await _flag_divergencia_sem_ego_id(sem_ego_id))
+        detalhes.extend(await _flag_divergencia(
+            sem_ego_id, "Nunca foi ligado a um ego_id para reler o estado real automaticamente.", "divergencia_sem_ego_id",
+        ))
 
+        sem_acesso: list[str] = []
         corrigidos_stale = 0
         for row in stale:
             if not row["ego_id"]:
                 continue
             detail = await egorealestate_crm.fetch_detail(client, row["ego_id"])
-            if not detail or not detail.get("disponibilidade") or detail["disponibilidade"] == "Disponível":
+            if not detail or not detail.get("disponibilidade"):
+                # ego_id conhecido mas sem forma de reler o estado — pode ser
+                # permissão restrita no CRM (confirmado ao vivo: "Você não pode
+                # consultar este imóvel...") ou a ficha deixou de existir.
+                sem_acesso.append(row["imovel_ref"])
+                continue
+            if detail["disponibilidade"] == "Disponível":
                 continue
             novo_valor = detail["disponibilidade"]
 
@@ -342,6 +356,10 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
                 "imovel_ref": row["imovel_ref"], "tipo": "corrigido_crm",
                 "alteracoes": {"disponibilidade": {"de": "Disponível", "para": novo_valor}},
             })
+
+        detalhes.extend(await _flag_divergencia(
+            sem_acesso, "A ficha não pôde ser lida no CRM (permissão restrita a outro agente, ou deixou de existir).", "divergencia_sem_acesso",
+        ))
 
     total = len(updates) + len(criados) + corrigidos_stale
     return total, detalhes
