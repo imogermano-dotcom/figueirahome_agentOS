@@ -87,3 +87,11 @@ async def apagar_tarefa(tarefa_id: UUID):
         return get_supabase().table(TABLE).delete().eq("id", str(tarefa_id)).execute()
 
     await _run(_delete)
+
+
+@router.delete("/tarefas", status_code=204)
+async def apagar_todas_tarefas():
+    def _delete():
+        return get_supabase().table(TABLE).delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+
+    await _run(_delete)

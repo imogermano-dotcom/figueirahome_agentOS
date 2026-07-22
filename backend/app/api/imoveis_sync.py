@@ -36,3 +36,11 @@ async def sync_log_endpoint(limit: int = 20):
 
     resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
     return resp.data
+
+
+@router.delete("/imoveis/sync/log", status_code=204, dependencies=[Depends(require_auth)])
+async def apagar_log_sync():
+    def _delete():
+        return get_supabase().table("agente_sync_log").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+
+    await asyncio.get_event_loop().run_in_executor(None, _delete)

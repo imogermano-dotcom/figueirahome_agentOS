@@ -283,13 +283,26 @@ function TarefasTab() {
     catch (err) { setError(err.message) }
   }
 
+  async function handleDeleteAll() {
+    if (!confirm(`Apagar TODAS as ${tarefas.length} tarefas? Não pode ser desfeito.`)) return
+    try { await api.delete('/api/tarefas'); load() }
+    catch (err) { setError(err.message) }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <p className="text-zinc-500 text-sm">{tarefas.length} tarefa{tarefas.length !== 1 ? 's' : ''}</p>
-        <button onClick={openNew} className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-blue-500/20">
-          + Nova tarefa
-        </button>
+        <div className="flex gap-3">
+          {tarefas.length > 0 && (
+            <button onClick={handleDeleteAll} className="text-sm text-red-500 hover:text-red-400 transition-colors px-4 py-2">
+              Apagar todas
+            </button>
+          )}
+          <button onClick={openNew} className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-blue-500/20">
+            + Nova tarefa
+          </button>
+        </div>
       </div>
 
       {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
@@ -402,11 +415,24 @@ function SincronizacaoTab() {
     setSyncing(false)
   }
 
+  async function handleDeleteLog() {
+    if (!confirm('Apagar TODO o histórico de sincronizações? Não pode ser desfeito.')) return
+    try { await api.delete('/api/imoveis/sync/log'); await carregarLog() }
+    catch (err) { setError(err.message) }
+  }
+
   const ultima = log[0]
 
   return (
     <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 max-w-2xl">
-      <h2 className="font-semibold text-white mb-1">eGO Real Estate</h2>
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="font-semibold text-white">eGO Real Estate</h2>
+        {log.length > 0 && (
+          <button onClick={handleDeleteLog} className="text-xs text-red-500 hover:text-red-400 transition-colors">
+            Apagar histórico
+          </button>
+        )}
+      </div>
       <p className="text-zinc-500 text-sm mb-4">Sincroniza o portefólio com o CRM. Corre automaticamente todos os dias; podes também disparar manualmente.</p>
       <button onClick={handleSync} disabled={syncing}
         className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50">
