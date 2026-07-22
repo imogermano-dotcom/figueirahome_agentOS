@@ -8,6 +8,7 @@ leitura do `Authentication.min.js` do próprio backoffice:
 """
 
 import logging
+import re
 
 import httpx
 from bs4 import BeautifulSoup
@@ -91,12 +92,128 @@ async def _fetch_status(client: httpx.AsyncClient, status: int) -> list[dict]:
     return results
 
 
-async def fetch_all() -> list[dict]:
+async def fetch_all(client: httpx.AsyncClient) -> list[dict]:
     """Percorre a listagem do backoffice filtrada pelos estados com referência
-    real (ver `_STATUS_CODES`), devolve [{imovel_ref, crm_disponibilidade, ego_id}, ...]."""
+    real (ver `_STATUS_CODES`), devolve [{imovel_ref, crm_disponibilidade, ego_id}, ...].
+    `client` já deve estar autenticado (ver `_login`)."""
     results: list[dict] = []
-    async with httpx.AsyncClient(base_url=settings.egorealestate_crm_base_url, timeout=30, follow_redirects=True) as client:
-        await _login(client)
-        for status in _STATUS_CODES:
-            results.extend(await _fetch_status(client, status))
+    for status in _STATUS_CODES:
+        results.extend(await _fetch_status(client, status))
     return results
+
+
+def authenticated_client() -> httpx.AsyncClient:
+    """Sessão httpx com a base_url do backoffice — chamar `await _login(client)`
+    antes de usar. Devolvida sem login para o caller poder reutilizar a mesma
+    sessão em várias chamadas (`fetch_all` + `fetch_detail`) com 1 só login."""
+    return httpx.AsyncClient(base_url=settings.egorealestate_crm_base_url, timeout=30, follow_redirects=True)
+
+
+def _clean(s: str | None) -> str | None:
+    return s.replace("\xa0", " ").strip() if s else s
+
+
+def _parse_preco(s: str | None) -> float | None:
+    s = _clean(s)
+    digits = re.sub(r"[^\d]", "", s) if s else ""
+    return float(digits) if digits else None
+
+
+def _parse_int(s: str | None) -> int | None:
+    s = _clean(s)
+    digits = re.sub(r"[^\d]", "", s) if s else ""
+    return int(digits) if digits else None
+
+
+def _parse_area(s: str | None) -> float | None:
+    s = _clean(s)
+    m = re.search(r"[\d.,]+", s) if s else None
+    return float(m.group(0).replace(",", ".")) if m else None
+
+
+def _parse_detail(html: str, ego_id: int) -> dict | None:
+    soup = BeautifulSoup(html, "html.parser")
+
+    title_p = soup.select_one("p.listHeaderTitle")
+    ref_span = title_p.select_one("span") if title_p else None
+    if not title_p or not ref_span:
+        return None
+    imovel_ref = ref_span.get_text(strip=True)
+    titulo = title_p.get_text(strip=True).replace(imovel_ref, "").strip() or None
+
+    freguesia = concelho = None
+    subtitle = soup.select_one("p.listHeaderSubTitle")
+    if subtitle:
+        parts = [p.strip() for p in subtitle.get_text(strip=True).split(",")]
+        if len(parts) == 2:
+            freguesia, concelho = parts
+
+    venda_preco = arrendamento_preco = None
+    for section in soup.select(".listItemPricingSection"):
+        strong = section.select_one("strong")
+        if not strong:
+            continue
+        texto = section.get_text(strip=True)
+        valor = _parse_preco(strong.get_text(strip=True))
+        if texto.startswith("Venda"):
+            venda_preco = valor
+        elif texto.startswith("Arrendamento"):
+            arrendamento_preco = valor
+
+    campos: dict[str, str] = {}
+    for span in soup.select(".listItemData .listItemDataSection"):
+        strong = span.select_one("strong")
+        if not strong:
+            continue
+        valor = strong.get_text(strip=True)
+        label = span.get_text(strip=True).replace(valor, "").strip()
+        campos[label] = valor
+
+    # A descrição real e o bloco de "Características" (infraestruturas) usam
+    # ambos a classe .listItemDescription — identificar pelo título da secção
+    # anterior em vez de assumir que a descrição é sempre a primeira ocorrência.
+    descricao = None
+    for title_div in soup.select(".detailPropertyContentTitle"):
+        if "Descri" in title_div.get_text(strip=True):
+            content = title_div.find_next_sibling("div", class_="listItemDescription")
+            if content:
+                descricao = content.get_text("\n", strip=True)
+            break
+
+    fotos: list[str] = []
+    for img in soup.select("img[src*='Tphoto']"):
+        src = img.get("src")
+        if src and src not in fotos:
+            fotos.append(src)
+
+    return {
+        "imovel_ref": imovel_ref,
+        "titulo": titulo,
+        "freguesia": freguesia,
+        "concelho": concelho,
+        "venda_preco": venda_preco,
+        "arrendamento_preco": arrendamento_preco,
+        "estado": campos.get("Estado"),
+        "disponibilidade": campos.get("Disponibilidade"),
+        "quartos": _parse_int(campos.get("Quartos")),
+        "casas_banho": _parse_int(campos.get("Casas de banho")),
+        "area_util": _parse_area(campos.get("Área útil")),
+        "area_bruta": _parse_area(campos.get("Área bruta")),
+        "certificacao_energetica": campos.get("Certificação Energética"),
+        "descricao": descricao,
+        "fotos": fotos,
+        "foto_principal": fotos[0] if fotos else None,
+        "ego_id": ego_id,
+        "fonte": "egorealestate",
+    }
+
+
+async def fetch_detail(client: httpx.AsyncClient, ego_id: int) -> dict | None:
+    """Página de detalhe do backoffice (visibilidade total, qualquer estado)
+    — usada para criar linhas novas e para reler o estado real de uma linha
+    específica. `client` já deve estar autenticado (ver `_login`)."""
+    resp = await client.get(f"/egocore/realestate/{ego_id}")
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return _parse_detail(resp.text, ego_id)

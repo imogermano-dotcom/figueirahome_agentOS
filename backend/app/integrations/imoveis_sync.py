@@ -170,79 +170,181 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict]]
     return len(novos), detalhes
 
 
-async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
-    """Cruza o backoffice autenticado do eGO (visibilidade total, incl.
-    imóveis nunca publicados) com a tabela `imoveis`. Ao contrário da Web API
-    pública, aqui o valor de `disponibilidade` é conhecido com certeza, por
-    isso corrige-se directamente em vez de só sinalizar. Corrige também
-    `ego_id`/`fonte` para linhas que nunca tinham sido ligadas ao eGO."""
-    if not settings.egorealestate_crm_username or not settings.egorealestate_crm_password:
-        return 0, []
+_TAREFA_DIVERGENCIA_PREFIX = "eGO disponibilidade divergente"
 
-    crm_items = await egorealestate_crm.fetch_all()
-    if not crm_items:
-        return 0, []
 
-    # O eGO por vezes devolve a mesma Reference em 2 propriedades distintas
-    # (mesmo problema já conhecido do upsert da Web API, ver sync_egorealestate)
-    # — a nossa tabela só tem uma linha por imovel_ref, por isso mantemos só a
-    # última ocorrência em vez de aplicar as duas (evitaria oscilar a cada run).
-    by_ref: dict[str, dict] = {}
-    for i in crm_items:
-        if not i["imovel_ref"]:
-            continue
-        if i["imovel_ref"] in by_ref and by_ref[i["imovel_ref"]] != i:
-            logger.warning("imovel_ref duplicado no CRM eGO: %s (ego_id %s ignorado)", i["imovel_ref"], by_ref[i["imovel_ref"]]["ego_id"])
-        by_ref[i["imovel_ref"]] = i
-    crm_items = list(by_ref.values())
+async def _flag_divergencia_sem_ego_id(refs: list[str]) -> list[dict]:
+    """Linha marcada 'Disponível' que não aparece na lista CRM-Disponível e
+    nunca foi ligada a um ego_id — sem forma directa de a localizar no CRM
+    (precisaria de pesquisa por referência), sinalizar em vez de adivinhar."""
+    if not refs:
+        return []
 
-    refs = list(by_ref)
-
-    def _fetch_existentes():
+    def _fetch_tarefas_abertas():
         return (
             get_supabase()
-            .table("imoveis")
-            .select("imovel_ref,disponibilidade,ego_id,fonte")
+            .table("agente_tarefas")
+            .select("imovel_ref")
+            .eq("estado", "pendente")
+            .like("titulo", f"{_TAREFA_DIVERGENCIA_PREFIX}%")
             .in_("imovel_ref", refs)
             .execute()
         )
 
-    resp = await _run(_fetch_existentes)
-    existentes = {r["imovel_ref"]: r for r in resp.data}
+    resp = await _run(_fetch_tarefas_abertas)
+    ja_sinalizados = {r["imovel_ref"] for r in resp.data}
+    novos = [ref for ref in refs if ref not in ja_sinalizados]
+    if not novos:
+        return []
 
-    updates = []
-    detalhes = []
-    for item in crm_items:
-        atual = existentes.get(item["imovel_ref"])
-        if not atual:
-            continue
-        muda_disponibilidade = atual["disponibilidade"] != item["crm_disponibilidade"]
-        muda_ego_id = atual["ego_id"] is None and item["ego_id"] is not None
-        muda_fonte = atual["fonte"] in ("manual", "csv") and item["ego_id"] is not None
-        if not (muda_disponibilidade or muda_ego_id or muda_fonte):
-            continue
-        update = {"imovel_ref": item["imovel_ref"], "disponibilidade": item["crm_disponibilidade"]}
-        alteracoes = {}
-        if muda_disponibilidade:
-            alteracoes["disponibilidade"] = {"de": atual["disponibilidade"], "para": item["crm_disponibilidade"]}
-        if muda_ego_id:
-            update["ego_id"] = item["ego_id"]
-            alteracoes["ego_id"] = {"de": atual["ego_id"], "para": item["ego_id"]}
-        if muda_fonte:
-            update["fonte"] = "egorealestate"
-            alteracoes["fonte"] = {"de": atual["fonte"], "para": "egorealestate"}
-        updates.append(update)
-        detalhes.append({"imovel_ref": item["imovel_ref"], "tipo": "corrigido_crm", "alteracoes": alteracoes})
+    tarefas = [
+        {
+            "titulo": f"{_TAREFA_DIVERGENCIA_PREFIX} — {ref}",
+            "descricao": "Marcado 'Disponível' no Supabase mas não aparece na lista de Disponíveis do CRM, e nunca foi ligado a um ego_id para reler o estado real automaticamente. Confirmar manualmente no CRM.",
+            "imovel_ref": ref,
+        }
+        for ref in novos
+    ]
 
-    if not updates:
+    def _insert():
+        return get_supabase().table("agente_tarefas").insert(tarefas).execute()
+
+    await _run(_insert)
+    return [{"imovel_ref": ref, "tipo": "divergencia_sem_ego_id", "descricao": "tarefa criada"} for ref in novos]
+
+
+async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
+    """Cruza o backoffice autenticado do eGO (visibilidade total, incl.
+    imóveis nunca publicados) com a tabela `imoveis`. Ao contrário da Web API
+    pública, aqui o valor de `disponibilidade` é conhecido com certeza, por
+    isso corrige-se directamente em vez de só sinalizar. Três sub-casos:
+    1) CRM diz Disponível, sem linha local → cria linha nova (fetch_detail).
+    2) CRM diz X, linha local diz outra coisa → corrige directamente.
+    3) Linha local diz Disponível, CRM não a lista como Disponível → relê o
+       estado real via fetch_detail (se soubermos o ego_id) e corrige."""
+    if not settings.egorealestate_crm_username or not settings.egorealestate_crm_password:
         return 0, []
 
-    def _apply():
-        for u in updates:
-            get_supabase().table("imoveis").update(u).eq("imovel_ref", u["imovel_ref"]).execute()
+    detalhes: list[dict] = []
 
-    await _run(_apply)
-    return len(updates), detalhes
+    async with egorealestate_crm.authenticated_client() as client:
+        await egorealestate_crm._login(client)
+        crm_items = await egorealestate_crm.fetch_all(client)
+        if not crm_items:
+            return 0, []
+
+        # O eGO por vezes devolve a mesma Reference em 2 propriedades distintas
+        # (mesmo problema já conhecido do upsert da Web API, ver sync_egorealestate)
+        # — a nossa tabela só tem uma linha por imovel_ref, por isso mantemos só a
+        # última ocorrência em vez de aplicar as duas (evitaria oscilar a cada run).
+        by_ref: dict[str, dict] = {}
+        for i in crm_items:
+            if not i["imovel_ref"]:
+                continue
+            if i["imovel_ref"] in by_ref and by_ref[i["imovel_ref"]] != i:
+                logger.warning("imovel_ref duplicado no CRM eGO: %s (ego_id %s ignorado)", i["imovel_ref"], by_ref[i["imovel_ref"]]["ego_id"])
+            by_ref[i["imovel_ref"]] = i
+        crm_items = list(by_ref.values())
+        refs = list(by_ref)
+        crm_disponiveis_refs = {ref for ref, item in by_ref.items() if item["crm_disponibilidade"] == "Disponível"}
+
+        def _fetch_existentes():
+            return (
+                get_supabase()
+                .table("imoveis")
+                .select("imovel_ref,disponibilidade,ego_id,fonte")
+                .in_("imovel_ref", refs)
+                .execute()
+            )
+
+        resp = await _run(_fetch_existentes)
+        existentes = {r["imovel_ref"]: r for r in resp.data}
+
+        # Caso 2: linha já existe, corrigir directamente se divergir.
+        updates = []
+        for item in crm_items:
+            atual = existentes.get(item["imovel_ref"])
+            if not atual:
+                continue
+            muda_disponibilidade = atual["disponibilidade"] != item["crm_disponibilidade"]
+            muda_ego_id = atual["ego_id"] is None and item["ego_id"] is not None
+            muda_fonte = atual["fonte"] in ("manual", "csv") and item["ego_id"] is not None
+            if not (muda_disponibilidade or muda_ego_id or muda_fonte):
+                continue
+            update = {"imovel_ref": item["imovel_ref"], "disponibilidade": item["crm_disponibilidade"]}
+            alteracoes = {}
+            if muda_disponibilidade:
+                alteracoes["disponibilidade"] = {"de": atual["disponibilidade"], "para": item["crm_disponibilidade"]}
+            if muda_ego_id:
+                update["ego_id"] = item["ego_id"]
+                alteracoes["ego_id"] = {"de": atual["ego_id"], "para": item["ego_id"]}
+            if muda_fonte:
+                update["fonte"] = "egorealestate"
+                alteracoes["fonte"] = {"de": atual["fonte"], "para": "egorealestate"}
+            updates.append(update)
+            detalhes.append({"imovel_ref": item["imovel_ref"], "tipo": "corrigido_crm", "alteracoes": alteracoes})
+
+        if updates:
+            def _apply_updates():
+                for u in updates:
+                    get_supabase().table("imoveis").update(u).eq("imovel_ref", u["imovel_ref"]).execute()
+
+            await _run(_apply_updates)
+
+        # Caso 1: CRM diz Disponível, sem linha local — criar.
+        criados = []
+        for item in crm_items:
+            if item["imovel_ref"] not in crm_disponiveis_refs or existentes.get(item["imovel_ref"]) or not item["ego_id"]:
+                continue
+            detail = await egorealestate_crm.fetch_detail(client, item["ego_id"])
+            if not detail or not detail["imovel_ref"]:
+                continue
+            criados.append(detail)
+            detalhes.append({"imovel_ref": detail["imovel_ref"], "tipo": "criado_crm"})
+
+        if criados:
+            def _insert_criados():
+                return get_supabase().table("imoveis").insert(criados).execute()
+
+            await _run(_insert_criados)
+
+        # Caso 3: linha local diz Disponível mas não está na lista CRM-Disponível.
+        def _fetch_disponiveis_locais():
+            return (
+                get_supabase()
+                .table("imoveis")
+                .select("imovel_ref,ego_id")
+                .eq("disponibilidade", "Disponível")
+                .execute()
+            )
+
+        resp_disp = await _run(_fetch_disponiveis_locais)
+        stale = [r for r in resp_disp.data if r["imovel_ref"] not in crm_disponiveis_refs]
+
+        sem_ego_id = [r["imovel_ref"] for r in stale if not r["ego_id"]]
+        detalhes.extend(await _flag_divergencia_sem_ego_id(sem_ego_id))
+
+        corrigidos_stale = 0
+        for row in stale:
+            if not row["ego_id"]:
+                continue
+            detail = await egorealestate_crm.fetch_detail(client, row["ego_id"])
+            if not detail or not detail.get("disponibilidade") or detail["disponibilidade"] == "Disponível":
+                continue
+            novo_valor = detail["disponibilidade"]
+
+            def _apply_stale(ref=row["imovel_ref"], valor=novo_valor):
+                get_supabase().table("imoveis").update({"disponibilidade": valor}).eq("imovel_ref", ref).execute()
+
+            await _run(_apply_stale)
+            corrigidos_stale += 1
+            detalhes.append({
+                "imovel_ref": row["imovel_ref"], "tipo": "corrigido_crm",
+                "alteracoes": {"disponibilidade": {"de": "Disponível", "para": novo_valor}},
+            })
+
+    total = len(updates) + len(criados) + corrigidos_stale
+    return total, detalhes
 
 
 async def _log_execucao(resumo: dict, detalhes: list[dict]) -> None:
