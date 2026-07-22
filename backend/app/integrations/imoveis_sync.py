@@ -1,6 +1,6 @@
 """Upsert de imóveis vindos do eGO Real Estate para a tabela `imoveis`
-(projecto secundário Supabase). Dedup por ego_id; cursor incremental é o
-próprio max(ego_atualizado_em) já gravado — sem tabela de estado extra.
+(projecto secundário Supabase). Full-sync paginado sempre (ver nota em
+`egorealestate.py` sobre o endpoint /Latest estar avariado do lado do eGO).
 """
 
 import asyncio
@@ -76,29 +76,38 @@ async def _run(fn):
     return await asyncio.get_event_loop().run_in_executor(None, fn)
 
 
-async def _last_synced_at() -> datetime | None:
-    def _fetch():
-        return (
-            get_supabase()
-            .table("imoveis")
-            .select("ego_atualizado_em")
-            .eq("fonte", "egorealestate")
-            .order("ego_atualizado_em", desc=True)
-            .limit(1)
-            .execute()
-        )
-
-    resp = await _run(_fetch)
-    valor = resp.data[0]["ego_atualizado_em"] if resp.data else None
-    return datetime.fromisoformat(valor) if valor else None
-
-
 async def _existing_refs(refs: list[str]) -> set[str]:
     def _fetch():
         return get_supabase().table("imoveis").select("imovel_ref").in_("imovel_ref", refs).execute()
 
     resp = await _run(_fetch)
     return {r["imovel_ref"] for r in resp.data}
+
+
+async def _existing_ego_ids(disponibilidades: set[str]) -> set[int]:
+    """ego_ids que já achávamos publicados (fonte='egorealestate' com
+    disponibilidade num dos valores que a API pública realmente devolve —
+    hoje só Disponível/Vendido, mas evita hardcode). Filtra por
+    disponibilidade porque `validar_disponibilidade_crm` também marca
+    fonte='egorealestate' em imóveis Por validar/Reservado/Arrendado que a
+    API pública nunca devolve por definição — sem este filtro seriam todos
+    sinalizados como "deixaram de estar publicados" indevidamente."""
+    if not disponibilidades:
+        return set()
+
+    def _fetch():
+        return (
+            get_supabase()
+            .table("imoveis")
+            .select("ego_id")
+            .eq("fonte", "egorealestate")
+            .in_("disponibilidade", list(disponibilidades))
+            .not_.is_("ego_id", "null")
+            .execute()
+        )
+
+    resp = await _run(_fetch)
+    return {r["ego_id"] for r in resp.data}
 
 
 _TAREFA_TITULO_PREFIX = "eGO deixou de publicar"
@@ -246,33 +255,34 @@ async def _log_execucao(resumo: dict, detalhes: list[dict]) -> None:
 
 
 async def sync_egorealestate() -> dict:
+    """`/v1/Properties/Latest` (sync incremental) está avariado do lado do
+    eGO — testado ao vivo, ignora `Since` sempre. Por isso corre-se sempre
+    full-sync paginado (portefólio publicado é pequeno, ~55 imóveis)."""
     if not settings.egorealestate_api_key:
         raise RuntimeError("EGOREALESTATE_API_KEY não configurada.")
 
-    cursor = await _last_synced_at()
-    nao_publicados = 0
     detalhes: list[dict] = []
 
-    if cursor is None:
-        # Primeiro sync — sem cursor, importa o portefólio completo paginado.
-        properties: list[dict] = []
-        page = 1
-        while True:
-            batch, total = await egorealestate.get_properties_page(page, PAGE_SIZE)
-            properties.extend(batch)
-            if not batch or len(properties) >= total:
-                break
-            page += 1
-    else:
-        latest = await egorealestate.get_latest(cursor)
-        ids = [item["ID"] for item in latest if item.get("ID")]
-        properties = await egorealestate.get_properties_by_ids(ids) if ids else []
-        # /v1/Properties só devolve imóveis publicados — um ID que o Latest
-        # reportou mas que não voltou aqui foi despublicado (estado real
-        # desconhecido); sinalizar em vez de deixar o registo antigo por actualizar.
-        missing = set(ids) - {p.get("ID") for p in properties}
-        nao_publicados, det_nao_publicados = await _flag_unpublished(missing)
-        detalhes.extend(det_nao_publicados)
+    properties: list[dict] = []
+    page = 1
+    while True:
+        batch, total = await egorealestate.get_properties_page(page, PAGE_SIZE)
+        properties.extend(batch)
+        if not batch or len(properties) >= total:
+            break
+        page += 1
+
+    # Um ego_id que já conhecíamos (fonte='egorealestate') mas que não veio
+    # nesta pull completa foi despublicado — a API só devolve publicados, e
+    # sem full-sync não saberíamos se foi porque mudou de página ou porque
+    # deixou mesmo de estar publicado. Sinalizar em vez de deixar o registo
+    # antigo por actualizar.
+    seen_ids = {p.get("ID") for p in properties if p.get("ID")}
+    seen_disponibilidades = {p.get("Availability") for p in properties if p.get("Availability")}
+    existing_ego_ids = await _existing_ego_ids(seen_disponibilidades)
+    missing = existing_ego_ids - seen_ids
+    nao_publicados, det_nao_publicados = await _flag_unpublished(missing)
+    detalhes.extend(det_nao_publicados)
 
     if not properties:
         corrigidos, det_corrigidos = await validar_disponibilidade_crm()

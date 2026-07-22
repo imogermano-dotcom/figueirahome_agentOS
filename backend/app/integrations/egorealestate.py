@@ -1,10 +1,14 @@
 """Cliente fino para a Web API do eGO Real Estate (CRM da agência).
 
 Doc oficial: base http://websiteapi.egorealestate.com, auth via header
-AuthorizationToken. Ver GET /v1/Properties, /v1/Properties/Latest.
-"""
+AuthorizationToken. Ver GET /v1/Properties.
 
-from datetime import datetime
+`/v1/Properties/Latest` (sync incremental por Since) foi testado ao vivo e
+confirmado avariado do lado do eGO — ignora Since (devolve sempre só o
+imóvel mais recentemente alterado, independentemente do valor enviado,
+incl. datas no futuro). Por isso sync_egorealestate() faz sempre full-sync
+paginado via get_properties_page, sem depender de Latest.
+"""
 
 import httpx
 
@@ -16,29 +20,6 @@ def _headers() -> dict:
         "AuthorizationToken": settings.egorealestate_api_key,
         "Language": settings.egorealestate_language,
     }
-
-
-async def get_latest(since: datetime) -> list[dict]:
-    """IDs + DateAltered de propriedades alteradas desde `since` (UTC)."""
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            f"{settings.egorealestate_base_url}/v1/Properties/Latest",
-            headers=_headers(),
-            params={"Since": since.strftime("%Y-%m-%dT%H:%M:%SZ")},
-        )
-        resp.raise_for_status()
-        return resp.json().get("Properties", [])
-
-
-async def get_properties_by_ids(ids: list[int]) -> list[dict]:
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(
-            f"{settings.egorealestate_base_url}/v1/Properties",
-            headers=_headers(),
-            params={"IDS": ",".join(str(i) for i in ids)},
-        )
-        resp.raise_for_status()
-        return resp.json().get("Properties", [])
 
 
 async def get_properties_page(page: int, per_page: int = 100) -> tuple[list[dict], int]:
