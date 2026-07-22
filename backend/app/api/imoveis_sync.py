@@ -1,8 +1,10 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import require_sync_access
+from app.api.deps import require_auth, require_sync_access
+from app.db.supabase_client import get_supabase
 from app.integrations.imoveis_sync import sync_egorealestate
 
 logger = logging.getLogger(__name__)
@@ -18,3 +20,19 @@ async def sync_egorealestate_endpoint():
     except Exception:
         logger.exception("Falha no sync eGO Real Estate")
         raise HTTPException(status_code=502, detail="Falha ao sincronizar com eGO Real Estate.")
+
+
+@router.get("/imoveis/sync/log", dependencies=[Depends(require_auth)])
+async def sync_log_endpoint(limit: int = 20):
+    def _fetch():
+        return (
+            get_supabase()
+            .table("agente_sync_log")
+            .select("*")
+            .order("executado_em", desc=True)
+            .limit(limit)
+            .execute()
+        )
+
+    resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    return resp.data

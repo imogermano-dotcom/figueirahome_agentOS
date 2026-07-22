@@ -366,20 +366,46 @@ function TarefasTab() {
   )
 }
 
+function formatDataHora(iso) {
+  return new Date(iso).toLocaleString('pt-PT', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+function descreverAlteracao(item) {
+  if (item.tipo === 'criado') return `${item.imovel_ref} — criado (via eGO)`
+  if (item.tipo === 'atualizado') return `${item.imovel_ref} — actualizado (via eGO)`
+  if (item.tipo === 'nao_publicado') return `${item.imovel_ref} — deixou de estar publicado, tarefa criada`
+  if (item.tipo === 'corrigido_crm') {
+    const campos = Object.entries(item.alteracoes || {})
+      .map(([campo, { de, para }]) => `${campo}: ${de ?? '—'} → ${para}`)
+      .join(', ')
+    return `${item.imovel_ref} — ${campos} (corrigido via CRM)`
+  }
+  return `${item.imovel_ref} — ${item.tipo}`
+}
+
 function SincronizacaoTab() {
   const [syncing, setSyncing] = useState(false)
-  const [resultado, setResultado] = useState(null)
+  const [log, setLog] = useState([])
   const [error, setError] = useState('')
 
+  async function carregarLog() {
+    try { setLog(await api.get('/api/imoveis/sync/log?limit=20')) }
+    catch (err) { setError(err.message) }
+  }
+
+  useEffect(() => { carregarLog() }, [])
+
   async function handleSync() {
-    setSyncing(true); setError(''); setResultado(null)
-    try { setResultado(await api.post('/api/imoveis/sync/egorealestate')) }
+    setSyncing(true); setError('')
+    try { await api.post('/api/imoveis/sync/egorealestate'); await carregarLog() }
     catch (err) { setError(err.message) }
     setSyncing(false)
   }
 
+  const ultima = log[0]
+
   return (
-    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 max-w-md">
+    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 max-w-2xl">
       <h2 className="font-semibold text-white mb-1">eGO Real Estate</h2>
       <p className="text-zinc-500 text-sm mb-4">Sincroniza o portefólio com o CRM. Corre automaticamente todos os dias; podes também disparar manualmente.</p>
       <button onClick={handleSync} disabled={syncing}
@@ -389,31 +415,51 @@ function SincronizacaoTab() {
 
       {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
 
-      {resultado && (
+      {ultima && (
         <>
-          <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+          <p className="text-zinc-500 text-xs mt-5 mb-2">Última execução: {formatDataHora(ultima.executado_em)}</p>
+          <div className="grid grid-cols-5 gap-3 text-center">
             <div>
-              <p className="text-2xl font-bold text-emerald-400">{resultado.criados}</p>
+              <p className="text-2xl font-bold text-emerald-400">{ultima.resumo.criados}</p>
               <p className="text-xs text-zinc-500 uppercase tracking-wide">Criados</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-blue-400">{resultado.atualizados}</p>
+              <p className="text-2xl font-bold text-blue-400">{ultima.resumo.atualizados}</p>
               <p className="text-xs text-zinc-500 uppercase tracking-wide">Actualizados</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-red-400">{resultado.erros}</p>
+              <p className="text-2xl font-bold text-teal-400">{ultima.resumo.corrigidos}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide">Corrigidos</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-amber-400">{ultima.resumo.nao_publicados}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide">Não publicados</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-red-400">{ultima.resumo.erros}</p>
               <p className="text-xs text-zinc-500 uppercase tracking-wide">Erros</p>
             </div>
           </div>
-          {resultado.corrigidos > 0 && (
-            <p className="text-emerald-400 text-xs mt-4">
-              {resultado.corrigidos} imóvel(is) corrigidos via CRM eGO (disponibilidade real confirmada no backoffice).
-            </p>
+
+          {ultima.detalhes?.length > 0 && (
+            <div className="mt-4 max-h-64 overflow-y-auto bg-zinc-950/50 rounded-lg p-3 space-y-1">
+              {ultima.detalhes.map((item, i) => (
+                <p key={i} className="text-xs text-zinc-400">{descreverAlteracao(item)}</p>
+              ))}
+            </div>
           )}
-          {resultado.nao_publicados > 0 && (
-            <p className="text-amber-400 text-xs mt-4">
-              {resultado.nao_publicados} imóvel(is) deixaram de estar publicados no eGO — tarefa criada para confirmar o estado real no CRM.
-            </p>
+
+          {log.length > 1 && (
+            <div className="mt-6">
+              <p className="text-zinc-500 text-xs uppercase tracking-wide mb-2">Execuções anteriores</p>
+              <div className="space-y-1">
+                {log.slice(1).map(exec => (
+                  <p key={exec.id} className="text-xs text-zinc-500">
+                    {formatDataHora(exec.executado_em)} — {exec.resumo.criados} criados, {exec.resumo.atualizados} actualizados, {exec.resumo.corrigidos} corrigidos, {exec.resumo.nao_publicados} não publicados, {exec.resumo.erros} erros
+                  </p>
+                ))}
+              </div>
+            </div>
           )}
         </>
       )}

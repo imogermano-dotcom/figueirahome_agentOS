@@ -104,14 +104,14 @@ async def _existing_refs(refs: list[str]) -> set[str]:
 _TAREFA_TITULO_PREFIX = "eGO deixou de publicar"
 
 
-async def _flag_unpublished(missing_ego_ids: set[int]) -> int:
+async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict]]:
     """`/v1/Properties/Latest` reporta o ID como alterado, mas `/v1/Properties`
     já não o devolve — a API só devolve imóveis publicados. Não sabemos qual o
     estado real (Por validar / Retirado / Em Prospecção), por isso não
     adivinhamos `disponibilidade`: criamos uma tarefa para o corretor confirmar
     no CRM, uma vez por imóvel."""
     if not missing_ego_ids:
-        return 0
+        return 0, []
 
     def _fetch_rows():
         return (
@@ -125,7 +125,7 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> int:
     resp = await _run(_fetch_rows)
     refs = [r["imovel_ref"] for r in resp.data if r["imovel_ref"]]
     if not refs:
-        return 0
+        return 0, []
 
     def _fetch_tarefas_abertas():
         return (
@@ -142,7 +142,7 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> int:
     ja_sinalizados = {r["imovel_ref"] for r in resp2.data}
     novos = [ref for ref in refs if ref not in ja_sinalizados]
     if not novos:
-        return 0
+        return 0, []
 
     tarefas = [
         {
@@ -157,21 +157,22 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> int:
         return get_supabase().table("agente_tarefas").insert(tarefas).execute()
 
     await _run(_insert)
-    return len(novos)
+    detalhes = [{"imovel_ref": ref, "tipo": "nao_publicado", "descricao": "deixou de estar publicado no eGO, tarefa criada"} for ref in novos]
+    return len(novos), detalhes
 
 
-async def validar_disponibilidade_crm() -> int:
+async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
     """Cruza o backoffice autenticado do eGO (visibilidade total, incl.
     imóveis nunca publicados) com a tabela `imoveis`. Ao contrário da Web API
     pública, aqui o valor de `disponibilidade` é conhecido com certeza, por
     isso corrige-se directamente em vez de só sinalizar. Corrige também
     `ego_id`/`fonte` para linhas que nunca tinham sido ligadas ao eGO."""
     if not settings.egorealestate_crm_username or not settings.egorealestate_crm_password:
-        return 0
+        return 0, []
 
     crm_items = await egorealestate_crm.fetch_all()
     if not crm_items:
-        return 0
+        return 0, []
 
     # O eGO por vezes devolve a mesma Reference em 2 propriedades distintas
     # (mesmo problema já conhecido do upsert da Web API, ver sync_egorealestate)
@@ -201,6 +202,7 @@ async def validar_disponibilidade_crm() -> int:
     existentes = {r["imovel_ref"]: r for r in resp.data}
 
     updates = []
+    detalhes = []
     for item in crm_items:
         atual = existentes.get(item["imovel_ref"])
         if not atual:
@@ -211,21 +213,36 @@ async def validar_disponibilidade_crm() -> int:
         if not (muda_disponibilidade or muda_ego_id or muda_fonte):
             continue
         update = {"imovel_ref": item["imovel_ref"], "disponibilidade": item["crm_disponibilidade"]}
+        alteracoes = {}
+        if muda_disponibilidade:
+            alteracoes["disponibilidade"] = {"de": atual["disponibilidade"], "para": item["crm_disponibilidade"]}
         if muda_ego_id:
             update["ego_id"] = item["ego_id"]
+            alteracoes["ego_id"] = {"de": atual["ego_id"], "para": item["ego_id"]}
         if muda_fonte:
             update["fonte"] = "egorealestate"
+            alteracoes["fonte"] = {"de": atual["fonte"], "para": "egorealestate"}
         updates.append(update)
+        detalhes.append({"imovel_ref": item["imovel_ref"], "tipo": "corrigido_crm", "alteracoes": alteracoes})
 
     if not updates:
-        return 0
+        return 0, []
 
     def _apply():
         for u in updates:
             get_supabase().table("imoveis").update(u).eq("imovel_ref", u["imovel_ref"]).execute()
 
     await _run(_apply)
-    return len(updates)
+    return len(updates), detalhes
+
+
+async def _log_execucao(resumo: dict, detalhes: list[dict]) -> None:
+    def _insert():
+        return get_supabase().table("agente_sync_log").insert({
+            "tipo": "egorealestate", "resumo": resumo, "detalhes": detalhes,
+        }).execute()
+
+    await _run(_insert)
 
 
 async def sync_egorealestate() -> dict:
@@ -234,6 +251,7 @@ async def sync_egorealestate() -> dict:
 
     cursor = await _last_synced_at()
     nao_publicados = 0
+    detalhes: list[dict] = []
 
     if cursor is None:
         # Primeiro sync — sem cursor, importa o portefólio completo paginado.
@@ -253,11 +271,15 @@ async def sync_egorealestate() -> dict:
         # reportou mas que não voltou aqui foi despublicado (estado real
         # desconhecido); sinalizar em vez de deixar o registo antigo por actualizar.
         missing = set(ids) - {p.get("ID") for p in properties}
-        nao_publicados = await _flag_unpublished(missing)
+        nao_publicados, det_nao_publicados = await _flag_unpublished(missing)
+        detalhes.extend(det_nao_publicados)
 
     if not properties:
-        corrigidos = await validar_disponibilidade_crm()
-        return {"criados": 0, "atualizados": 0, "erros": 0, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
+        corrigidos, det_corrigidos = await validar_disponibilidade_crm()
+        detalhes.extend(det_corrigidos)
+        resumo = {"criados": 0, "atualizados": 0, "erros": 0, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
+        await _log_execucao(resumo, detalhes)
+        return resumo
 
     now_iso = datetime.now(timezone.utc).isoformat()
     records = []
@@ -296,5 +318,13 @@ async def sync_egorealestate() -> dict:
 
     criados = sum(1 for r in records if r["imovel_ref"] not in existentes)
     atualizados = len(records) - criados
-    corrigidos = await validar_disponibilidade_crm()
-    return {"criados": criados, "atualizados": atualizados, "erros": erros, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
+    detalhes.extend(
+        {"imovel_ref": r["imovel_ref"], "tipo": "criado" if r["imovel_ref"] not in existentes else "atualizado"}
+        for r in records
+    )
+    corrigidos, det_corrigidos = await validar_disponibilidade_crm()
+    detalhes.extend(det_corrigidos)
+
+    resumo = {"criados": criados, "atualizados": atualizados, "erros": erros, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
+    await _log_execucao(resumo, detalhes)
+    return resumo
