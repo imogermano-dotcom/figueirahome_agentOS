@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     egorealestate_language: str = "PT-PT"
     egorealestate_sync_secret: str = ""  # header X-Sync-Secret, usado pelo cron (GitHub Actions)
 
+    # eGO Real Estate — CRM backoffice autenticado (validação de disponibilidade,
+    # cobre imóveis nunca publicados que a Web API pública não vê)
+    egorealestate_crm_username: str = ""
+    egorealestate_crm_password: str = ""
+    egorealestate_crm_base_url: str = "https://admin.egorealestate.com"
+
     # OpenAI
     openai_api_key: str = ""
 

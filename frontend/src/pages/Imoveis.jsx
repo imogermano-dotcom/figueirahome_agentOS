@@ -390,20 +390,32 @@ function SincronizacaoTab() {
       {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
 
       {resultado && (
-        <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-          <div>
-            <p className="text-2xl font-bold text-emerald-400">{resultado.criados}</p>
-            <p className="text-xs text-zinc-500 uppercase tracking-wide">Criados</p>
+        <>
+          <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p className="text-2xl font-bold text-emerald-400">{resultado.criados}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide">Criados</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-blue-400">{resultado.atualizados}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide">Actualizados</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-red-400">{resultado.erros}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide">Erros</p>
+            </div>
           </div>
-          <div>
-            <p className="text-2xl font-bold text-blue-400">{resultado.atualizados}</p>
-            <p className="text-xs text-zinc-500 uppercase tracking-wide">Actualizados</p>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-red-400">{resultado.erros}</p>
-            <p className="text-xs text-zinc-500 uppercase tracking-wide">Erros</p>
-          </div>
-        </div>
+          {resultado.corrigidos > 0 && (
+            <p className="text-emerald-400 text-xs mt-4">
+              {resultado.corrigidos} imóvel(is) corrigidos via CRM eGO (disponibilidade real confirmada no backoffice).
+            </p>
+          )}
+          {resultado.nao_publicados > 0 && (
+            <p className="text-amber-400 text-xs mt-4">
+              {resultado.nao_publicados} imóvel(is) deixaram de estar publicados no eGO — tarefa criada para confirmar o estado real no CRM.
+            </p>
+          )}
+        </>
       )}
     </div>
   )

@@ -92,12 +92,13 @@ Projecto original (`supabase_url/key`): só Auth (10 contas) + tabelas antigas c
 | Credenciais Telnyx (3 vars) | ❌ bloqueia chamadas de voz |
 | Número PT +351 Telnyx | ❌ requer regulatory requirement group |
 | Número WhatsApp do corretor | ❌ bloqueia `escalar_para_broker` |
+| Credenciais CRM eGO (`EGOREALESTATE_CRM_*`) | ❌ bloqueia Fase F (validação automática de `disponibilidade`) — código pronto, falta colar no `.env`/Fly secrets |
 
 ### Próximos passos
 
 1. **Reformulação Agentes + Dashboard** — era o pedido original antes de imóveis ter aberto esta sessão inteira; ainda por planear
 2. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor
-3. **eGO — imóveis não-publicados** — só via CRM scraping autenticado (adiado nesta sessão), ou confirmar com a agência se há forma de a API devolver rascunhos
+3. **Fase F — validação automática via CRM eGO** — código feito (`egorealestate_crm.py` + `imoveis_sync.py::validar_disponibilidade_crm`, corre dentro do sync existente), falta só credenciais reais + teste local + deploy (secrets Fly + GitHub, mesmo padrão da API key)
 4. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io
 
 ---

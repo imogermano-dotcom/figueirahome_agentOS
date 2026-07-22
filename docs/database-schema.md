@@ -125,6 +125,9 @@ create table imoveis (
   data_alteracao        date
 );
 create unique index idx_imoveis_ego_id on imoveis(ego_id);  -- integridade (Postgres permite múltiplos NULL); sync eGO faz upsert por imovel_ref, não por este
+-- `disponibilidade` tem 2 fontes: Web API pública do eGO (só publicados, `imoveis_sync.py::sync_egorealestate`)
+-- e o backoffice autenticado (visibilidade total, incl. nunca-publicados; `imoveis_sync.py::validar_disponibilidade_crm`,
+-- via `egorealestate_crm.py` — scraping de sessão, credenciais EGOREALESTATE_CRM_*). O backoffice é autoritativo.
 create index idx_imoveis_fonte on imoveis(fonte);
 create index idx_imoveis_disponibilidade on imoveis(disponibilidade);
 

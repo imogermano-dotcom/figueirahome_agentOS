@@ -28,3 +28,7 @@ supabase/.temp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Ferramentas locais
+.wrangler/
+backend/.playwright-cli/
