@@ -338,9 +338,13 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
                 continue
             detail = await egorealestate_crm.fetch_detail(client, row["ego_id"])
             if not detail or not detail.get("disponibilidade"):
-                # ego_id conhecido mas sem forma de reler o estado — pode ser
-                # permissão restrita no CRM (confirmado ao vivo: "Você não pode
-                # consultar este imóvel...") ou a ficha deixou de existir.
+                # ego_id conhecido mas devolve "Você não pode consultar este
+                # imóvel..." — confirmado ao vivo (caso FH2491F) que a causa
+                # mais comum é o ego_id estar desactualizado (imóvel recriado
+                # no eGO com novo ID), não permissão real: o mesmo utilizador
+                # via browser conseguia ver a ficha com o ID correcto. Não há
+                # forma automática de descobrir o novo ID sem pesquisa por
+                # referência (fora de âmbito por agora) — sinalizar.
                 sem_acesso.append(row["imovel_ref"])
                 continue
             if detail["disponibilidade"] == "Disponível":
@@ -358,7 +362,9 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
             })
 
         detalhes.extend(await _flag_divergencia(
-            sem_acesso, "A ficha não pôde ser lida no CRM (permissão restrita a outro agente, ou deixou de existir).", "divergencia_sem_acesso",
+            sem_acesso,
+            "O ego_id guardado já não dá acesso à ficha no CRM — provavelmente desactualizado (imóvel recriado com novo ID no eGO), possivelmente também permissão restrita a outro agente. Confirmar a referência real no CRM e actualizar o ego_id manualmente se necessário.",
+            "divergencia_sem_acesso",
         ))
 
     total = len(updates) + len(criados) + corrigidos_stale
