@@ -52,38 +52,39 @@ frontend/src/
 
 ---
 
-## Estado actual — Handoff 2026-07-21
+## Estado actual — Handoff 2026-07-22
 
 ### Produção
 
 | Componente | URL | Estado |
 |---|---|---|
-| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado, secrets eGO postos (`EGOREALESTATE_API_KEY`/`SYNC_SECRET`) |
-| Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push, portal de imóveis live |
-| WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional, sem alterações nesta sessão |
-| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ testado manualmente (`workflow_dispatch`), GitHub Secret posto |
-| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed (último: `e0c4657`) |
+| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado, secrets eGO API + CRM postos |
+| Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
+| WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
+| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário + `workflow_dispatch` manual |
+| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed (último: `d7b3d56`) |
 
-### Implementado (sessão 2026-07-21 — reformulação imóveis, fases A–E)
+### Base de dados unificada (fases A–D2)
 
-- **Base de dados unificada**: todas as tabelas (`imoveis`, `agente_clientes`, `agente_leads`, `agente_chamadas`, `agente_conversas`, `agente_config`, `agente_tarefas`) vivem agora no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`, settings `supabase_imoveis_*`). O projecto original (`supabase_url/key`) fica **só como Auth** (10 contas reais de corretores — não dá pra migrar hashes de password via API) e como backup frio dos dados antigos. `get_supabase()` = dados (unificado); `get_supabase_auth()` = só valida login. Migrations `0004`, `0005` (obsoleta, ver nota no ficheiro), `0006`.
-- **Tabela `imoveis` real** (não a aspiracional dos docs antigos): `imovel_ref` é a chave (sem uuid `id`), ~48 colunas incl. `ego_id`/`ego_atualizado_em`/`fotos`/`portais` já vindas de um import anterior do eGO. Só faltava `fonte` (migration `0004`).
-- **Sync eGO Real Estate** — `backend/app/integrations/egorealestate.py` (cliente REST) + `imoveis_sync.py` (upsert por `imovel_ref`, cursor incremental = `max(ego_atualizado_em)`). Endpoint `POST /api/imoveis/sync/egorealestate` (JWT ou `X-Sync-Secret`). Cron diário `.github/workflows/sync-imoveis.yml`. **Validado em produção real** — mapeamento acertado contra a API viva (`BusinessName` vem em PT: "Venda"/"Arrendamento"; `Rooms`/`Floor` usam sentinela `INT32_MIN` p/ vazio; upsert por `imovel_ref`, não `ego_id`, por ser a PK real; dedup defensivo p/ referências duplicadas que o próprio eGO devolve).
-- **Web scraper — SKIPPED conscientemente**: `figueirahome.com` é gerado pela própria eGO (redundante); `figueirahome.pt` real ainda não existe e vai ser alimentado pela nossa BD, não o contrário; Idealista/Imovirtual já syndicados via eGO. Necessidade real (imóveis não-publicados) exige CRM scraping autenticado — adiado, precisa de credenciais.
-- **Tarefas** (`agente_tarefas`) — entidade genérica, CRUD em `backend/app/api/tarefas.py`, campo `imovel_ref` opcional (sem FK cross-projecto).
-- **Portal `/imoveis`** — passou de listagem CRUD a 3 abas: Portfólio (campos reais), Tarefas, Sincronização (botão manual + resultado do último sync). Dashboard ganhou card "Tarefas pendentes".
+Todas as tabelas (`imoveis`, `agente_clientes`, `agente_leads`, `agente_chamadas`, `agente_conversas`, `agente_config`, `agente_tarefas`, `agente_sync_log`) vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`, settings `supabase_imoveis_*`). Projecto original (`supabase_url/key`) fica **só Auth** (contas reais dos corretores) + backup frio. `get_supabase()` = dados; `get_supabase_auth()` = só valida login.
 
-### Tabelas activas
+### Sincronismo eGO (fases B, F, G — objectivo: `imoveis` = espelho fiel do CRM para o estado "Disponível")
 
-Projecto unificado (`supabase_imoveis_*`): `imoveis`, `agente_clientes`, `agente_leads`, `agente_chamadas`, `agente_conversas`, `agente_config`, `agente_tarefas`.
-Projecto original (`supabase_url/key`): só Auth (10 contas) + tabelas antigas como backup frio, não usadas pelo backend.
+Duas fontes eGO combinadas em `backend/app/integrations/imoveis_sync.py::sync_egorealestate()`:
+1. **Web API pública** (`egorealestate.py`) — só imóveis publicados. `/v1/Properties/Latest?Since=` está **avariado do lado do eGO** (ignora `Since`, devolve sempre 1 imóvel) — por isso o sync faz sempre **full pull paginado** via `get_properties_page` (portefólio pequeno, ~55 imóveis, barato). `get_latest`/`get_properties_by_ids` removidos (mortos).
+2. **CRM backoffice autenticado** (`egorealestate_crm.py`, login + scraping HTML server-rendered) — única fonte com visibilidade total, incl. não-publicados. `validar_disponibilidade_crm()` faz 3 correcções: (1) cria linha nova para ref "Disponível" no CRM sem correspondência local (via `fetch_detail`); (2) corrige `disponibilidade`/`ego_id`/`fonte` de linhas existentes desalinhadas; (3) para linha local "Disponível" que já não está na lista CRM-Disponível, relê o `ego_id` guardado — se o CRM devolver o estado real, actualiza; se o `ego_id` já não der acesso à ficha (mensagem "Você não pode consultar este imóvel"), **a causa mais provável é `ego_id` desactualizado** (imóvel recriado no eGO com novo ID), não permissão — cria tarefa `"eGO disponibilidade divergente"` a pedir confirmação manual da referência (comprovado ao vivo com FH2491F: browser do utilizador via a ficha com um `ego_id` diferente do guardado).
+
+Histórico persistente: tabela `agente_sync_log` (migration `0007`), `GET/DELETE /api/imoveis/sync/log`, UI em `Imoveis.jsx::SincronizacaoTab` mostra última execução + diffs + histórico. `DELETE /api/tarefas` e `DELETE /api/imoveis/sync/log` para limpar em massa (confirmação antes).
+
+### Web scraper de portais — SKIPPED conscientemente
+
+`figueirahome.com` é gerado pela própria eGO; `figueirahome.pt` real (site separado, fora deste repo) ainda vai **ler do Supabase**, não o contrário; Idealista/Imovirtual já syndicados via eGO. O scraping que fazia falta (CRM autenticado) já está feito nas fases F/G acima.
 
 ### Ambiente local
 
 - Python: `C:\Users\joaoa\AppData\Local\Programs\Python\Python312\python.exe`
-- fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app figueirahome-agentos` (a partir de `backend/`) — **sem sessão activa nesta máquina, precisa `flyctl auth login` antes de correr secrets/deploy**
-- Backend `localhost:8000` / Frontend `localhost:5173` — ambos testados e a funcionar nesta sessão
-- `backend/.env` — Supabase (ambos os projectos) ✅, Anthropic ✅, OpenAI ✅, eGO Real Estate ✅ (key colada pelo utilizador), Telnyx ❌, Meta ❌
+- fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app figueirahome-agentos` (a partir de `backend/`)
+- `backend/.env` — Supabase (ambos) ✅, Anthropic ✅, OpenAI ✅, eGO API + CRM ✅, Telnyx ❌, Meta ❌
 
 ### Bloqueadores activos
 
@@ -92,14 +93,15 @@ Projecto original (`supabase_url/key`): só Auth (10 contas) + tabelas antigas c
 | Credenciais Telnyx (3 vars) | ❌ bloqueia chamadas de voz |
 | Número PT +351 Telnyx | ❌ requer regulatory requirement group |
 | Número WhatsApp do corretor | ❌ bloqueia `escalar_para_broker` |
-| Credenciais CRM eGO (`EGOREALESTATE_CRM_*`) | ❌ bloqueia Fase F (validação automática de `disponibilidade`) — código pronto, falta colar no `.env`/Fly secrets |
+| 6 refs com `ego_id` stale (FH2491T/R/K/J/AB, FH2479C) | ⚠️ tarefas pendentes em "eGO disponibilidade divergente" — precisam da referência/ID correcto confirmado manualmente pelo utilizador, sem forma automática de descobrir |
+| ~3459 linhas `fonte='manual'`/`Em Prospecção` de origem desconhecida | ⚠️ investigação parada a pedido do utilizador — não mexer sem ser pedido de novo |
 
 ### Próximos passos
 
-1. **Reformulação Agentes + Dashboard** — era o pedido original antes de imóveis ter aberto esta sessão inteira; ainda por planear
+1. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear
 2. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor
-3. **Fase F — validação automática via CRM eGO** — código feito (`egorealestate_crm.py` + `imoveis_sync.py::validar_disponibilidade_crm`, corre dentro do sync existente), falta só credenciais reais + teste local + deploy (secrets Fly + GitHub, mesmo padrão da API key)
-4. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io
+3. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io
+4. Resolver as 6 refs `ego_id` stale (tarefas pendentes) quando o utilizador tiver tempo de confirmar cada uma no CRM
 
 ---
 
@@ -116,6 +118,9 @@ Projecto original (`supabase_url/key`): só Auth (10 contas) + tabelas antigas c
 - **TTS** via `speak()` REST, não via WebSocket; **µ-law decode** manual (sem `audioop`, removido no Python 3.13)
 - **Extracção de dados voz**: só no hangup (Claude tool use sobre transcrição completa)
 - **CORS**: `frontend_url` + regex `*.figueirahome-agentos.pages.dev` para preview deploys
+- **Sync eGO sempre full, nunca incremental**: `/v1/Properties/Latest?Since=` confirmado avariado (ignora `Since`, devolve sempre 1 imóvel) — não tentar reintroduzir cursor incremental nesta API sem reconfirmar que o eGO corrigiu o bug.
+- **CRM backoffice como fonte de verdade de `disponibilidade`**: Web API pública só vê publicados; o CRM autenticado (`egorealestate_crm.py`) é a única fonte com visibilidade total, usado para criar/corrigir linhas fora do alcance da API pública.
+- **"Sem acesso" no CRM ≠ permissão negada por defeito**: uma ficha que devolve "Você não pode consultar este imóvel" é, mais frequentemente, um `ego_id` desactualizado (imóvel recriado com novo ID) do que uma restrição real de permissão — confirmar com o utilizador antes de assumir a causa.
 
 ## Bugs conhecidos
 
