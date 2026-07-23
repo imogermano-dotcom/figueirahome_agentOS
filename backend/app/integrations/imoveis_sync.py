@@ -69,6 +69,7 @@ def _map_property(p: dict) -> dict:
         "fotos": [img["Thumbnail"] for img in (p.get("Images") or []) if img.get("Thumbnail")],
         "ego_atualizado_em": _utc_iso(p.get("LastModified")),
         "fonte": "egorealestate",
+        "disponivel_na_api": True,
     }
 
 
@@ -118,7 +119,10 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict]]
     já não o devolve — a API só devolve imóveis publicados. Não sabemos qual o
     estado real (Por validar / Retirado / Em Prospecção), por isso não
     adivinhamos `disponibilidade`: criamos uma tarefa para o corretor confirmar
-    no CRM, uma vez por imóvel."""
+    no CRM, uma vez por imóvel. Marcamos sempre `disponivel_na_api=False`
+    (independente de já existir tarefa) — é o único facto certo desta pull, e
+    a coluna `publicado` (generated) depende dele para não ficar `true`
+    indevidamente enquanto `disponibilidade` ainda não foi corrigida pelo CRM."""
     if not missing_ego_ids:
         return 0, []
 
@@ -135,6 +139,11 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict]]
     refs = [r["imovel_ref"] for r in resp.data if r["imovel_ref"]]
     if not refs:
         return 0, []
+
+    def _marcar_nao_visto():
+        return get_supabase().table("imoveis").update({"disponivel_na_api": False}).in_("imovel_ref", refs).execute()
+
+    await _run(_marcar_nao_visto)
 
     def _fetch_tarefas_abertas():
         return (

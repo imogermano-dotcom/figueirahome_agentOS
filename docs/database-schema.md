@@ -122,14 +122,27 @@ create table imoveis (
   ego_id                bigint,      -- ID da propriedade no eGO Real Estate (null = nunca sincronizado)
   ego_atualizado_em     timestamptz,
   data_criacao          date,
-  data_alteracao        date
+  data_alteracao        date,
+  disponivel_na_api     boolean not null default true,  -- Migration 0008: true se a última pull completa da Web
+                                                          -- API pública ainda devolveu este imovel_ref. Mantido pela
+                                                          -- app (`_flag_unpublished`), não generated — é o único
+                                                          -- facto certo a cada pull; `disponibilidade` pode ficar
+                                                          -- stale ("Disponível") até o CRM corrigir, esta coluna não.
+  publicado             boolean generated always as (   -- Migration 0008: critério real p/ aparecer no site,
+    disponibilidade = 'Disponível'                       -- cumulativo. GENERATED = Postgres recalcula sempre,
+    and length(trim(imovel_ref)) > 0                      -- nunca fica dessincronizado do resto da linha.
+    and coalesce(venda_preco, arrendamento_preco, 0) > 0
+    and disponivel_na_api
+  ) stored
 );
 create unique index idx_imoveis_ego_id on imoveis(ego_id);  -- integridade (Postgres permite múltiplos NULL); sync eGO faz upsert por imovel_ref, não por este
--- `disponibilidade` tem 2 fontes: Web API pública do eGO (só publicados, `imoveis_sync.py::sync_egorealestate`)
+-- `disponibilidade` tem 2 fontes: Web API pública do eGO (só publicados, `imoveis_sync.py::sync_egorealestate_api`)
 -- e o backoffice autenticado (visibilidade total, incl. nunca-publicados; `imoveis_sync.py::validar_disponibilidade_crm`,
 -- via `egorealestate_crm.py` — scraping de sessão, credenciais EGOREALESTATE_CRM_*). O backoffice é autoritativo.
 create index idx_imoveis_fonte on imoveis(fonte);
 create index idx_imoveis_disponibilidade on imoveis(disponibilidade);
+create index idx_imoveis_publicado on imoveis(publicado);
+create index idx_imoveis_publicado on imoveis(publicado);
 
 -- ──────────────────────────────────────────────
 -- LEADS
