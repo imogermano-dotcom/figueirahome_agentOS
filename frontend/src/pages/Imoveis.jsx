@@ -397,7 +397,7 @@ function descreverAlteracao(item) {
 }
 
 function SincronizacaoTab() {
-  const [syncing, setSyncing] = useState(false)
+  const [syncing, setSyncing] = useState(null)
   const [log, setLog] = useState([])
   const [error, setError] = useState('')
 
@@ -408,11 +408,11 @@ function SincronizacaoTab() {
 
   useEffect(() => { carregarLog() }, [])
 
-  async function handleSync() {
-    setSyncing(true); setError('')
-    try { await api.post('/api/imoveis/sync/egorealestate'); await carregarLog() }
+  async function handleSync(acao) {
+    setSyncing(acao); setError('')
+    try { await api.post(`/api/imoveis/sync/egorealestate/${acao}`); await carregarLog() }
     catch (err) { setError(err.message) }
-    setSyncing(false)
+    setSyncing(null)
   }
 
   async function handleDeleteLog() {
@@ -433,11 +433,17 @@ function SincronizacaoTab() {
           </button>
         )}
       </div>
-      <p className="text-zinc-500 text-sm mb-4">Sincroniza o portefólio com o CRM. Corre automaticamente todos os dias; podes também disparar manualmente.</p>
-      <button onClick={handleSync} disabled={syncing}
-        className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50">
-        {syncing ? 'A sincronizar…' : 'Sincronizar agora'}
-      </button>
+      <p className="text-zinc-500 text-sm mb-4">Sincroniza o portefólio com o eGO. Corre automaticamente todos os dias (API + CRM); podes também disparar cada acção manualmente.</p>
+      <div className="flex gap-3">
+        <button onClick={() => handleSync('api')} disabled={syncing !== null}
+          className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50">
+          {syncing === 'api' ? 'A sincronizar…' : 'Sincronizar API'}
+        </button>
+        <button onClick={() => handleSync('crm')} disabled={syncing !== null}
+          className="bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-500 hover:to-teal-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-teal-500/20 disabled:opacity-50">
+          {syncing === 'crm' ? 'A validar…' : 'Validar CRM'}
+        </button>
+      </div>
 
       {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
 

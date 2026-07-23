@@ -6,7 +6,7 @@ AuthorizationToken. Ver GET /v1/Properties.
 `/v1/Properties/Latest` (sync incremental por Since) foi testado ao vivo e
 confirmado avariado do lado do eGO — ignora Since (devolve sempre só o
 imóvel mais recentemente alterado, independentemente do valor enviado,
-incl. datas no futuro). Por isso sync_egorealestate() faz sempre full-sync
+incl. datas no futuro). Por isso sync_egorealestate_api() faz sempre full-sync
 paginado via get_properties_page, sem depender de Latest.
 """
 

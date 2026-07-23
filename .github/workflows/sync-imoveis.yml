@@ -9,8 +9,13 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Chamar endpoint de sync
+      - name: Sincronizar Web API pública
         run: |
-          curl -sf -X POST "https://figueirahome-agentos.fly.dev/api/imoveis/sync/egorealestate" \
+          curl -sf -X POST "https://figueirahome-agentos.fly.dev/api/imoveis/sync/egorealestate/api" \
+            -H "X-Sync-Secret: ${{ secrets.EGOREALESTATE_SYNC_SECRET }}" \
+            --max-time 120
+      - name: Validar disponibilidade no CRM
+        run: |
+          curl -sf -X POST "https://figueirahome-agentos.fly.dev/api/imoveis/sync/egorealestate/crm" \
             -H "X-Sync-Secret: ${{ secrets.EGOREALESTATE_SYNC_SECRET }}" \
             --max-time 120

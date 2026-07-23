@@ -102,6 +102,25 @@ async def fetch_all(client: httpx.AsyncClient) -> list[dict]:
     return results
 
 
+async def find_by_ref(client: httpx.AsyncClient, ref: str) -> dict | None:
+    """Pesquisa livre no backoffice por referência (campo `FreeText` — o único
+    nome de parâmetro aceite pelo endpoint; confirmado lendo `Search.inputKeyUp`
+    em Startup.min.js, `searchText` é ignorado silenciosamente). Ao contrário de
+    `fetch_all`, não filtra por status — cobre também "Retirado"/"Vendido"/
+    "Em Prospecção", útil para reencontrar o `ego_id` novo de um imóvel
+    recriado no eGO. `client` já deve estar autenticado (ver `_login`)."""
+    resp = await client.post(_SEARCH_PATH, data={
+        "FreeText": ref, "Page": 1, "listSortDirection": 0, "viewType": 0, "ParentID": 0,
+    })
+    resp.raise_for_status()
+    body = resp.json()
+    html = (body.get("replaces") or {}).get("#RealestateListResults", "")
+    for item in _parse_page(html):
+        if item["imovel_ref"] == ref:
+            return item
+    return None
+
+
 def authenticated_client() -> httpx.AsyncClient:
     """Sessão httpx com a base_url do backoffice — chamar `await _login(client)`
     antes de usar. Devolvida sem login para o caller poder reutilizar a mesma

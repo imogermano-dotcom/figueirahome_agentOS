@@ -240,7 +240,7 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
         crm_disponiveis_refs = {i["imovel_ref"] for i in crm_items if i["imovel_ref"] and i["crm_disponibilidade"] == "Disponível"}
 
         # O eGO por vezes devolve a mesma Reference em 2 propriedades distintas
-        # (mesmo problema já conhecido do upsert da Web API, ver sync_egorealestate)
+        # (mesmo problema já conhecido do upsert da Web API, ver sync_egorealestate_api)
         # — a nossa tabela só tem uma linha por imovel_ref, por isso mantemos só a
         # última ocorrência em vez de aplicar as duas (evitaria oscilar a cada run).
         by_ref: dict[str, dict] = {}
@@ -339,13 +339,33 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
             detail = await egorealestate_crm.fetch_detail(client, row["ego_id"])
             if not detail or not detail.get("disponibilidade"):
                 # ego_id conhecido mas devolve "Você não pode consultar este
-                # imóvel..." — confirmado ao vivo (caso FH2491F) que a causa
-                # mais comum é o ego_id estar desactualizado (imóvel recriado
-                # no eGO com novo ID), não permissão real: o mesmo utilizador
-                # via browser conseguia ver a ficha com o ID correcto. Não há
-                # forma automática de descobrir o novo ID sem pesquisa por
-                # referência (fora de âmbito por agora) — sinalizar.
-                sem_acesso.append(row["imovel_ref"])
+                # imóvel..." — confirmado ao vivo (caso FH2491F, e depois
+                # reconfirmado em massa 2026-07-23 nas 6 refs Panoramic
+                # Pool/FH2479C) que a causa mais comum é o ego_id estar
+                # desactualizado (imóvel recriado no eGO com novo ID), não
+                # permissão real. `find_by_ref` (endpoint de pesquisa livre,
+                # campo `FreeText`, sem filtro de status) reencontra o ego_id
+                # novo pela referência — se devolver correspondência exacta,
+                # o valor é tão certo como o resto desta função (Casos 1/2),
+                # por isso corrige-se directamente em vez de só sinalizar.
+                encontrado = await egorealestate_crm.find_by_ref(client, row["imovel_ref"])
+                if not encontrado:
+                    sem_acesso.append(row["imovel_ref"])
+                    continue
+                novo_valor = encontrado["crm_disponibilidade"]
+
+                def _apply_reencontrado(ref=row["imovel_ref"], valor=novo_valor, ego_id=encontrado["ego_id"]):
+                    get_supabase().table("imoveis").update({"disponibilidade": valor, "ego_id": ego_id}).eq("imovel_ref", ref).execute()
+
+                await _run(_apply_reencontrado)
+                corrigidos_stale += 1
+                detalhes.append({
+                    "imovel_ref": row["imovel_ref"], "tipo": "corrigido_crm",
+                    "alteracoes": {
+                        "disponibilidade": {"de": "Disponível", "para": novo_valor},
+                        "ego_id": {"de": row["ego_id"], "para": encontrado["ego_id"]},
+                    },
+                })
                 continue
             if detail["disponibilidade"] == "Disponível":
                 continue
@@ -371,19 +391,35 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
     return total, detalhes
 
 
-async def _log_execucao(resumo: dict, detalhes: list[dict]) -> None:
+async def _log_execucao(tipo: str, resumo: dict, detalhes: list[dict]) -> None:
     def _insert():
         return get_supabase().table("agente_sync_log").insert({
-            "tipo": "egorealestate", "resumo": resumo, "detalhes": detalhes,
+            "tipo": tipo, "resumo": resumo, "detalhes": detalhes,
         }).execute()
 
     await _run(_insert)
 
 
-async def sync_egorealestate() -> dict:
+async def sync_egorealestate_crm() -> dict:
+    """Só a validação via CRM backoffice (`validar_disponibilidade_crm`) —
+    fonte de verdade da `disponibilidade`, incl. imóveis nunca publicados.
+    Acção separada da pull da Web API (ver `sync_egorealestate_api`) porque
+    são scrapers/fontes distintas, disparados independentemente no painel."""
+    if not settings.egorealestate_crm_username or not settings.egorealestate_crm_password:
+        raise RuntimeError("EGOREALESTATE_CRM_USERNAME/PASSWORD não configuradas.")
+
+    corrigidos, detalhes = await validar_disponibilidade_crm()
+    resumo = {"criados": 0, "atualizados": 0, "erros": 0, "nao_publicados": 0, "corrigidos": corrigidos}
+    await _log_execucao("egorealestate_crm", resumo, detalhes)
+    return resumo
+
+
+async def sync_egorealestate_api() -> dict:
     """`/v1/Properties/Latest` (sync incremental) está avariado do lado do
     eGO — testado ao vivo, ignora `Since` sempre. Por isso corre-se sempre
-    full-sync paginado (portefólio publicado é pequeno, ~55 imóveis)."""
+    full-sync paginado (portefólio publicado é pequeno, ~55 imóveis).
+    Só a Web API pública (imóveis publicados) — a validação via CRM
+    backoffice é uma acção separada, ver `sync_egorealestate_crm`."""
     if not settings.egorealestate_api_key:
         raise RuntimeError("EGOREALESTATE_API_KEY não configurada.")
 
@@ -411,10 +447,8 @@ async def sync_egorealestate() -> dict:
     detalhes.extend(det_nao_publicados)
 
     if not properties:
-        corrigidos, det_corrigidos = await validar_disponibilidade_crm()
-        detalhes.extend(det_corrigidos)
-        resumo = {"criados": 0, "atualizados": 0, "erros": 0, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
-        await _log_execucao(resumo, detalhes)
+        resumo = {"criados": 0, "atualizados": 0, "erros": 0, "nao_publicados": nao_publicados, "corrigidos": 0}
+        await _log_execucao("egorealestate_api", resumo, detalhes)
         return resumo
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -458,9 +492,6 @@ async def sync_egorealestate() -> dict:
         {"imovel_ref": r["imovel_ref"], "tipo": "criado" if r["imovel_ref"] not in existentes else "atualizado"}
         for r in records
     )
-    corrigidos, det_corrigidos = await validar_disponibilidade_crm()
-    detalhes.extend(det_corrigidos)
-
-    resumo = {"criados": criados, "atualizados": atualizados, "erros": erros, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
-    await _log_execucao(resumo, detalhes)
+    resumo = {"criados": criados, "atualizados": atualizados, "erros": erros, "nao_publicados": nao_publicados, "corrigidos": 0}
+    await _log_execucao("egorealestate_api", resumo, detalhes)
     return resumo
