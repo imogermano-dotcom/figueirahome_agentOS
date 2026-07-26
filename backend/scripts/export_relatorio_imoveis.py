@@ -90,6 +90,17 @@ def _normalize(header: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_").lower()
 
 
+def _format_comissao(valor: str) -> str:
+    """eGO devolve percentagens com 6 casas decimais ("5,000000 %") — apara
+    zeros à direita, mantendo pelo menos 1 casa ("5,0 %", "5,5 %")."""
+    m = re.match(r"^(\d+),(\d+)(\s*%?)\s*$", valor.strip())
+    if not m:
+        return valor
+    inteiro, decimais, sufixo = m.groups()
+    decimais = decimais.rstrip("0") or "0"
+    return f"{inteiro},{decimais}{sufixo}"
+
+
 def _dedupe_headers(headers: list[str]) -> list[str]:
     """O relatório repete nomes de coluna (ex: "Área útil" 2x) — sem isto
     `dict(zip(header, row))` perdia a 1ª ocorrência silenciosamente."""
@@ -119,7 +130,7 @@ def _map_row(row: dict) -> dict:
                 continue
             valor = record["extra"][raw_header]
             if valor is not None:
-                record[col] = str(valor)
+                record[col] = _format_comissao(str(valor))
                 del record["extra"][raw_header]
                 break
     return record
