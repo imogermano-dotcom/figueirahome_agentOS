@@ -58,9 +58,7 @@ _NOTA_FIELDS = ("Criado em", "Criado por", "Tipo de nota", "Anexos")
 
 # Cabeçalhos reais do relatório "jmarques_imoveis_notas" (visto 2026-07-26) que
 # não batem por normalização simples — mapeados à mão depois de inspeccionar
-# um ficheiro real. Comissões com split Venda/Arrendamento ficam de fora de
-# propósito: `imoveis` só tem 1 coluna p/ cada, escolher um dos dois perderia
-# informação silenciosamente — melhor deixar em `extra`.
+# um ficheiro real.
 _ALIASES = {
     "referencia": "imovel_ref",
     "casa_s_de_banho": "casas_banho",
@@ -75,6 +73,15 @@ _ALIASES = {
     "data_de_criacao": "data_criacao",
     "data_de_alteracao": "data_alteracao",
     "contrato_de_mediacao_exclusividade": "exclusividade",
+}
+
+# Comissões vêm com split Venda/Arrendamento no relatório, `imoveis` só tem 1
+# coluna p/ cada — junta-se preferindo Venda (maioria do portefólio), caindo
+# p/ Arrendamento se vazio. A variante usada sai de `extra`, a outra fica lá.
+_COMISSAO_PARES = {
+    "comissao_agencia": ("comissao_da_agencia_venda", "comissao_da_agencia_arrendamento"),
+    "comissao_angariador": ("comissoes_dos_angariadores_venda", "comissoes_dos_angariadores_arrendamento"),
+    "comissao_vendedor": ("comissoes_dos_vendedores_venda", "comissoes_dos_vendedores_arrendamento"),
 }
 
 
@@ -103,6 +110,18 @@ def _map_row(row: dict) -> dict:
             record[key] = None if value is None else str(value)
         else:
             record["extra"][str(header)] = value
+
+    extra_by_norm = {_normalize(h): h for h in record["extra"]}
+    for col, (venda_key, arrend_key) in _COMISSAO_PARES.items():
+        for norm_key in (venda_key, arrend_key):
+            raw_header = extra_by_norm.get(norm_key)
+            if raw_header is None:
+                continue
+            valor = record["extra"][raw_header]
+            if valor is not None:
+                record[col] = str(valor)
+                del record["extra"][raw_header]
+                break
     return record
 
 
