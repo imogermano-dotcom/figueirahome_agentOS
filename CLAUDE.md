@@ -52,7 +52,7 @@ frontend/src/
 
 ---
 
-## Estado actual — Handoff 2026-07-22
+## Estado actual — Handoff 2026-07-26
 
 ### Produção
 
@@ -61,8 +61,8 @@ frontend/src/
 | Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado, secrets eGO API + CRM postos |
 | Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
-| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário + `workflow_dispatch` manual |
-| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed (último: `d7b3d56`) |
+| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário, só **API** (CRM retirado do cron, ver abaixo) + `workflow_dispatch` manual |
+| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed (último: `0101e8a`) |
 
 ### Base de dados unificada (fases A–D2)
 
@@ -70,15 +70,19 @@ Todas as tabelas (`imoveis`, `agente_clientes`, `agente_leads`, `agente_chamadas
 
 ### Sincronismo eGO (fases B, F, G — objectivo: `imoveis` = espelho fiel do CRM para o estado "Disponível")
 
-Duas fontes eGO combinadas em `backend/app/integrations/imoveis_sync.py::sync_egorealestate()`:
-1. **Web API pública** (`egorealestate.py`) — só imóveis publicados. `/v1/Properties/Latest?Since=` está **avariado do lado do eGO** (ignora `Since`, devolve sempre 1 imóvel) — por isso o sync faz sempre **full pull paginado** via `get_properties_page` (portefólio pequeno, ~55 imóveis, barato). `get_latest`/`get_properties_by_ids` removidos (mortos).
-2. **CRM backoffice autenticado** (`egorealestate_crm.py`, login + scraping HTML server-rendered) — única fonte com visibilidade total, incl. não-publicados. `validar_disponibilidade_crm()` faz 3 correcções: (1) cria linha nova para ref "Disponível" no CRM sem correspondência local (via `fetch_detail`); (2) corrige `disponibilidade`/`ego_id`/`fonte` de linhas existentes desalinhadas; (3) para linha local "Disponível" que já não está na lista CRM-Disponível, relê o `ego_id` guardado — se o CRM devolver o estado real, actualiza; se o `ego_id` já não der acesso à ficha (mensagem "Você não pode consultar este imóvel"), **a causa mais provável é `ego_id` desactualizado** (imóvel recriado no eGO com novo ID), não permissão — cria tarefa `"eGO disponibilidade divergente"` a pedir confirmação manual da referência (comprovado ao vivo com FH2491F: browser do utilizador via a ficha com um `ego_id` diferente do guardado).
+Duas acções **separadas** (deixaram de correr sempre juntas — `backend/app/integrations/imoveis_sync.py`):
+1. **`sync_egorealestate_api()`** — Web API pública, só imóveis publicados. `/v1/Properties/Latest?Since=` está **avariado do lado do eGO** (ignora `Since`) — full pull paginado via `get_properties_page` (~55 imóveis). Corre no cron diário + botão "Sincronizar API".
+2. **`sync_egorealestate_crm()`** (`validar_disponibilidade_crm()`) — CRM backoffice autenticado (`egorealestate_crm.py`, login + scraping HTML), única fonte com visibilidade total incl. não-publicados (Por validar/Reservado/Arrendado/Retirado — 406 de 461 linhas `fonte='egorealestate'` só têm estado correcto por causa deste scraper). 3 correcções: cria linha nova p/ ref "Disponível" no CRM sem correspondência local; corrige `disponibilidade`/`ego_id`/`fonte` desalinhados; para "Disponível" local que saiu da lista CRM, relê via `ego_id` — se `fetch_detail` falhar (ego_id morto), tenta `find_by_ref()` (pesquisa livre, campo `FreeText` — não `searchText`, bug corrigido 2026-07-25) antes de só sinalizar tarefa. **Retirado do cron diário** (2026-07-26): estava a sobrepor "Disponível" que a API pública confirmava (caso `FH2483_A`) com estado "Por validar" desactualizado do CRM — corre só manual (botão "Validar CRM").
 
-Histórico persistente: tabela `agente_sync_log` (migration `0007`), `GET/DELETE /api/imoveis/sync/log`, UI em `Imoveis.jsx::SincronizacaoTab` mostra última execução + diffs + histórico. `DELETE /api/tarefas` e `DELETE /api/imoveis/sync/log` para limpar em massa (confirmação antes).
+Coluna `publicado` (migration `0008`, GENERATED STORED) = `disponibilidade='Disponível' AND trim(imovel_ref)!='' AND coalesce(venda_preco,arrendamento_preco,0)>0 AND disponivel_na_api`. `disponivel_na_api` é plain boolean mantido por `_flag_unpublished` — único facto certo a cada pull da API (marca `false` sempre que um ref desaparece, independente de `disponibilidade` ainda não corrigida pelo CRM).
+
+**Discrepâncias conhecidas entre API/CRM/site** (investigado 2026-07-26): a Web API às vezes devolve a mesma `Reference` 2×, ou itens com `Availability=Vendido`+preço €0 (lixo do lado do eGO, `publicado` já rejeita correctamente) — contar "imóveis no site" ≠ contar refs únicas válidas.
+
+Histórico persistente: tabela `agente_sync_log` (migration `0007`, campo `tipo` distingue `egorealestate_api`/`egorealestate_crm`), `GET/DELETE /api/imoveis/sync/log`, UI em `Imoveis.jsx::SincronizacaoTab` (2 botões separados). `DELETE /api/tarefas` e `DELETE /api/imoveis/sync/log` para limpar em massa (confirmação antes).
 
 ### Web scraper de portais — SKIPPED conscientemente
 
-`figueirahome.com` é gerado pela própria eGO; `figueirahome.pt` real (site separado, fora deste repo) ainda vai **ler do Supabase**, não o contrário; Idealista/Imovirtual já syndicados via eGO. O scraping que fazia falta (CRM autenticado) já está feito nas fases F/G acima.
+`figueirahome.com` é gerado pela própria eGO; `figueirahome.pt` real (site separado, fora deste repo) ainda vai **ler do Supabase**, não o contrário; Idealista/Imovirtual já syndicados via eGO.
 
 ### Ambiente local
 
@@ -93,15 +97,15 @@ Histórico persistente: tabela `agente_sync_log` (migration `0007`), `GET/DELETE
 | Credenciais Telnyx (3 vars) | ❌ bloqueia chamadas de voz |
 | Número PT +351 Telnyx | ❌ requer regulatory requirement group |
 | Número WhatsApp do corretor | ❌ bloqueia `escalar_para_broker` |
-| 6 refs com `ego_id` stale (FH2491T/R/K/J/AB, FH2479C) | ⚠️ tarefas pendentes em "eGO disponibilidade divergente" — precisam da referência/ID correcto confirmado manualmente pelo utilizador, sem forma automática de descobrir |
 | ~3459 linhas `fonte='manual'`/`Em Prospecção` de origem desconhecida | ⚠️ investigação parada a pedido do utilizador — não mexer sem ser pedido de novo |
 
 ### Próximos passos
 
-1. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear
-2. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor
-3. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io
-4. Resolver as 6 refs `ego_id` stale (tarefas pendentes) quando o utilizador tiver tempo de confirmar cada uma no CRM
+1. **Fase 2 — scraper de relatório eGO (Playwright)**: mecanismo conhecido (`EGO-SCRAPER-PORTABLE.md`, baseado em projecto JMWAIweb — login+sessão, filtros via `dispatchEvent`, popup Relatórios, captura de download). Falta: utilizador criar o relatório na UI do eGO p/ módulo Imóveis (nome + colunas) antes de automatizar; ficheiro descarregado deve ser parseado e gravado em `imoveis`.
+2. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear
+3. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor
+4. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io
+5. Reavaliar se/quando voltar a incluir a validação CRM no cron diário, depois de perceber melhor os casos de conflito API vs CRM (ex: `FH2483_A`)
 
 ---
 
@@ -119,8 +123,9 @@ Histórico persistente: tabela `agente_sync_log` (migration `0007`), `GET/DELETE
 - **Extracção de dados voz**: só no hangup (Claude tool use sobre transcrição completa)
 - **CORS**: `frontend_url` + regex `*.figueirahome-agentos.pages.dev` para preview deploys
 - **Sync eGO sempre full, nunca incremental**: `/v1/Properties/Latest?Since=` confirmado avariado (ignora `Since`, devolve sempre 1 imóvel) — não tentar reintroduzir cursor incremental nesta API sem reconfirmar que o eGO corrigiu o bug.
-- **CRM backoffice como fonte de verdade de `disponibilidade`**: Web API pública só vê publicados; o CRM autenticado (`egorealestate_crm.py`) é a única fonte com visibilidade total, usado para criar/corrigir linhas fora do alcance da API pública.
-- **"Sem acesso" no CRM ≠ permissão negada por defeito**: uma ficha que devolve "Você não pode consultar este imóvel" é, mais frequentemente, um `ego_id` desactualizado (imóvel recriado com novo ID) do que uma restrição real de permissão — confirmar com o utilizador antes de assumir a causa.
+- **CRM backoffice como fonte de verdade de `disponibilidade`, mas não no cron automático**: Web API pública só vê publicados; o CRM autenticado (`egorealestate_crm.py`) é a única fonte com visibilidade total, usado para criar/corrigir linhas fora do alcance da API pública — mas por sobrepor às vezes um estado "Disponível" que a API pública já confirmava (dados desactualizados do lado do CRM), passou a correr só manual, não no cron diário.
+- **"Sem acesso" no CRM ≠ permissão negada por defeito**: uma ficha que devolve "Você não pode consultar este imóvel" é, mais frequentemente, um `ego_id` desactualizado (imóvel recriado com novo ID) do que uma restrição real de permissão — `find_by_ref()` (campo `FreeText`, não `searchText`) resolve isto automaticamente antes de sinalizar tarefa.
+- **`publicado` como coluna GENERATED, não campo escrito pela app**: critério de publicação no site é puramente função de outras colunas da mesma linha (`disponibilidade`, `imovel_ref`, preços, `disponivel_na_api`) — Postgres recalcula sempre, nunca dessincroniza. `disponivel_na_api` é a excepção (plain boolean): só a app sabe, a cada pull da API, se um ref ainda foi devolvido.
 
 ## Bugs conhecidos
 
