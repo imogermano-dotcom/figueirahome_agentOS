@@ -34,7 +34,7 @@ from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.integrations import egorealestate_crm
 
-REPORT_NAME = "jmarques_imoveis_notas"
+REPORT_NAME = "jmarques_imoveis"
 STATUS_FILTER = "Disponível"
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
@@ -109,17 +109,33 @@ def _map_row(row: dict) -> dict:
 def _merge_notas(records: list[dict]) -> list[dict]:
     grouped: dict[str, dict] = {}
     order: list[str] = []
+    sem_ref = 0
     for record in records:
         ref = record.get("imovel_ref")
-        if ref not in grouped:
-            grouped[ref] = {k: v for k, v in record.items() if k != "extra"}
-            grouped[ref]["extra"] = {k: v for k, v in record["extra"].items() if k not in _NOTA_FIELDS}
-            grouped[ref]["extra"]["notas"] = []
-            order.append(ref)
+        if not ref:
+            # sem referência (ex: registos de "Chave" avulsos no relatório,
+            # sem ligação a um imóvel) — não têm nada em comum entre si além
+            # de estarem vazios; agrupá-los juntava-os todos numa linha só.
+            sem_ref += 1
+            key = f"__sem_ref_{sem_ref}__"
+        else:
+            key = ref
+        is_new = key not in grouped
+        if is_new:
+            grouped[key] = {k: v for k, v in record.items() if k != "extra"}
+            grouped[key]["extra"] = {k: v for k, v in record["extra"].items() if k not in _NOTA_FIELDS}
+            grouped[key]["extra"]["notas"] = []
+            order.append(key)
+        else:
+            # ref real repetida por outro motivo que não notas — bug conhecido
+            # do eGO (mesma Reference em propriedades distintas, ex: FH2460 4D
+            # com area_bruta/piso diferentes). Não há forma de adivinhar qual
+            # fica — mantém a 1ª, avisa em vez de perder em silêncio.
+            print(f'  aviso: "{ref}" repetido no relatório com dados possivelmente diferentes (bug eGO conhecido) — mantida só a 1ª ocorrência')
         nota = {k: record["extra"].get(k) for k in _NOTA_FIELDS}
         if any(v is not None for v in nota.values()):
-            grouped[ref]["extra"]["notas"].append(nota)
-    return [grouped[ref] for ref in order]
+            grouped[key]["extra"]["notas"].append(nota)
+    return [grouped[key] for key in order]
 
 
 async def _httpx_cookies() -> list[dict]:
