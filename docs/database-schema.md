@@ -119,6 +119,8 @@ create table imoveis (
   portais               text,        -- lista de portais onde está syndicado (via eGO), texto separado por vírgulas
   foto_principal        text,
   fotos                 jsonb default '[]'::jsonb,   -- array de URLs (eGO CDN)
+  panoramic_url         text,        -- URL de visita virtual/360°. Adicionada directo em produção, sem migration — documentada agora (2026-07-26)
+  video_url             text,        -- URL de vídeo (ex: YouTube). Adicionada directo em produção, sem migration — documentada agora (2026-07-26)
   ego_id                bigint,      -- ID da propriedade no eGO Real Estate (null = nunca sincronizado)
   ego_atualizado_em     timestamptz,
   data_criacao          date,

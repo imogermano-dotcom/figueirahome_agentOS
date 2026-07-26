@@ -32,3 +32,4 @@ Thumbs.db
 # Ferramentas locais
 .wrangler/
 backend/.playwright-cli/
+backend/scripts/output/
