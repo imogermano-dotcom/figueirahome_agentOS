@@ -147,18 +147,22 @@ def _merge_notas(records: list[dict]) -> list[dict]:
             # sem ligação a um imóvel) — ignorar, não são imóveis.
             ignorados += 1
             continue
-        is_new = ref not in grouped
-        if is_new:
-            grouped[ref] = {k: v for k, v in record.items() if k != "extra"}
+        core = {k: v for k, v in record.items() if k != "extra"}
+        if ref not in grouped:
+            grouped[ref] = dict(core)
             grouped[ref]["extra"] = {k: v for k, v in record["extra"].items() if k not in _NOTA_FIELDS}
             grouped[ref]["extra"]["notas"] = []
             order.append(ref)
         else:
-            # ref repetida por outro motivo que não notas — bug conhecido
-            # do eGO (mesma Reference em propriedades distintas, ex: FH2460 4D
-            # com area_bruta/piso diferentes). Não há forma de adivinhar qual
-            # fica — mantém a 1ª, avisa em vez de perder em silêncio.
-            print(f'  aviso: "{ref}" repetido no relatório com dados possivelmente diferentes (bug eGO conhecido) — mantida só a 1ª ocorrência')
+            # só avisar se os dados fora dos campos de nota realmente
+            # diferirem — repetição normal (mais uma nota) não é problema.
+            # Se diferirem, é bug conhecido do eGO (mesma Reference em
+            # propriedades distintas, ex: FH2460 4D com area_bruta/piso
+            # diferentes) — não há forma de adivinhar qual fica, mantém a
+            # 1ª, avisa em vez de perder em silêncio.
+            existente = {k: v for k, v in grouped[ref].items() if k != "extra"}
+            if core != existente:
+                print(f'  aviso: "{ref}" repetido no relatório com dados diferentes fora dos campos de nota (bug eGO conhecido) — mantida só a 1ª ocorrência')
         nota = {k: record["extra"].get(k) for k in _NOTA_FIELDS}
         if any(v is not None for v in nota.values()):
             grouped[ref]["extra"]["notas"].append(nota)

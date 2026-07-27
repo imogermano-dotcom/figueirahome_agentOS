@@ -268,6 +268,11 @@ order by relname;
 
 ---
 
+## Tabelas externas ao repo (mesmo Supabase, não geridas por migration daqui)
+
+- **`oportunidades`** (projecto unificado, ~90 colunas, ~25k linhas — confirmado 2026-07-27): alimentada activamente por um processo próprio do utilizador fora deste repo (não há nenhuma referência a esta tabela em código/migrations do Figueirahome). `id` é `int`, não `uuid` — reforça que o schema não foi desenhado por este projecto. Campos com prefixo `xlsx_`/`visita_`/`pref_`/`ego_` sugerem um ETL que junta várias fontes numa linha por oportunidade (`oportunidade_ref`, `imovel_ref`, `cliente_*`, `xlsx_*`, `visita_*`, `pref_*`...). **Não alterar nem gerir esta tabela a partir deste repo** — só ler para referência (ex: `teste_oportunidades`, migration 0011, clona os nomes de coluna).
+- **`panoramic_url`/`video_url`** em `imoveis`: idem, adicionadas directo em produção sem migration (documentadas em 2026-07-26, ver secção `imoveis` acima).
+
 ## Notas para o Claude Code
 
 - Criar a migration em `supabase/migrations/0001_initial_schema.sql`.
