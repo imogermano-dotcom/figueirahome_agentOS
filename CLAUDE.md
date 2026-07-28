@@ -52,7 +52,7 @@ frontend/src/
 
 ---
 
-## Estado actual — Handoff 2026-07-26
+## Estado actual — Handoff 2026-07-28
 
 ### Produção
 
@@ -61,34 +61,35 @@ frontend/src/
 | Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado, secrets eGO API + CRM postos |
 | Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
-| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário, só **API** (CRM retirado do cron, ver abaixo) + `workflow_dispatch` manual |
-| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed (último: `0101e8a`) |
+| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário, só **API** (CRM manual, ver Decisões) + `workflow_dispatch` |
+| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed (último: `81addb2`) |
 
 ### Base de dados unificada (fases A–D2)
 
-Todas as tabelas (`imoveis`, `agente_clientes`, `agente_leads`, `agente_chamadas`, `agente_conversas`, `agente_config`, `agente_tarefas`, `agente_sync_log`) vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`, settings `supabase_imoveis_*`). Projecto original (`supabase_url/key`) fica **só Auth** (contas reais dos corretores) + backup frio. `get_supabase()` = dados; `get_supabase_auth()` = só valida login.
+Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`, settings `supabase_imoveis_*`). Projecto original (`supabase_url/key`) fica **só Auth** (contas reais dos corretores). `get_supabase()` = dados; `get_supabase_auth()` = só valida login.
 
-### Sincronismo eGO (fases B, F, G — objectivo: `imoveis` = espelho fiel do CRM para o estado "Disponível")
+### Sincronismo eGO (fases B, F, G)
 
-Duas acções **separadas** (deixaram de correr sempre juntas — `backend/app/integrations/imoveis_sync.py`):
-1. **`sync_egorealestate_api()`** — Web API pública, só imóveis publicados. `/v1/Properties/Latest?Since=` está **avariado do lado do eGO** (ignora `Since`) — full pull paginado via `get_properties_page` (~55 imóveis). Corre no cron diário + botão "Sincronizar API".
-2. **`sync_egorealestate_crm()`** (`validar_disponibilidade_crm()`) — CRM backoffice autenticado (`egorealestate_crm.py`, login + scraping HTML), única fonte com visibilidade total incl. não-publicados (Por validar/Reservado/Arrendado/Retirado — 406 de 461 linhas `fonte='egorealestate'` só têm estado correcto por causa deste scraper). 3 correcções: cria linha nova p/ ref "Disponível" no CRM sem correspondência local; corrige `disponibilidade`/`ego_id`/`fonte` desalinhados; para "Disponível" local que saiu da lista CRM, relê via `ego_id` — se `fetch_detail` falhar (ego_id morto), tenta `find_by_ref()` (pesquisa livre, campo `FreeText` — não `searchText`, bug corrigido 2026-07-25) antes de só sinalizar tarefa. **Retirado do cron diário** (2026-07-26): estava a sobrepor "Disponível" que a API pública confirmava (caso `FH2483_A`) com estado "Por validar" desactualizado do CRM — corre só manual (botão "Validar CRM").
+Duas acções separadas em `backend/app/integrations/imoveis_sync.py`: `sync_egorealestate_api()` (Web API pública, full pull paginado, corre no cron diário) e `sync_egorealestate_crm()` (CRM backoffice autenticado, única fonte com visibilidade total incl. não-publicados; retirado do cron — ver Decisões arquitecturais — corre só via botão "Validar CRM"). Coluna `publicado` (GENERATED STORED, migration `0008`) e `disponivel_na_api` (plain boolean) — detalhe da regra em Decisões arquitecturais.
 
-Coluna `publicado` (migration `0008`, GENERATED STORED) = `disponibilidade='Disponível' AND trim(imovel_ref)!='' AND coalesce(venda_preco,arrendamento_preco,0)>0 AND disponivel_na_api`. `disponivel_na_api` é plain boolean mantido por `_flag_unpublished` — único facto certo a cada pull da API (marca `false` sempre que um ref desaparece, independente de `disponibilidade` ainda não corrigida pelo CRM).
+### Fase 2 — scrapers de relatório eGO (Playwright)
 
-**Discrepâncias conhecidas entre API/CRM/site** (investigado 2026-07-26): a Web API às vezes devolve a mesma `Reference` 2×, ou itens com `Availability=Vendido`+preço €0 (lixo do lado do eGO, `publicado` já rejeita correctamente) — contar "imóveis no site" ≠ contar refs únicas válidas.
+Dois scripts novos, correm **só local** (Fly.io não tem RAM para Chromium — ver Decisões arquitecturais):
+- `backend/scripts/export_relatorio_imoveis.py` — dispara relatório `jmarques_imoveis` (filtro "Disponível") no CRM eGO, faz download, faz parse e grava em `teste_imoveis`.
+- `backend/scripts/export_relatorio_oportunidades.py` — dispara relatório `jmarques_oportunidades_notas` (filtro "Editado em > Últimas 48 horas", sem "Minhas oportunidades") e grava em `teste_oportunidades`.
 
-Histórico persistente: tabela `agente_sync_log` (migration `0007`, campo `tipo` distingue `egorealestate_api`/`egorealestate_crm`), `GET/DELETE /api/imoveis/sync/log`, UI em `Imoveis.jsx::SincronizacaoTab` (2 botões separados). `DELETE /api/tarefas` e `DELETE /api/imoveis/sync/log` para limpar em massa (confirmação antes).
+Ambos reutilizam a sessão de login de `egorealestate_crm._login()` (cookies injectados no Playwright), aplicam filtros via `dispatchEvent` (não `.click()`), fundem múltiplas linhas de nota por entidade em `extra.notas[]`, e ignoram linhas do relatório sem referência. Testados com dados reais: 66 imóveis únicos / 19 oportunidades únicas.
 
-### Web scraper de portais — SKIPPED conscientemente
+Descoberta desta fase: existe uma tabela `oportunidades` de produção (~90 colunas, ~25k linhas) alimentada por um processo externo ao repo, nunca antes documentada — agora em `docs/database-schema.md`, **não gerida por este projecto**.
 
-`figueirahome.com` é gerado pela própria eGO; `figueirahome.pt` real (site separado, fora deste repo) ainda vai **ler do Supabase**, não o contrário; Idealista/Imovirtual já syndicados via eGO.
+`teste_imoveis`/`teste_oportunidades` (migrations `0009`–`0011`) são staging (todas `text` + `extra jsonb`, mesmos nomes de coluna que o destino real) — dados ainda não promovidos para produção, decisão em aberto (ver Próximos passos).
 
 ### Ambiente local
 
 - Python: `C:\Users\joaoa\AppData\Local\Programs\Python\Python312\python.exe`
 - fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app figueirahome-agentos` (a partir de `backend/`)
 - `backend/.env` — Supabase (ambos) ✅, Anthropic ✅, OpenAI ✅, eGO API + CRM ✅, Telnyx ❌, Meta ❌
+- Scrapers Playwright: `pip install -r backend/scripts/requirements-scraper.txt` + `playwright install chromium`
 
 ### Bloqueadores activos
 
@@ -101,11 +102,11 @@ Histórico persistente: tabela `agente_sync_log` (migration `0007`, campo `tipo`
 
 ### Próximos passos
 
-1. **Fase 2 — scraper de relatório eGO (Playwright)**: mecanismo conhecido (`EGO-SCRAPER-PORTABLE.md`, baseado em projecto JMWAIweb — login+sessão, filtros via `dispatchEvent`, popup Relatórios, captura de download). Falta: utilizador criar o relatório na UI do eGO p/ módulo Imóveis (nome + colunas) antes de automatizar; ficheiro descarregado deve ser parseado e gravado em `imoveis`.
-2. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear
-3. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor
-4. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io
-5. Reavaliar se/quando voltar a incluir a validação CRM no cron diário, depois de perceber melhor os casos de conflito API vs CRM (ex: `FH2483_A`)
+1. **Decidir promoção `teste_imoveis`/`teste_oportunidades` → produção** — ou manter só como consulta manual pontual. `teste_oportunidades` não deve substituir a `oportunidades` real sem confirmar com o utilizador (já tem processo próprio a alimentá-la).
+2. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear.
+3. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor.
+4. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
+5. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
 
 ---
 
@@ -126,6 +127,8 @@ Histórico persistente: tabela `agente_sync_log` (migration `0007`, campo `tipo`
 - **CRM backoffice como fonte de verdade de `disponibilidade`, mas não no cron automático**: Web API pública só vê publicados; o CRM autenticado (`egorealestate_crm.py`) é a única fonte com visibilidade total, usado para criar/corrigir linhas fora do alcance da API pública — mas por sobrepor às vezes um estado "Disponível" que a API pública já confirmava (dados desactualizados do lado do CRM), passou a correr só manual, não no cron diário.
 - **"Sem acesso" no CRM ≠ permissão negada por defeito**: uma ficha que devolve "Você não pode consultar este imóvel" é, mais frequentemente, um `ego_id` desactualizado (imóvel recriado com novo ID) do que uma restrição real de permissão — `find_by_ref()` (campo `FreeText`, não `searchText`) resolve isto automaticamente antes de sinalizar tarefa.
 - **`publicado` como coluna GENERATED, não campo escrito pela app**: critério de publicação no site é puramente função de outras colunas da mesma linha (`disponibilidade`, `imovel_ref`, preços, `disponivel_na_api`) — Postgres recalcula sempre, nunca dessincroniza. `disponivel_na_api` é a excepção (plain boolean): só a app sabe, a cada pull da API, se um ref ainda foi devolvido.
+- **Scrapers de relatório eGO (Playwright) correm só local, nunca em Fly.io**: Chromium headless excede a RAM da VM Fly (256MB) — não criar botão no painel para isto sem rever o plano de hosting primeiro.
+- **Staging antes de produção para dados de scraping**: qualquer nova fonte via scraping de relatório entra primeiro numa tabela `teste_*` (todas `text` + `extra jsonb`, mesmos nomes de coluna que o destino real) para inspeccionar valores crus antes de decidir tipos/transformações — nunca escrever directo em `imoveis`/`oportunidades` de produção durante a fase de teste.
 
 ## Bugs conhecidos
 
