@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     egorealestate_crm_password: str = ""
     egorealestate_crm_base_url: str = "https://admin.egorealestate.com"
 
+    # Scraper de relatório eGO (jmarques_todas_as_colunas) — app Fly.io
+    # separada e dedicada, Playwright não cabe na RAM da app principal.
+    scraper_service_url: str = ""
+    scraper_service_secret: str = ""
+
     # OpenAI
     openai_api_key: str = ""
 

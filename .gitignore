@@ -33,3 +33,4 @@ Thumbs.db
 .wrangler/
 backend/.playwright-cli/
 backend/scripts/output/
+scraper/output/

@@ -499,6 +499,89 @@ function SincronizacaoTab() {
   )
 }
 
+function OportunidadesSyncCard() {
+  const [syncing, setSyncing] = useState(false)
+  const [log, setLog] = useState([])
+  const [error, setError] = useState('')
+
+  async function carregarLog() {
+    try { setLog(await api.get('/api/oportunidades/sync/log?limit=10')) }
+    catch (err) { setError(err.message) }
+  }
+
+  useEffect(() => { carregarLog() }, [])
+
+  async function handleSync() {
+    setSyncing(true); setError('')
+    try { await api.post('/api/oportunidades/sync/completo'); await carregarLog() }
+    catch (err) { setError(err.message) }
+    setSyncing(false)
+  }
+
+  const ultima = log[0]
+
+  return (
+    <div className="bg-zinc-900 border border-white/5 rounded-2xl p-6 max-w-2xl mt-6">
+      <h2 className="font-semibold text-white mb-1">Oportunidades (relatório completo eGO)</h2>
+      <p className="text-zinc-500 text-sm mb-4">
+        Relatório "jmarques_todas_as_colunas", filtro "Últimas 48 horas" — grava directo em oportunidades/notas/tarefas/contactos.
+      </p>
+      <button onClick={handleSync} disabled={syncing}
+        className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-purple-500/20 disabled:opacity-50">
+        {syncing ? 'A sincronizar…' : 'Sincronizar Oportunidades'}
+      </button>
+
+      {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
+
+      {ultima && (
+        <>
+          <p className="text-zinc-500 text-xs mt-5 mb-2">Última execução: {formatDataHora(ultima.executado_em)}</p>
+          <div className="grid grid-cols-5 gap-3 text-center">
+            <div>
+              <p className="text-2xl font-bold text-emerald-400">{ultima.resumo.oportunidades}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide">Oportunidades</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-blue-400">{ultima.resumo.notas}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide">Notas</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-teal-400">{ultima.resumo.tarefas}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide">Tarefas</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-amber-400">{ultima.resumo.prefs}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide">Prefs</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-purple-400">{ultima.resumo.contactos?.gravados ?? 0}</p>
+              <p className="text-xs text-zinc-500 uppercase tracking-wide">Contactos</p>
+            </div>
+          </div>
+          {ultima.resumo.contactos?.ignorados_colisao > 0 && (
+            <p className="text-amber-500 text-xs mt-3">
+              {ultima.resumo.contactos.ignorados_colisao} contacto(s) ignorado(s) por colisão de chave (nome, criado_em).
+            </p>
+          )}
+
+          {log.length > 1 && (
+            <div className="mt-6">
+              <p className="text-zinc-500 text-xs uppercase tracking-wide mb-2">Execuções anteriores</p>
+              <div className="space-y-1">
+                {log.slice(1).map(exec => (
+                  <p key={exec.id} className="text-xs text-zinc-500">
+                    {formatDataHora(exec.executado_em)} — {exec.resumo.oportunidades} oportunidades, {exec.resumo.notas} notas, {exec.resumo.contactos?.gravados ?? 0} contactos
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 const TABS = [
   { key: 'portfolio', label: 'Portfólio' },
   { key: 'tarefas', label: 'Tarefas' },
@@ -528,7 +611,7 @@ export default function Imoveis() {
 
       {aba === 'portfolio' && <PortfolioTab />}
       {aba === 'tarefas' && <TarefasTab />}
-      {aba === 'sync' && <SincronizacaoTab />}
+      {aba === 'sync' && <><SincronizacaoTab /><OportunidadesSyncCard /></>}
     </div>
   )
 }

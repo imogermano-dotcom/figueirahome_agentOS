@@ -34,8 +34,8 @@ Backend **obrigatoriamente** em Fly.io — WebSockets persistentes para streamin
 ```
 backend/app/
 ├── main.py          ← FastAPI + CORS + routers
-├── config.py        ← pydantic-settings (SUPABASE_*, SUPABASE_IMOVEIS_*, EGOREALESTATE_*)
-├── api/             ← clientes, imoveis, imoveis_sync, leads, tarefas, config, dashboard, broker
+├── config.py        ← pydantic-settings (SUPABASE_*, SUPABASE_IMOVEIS_*, EGOREALESTATE_*, SCRAPER_SERVICE_*)
+├── api/             ← clientes, imoveis, imoveis_sync, oportunidades_sync, leads, tarefas, config, dashboard, broker
 ├── agents/
 │   ├── voice/       ← webhook Telnyx, audio_ws, whatsapp_intake, save_call
 │   └── broker/      ← tools, conversation, claude_agent, channels/whatsapp/
@@ -48,21 +48,28 @@ frontend/src/
 ├── components/      ← Layout, Sidebar (dark), ProtectedRoute
 ├── pages/           ← Dashboard, Clientes, Imoveis (abas: Portfólio/Tarefas/Sincronização), Leads, Agente1, Agente2, Config
 └── lib/             ← supabase.js, api.js
+
+scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisões)
+├── app.py           ← FastAPI, POST /run/oportunidades-completo (X-Scraper-Secret)
+├── oportunidades_completo.py  ← dispara relatório, lê URL directa do export (não usa popup/download event)
+├── mapping_todas_colunas.py   ← mapeia/agrupa p/ oportunidades/notas/tarefas/contactos/prefs
+└── upsert.py         ← upsert em produção (conflict keys, strip nulls, RPC bulk_update_prefs)
 ```
 
 ---
 
-## Estado actual — Handoff 2026-07-28
+## Estado actual — Handoff 2026-07-29
 
 ### Produção
 
 | Componente | URL | Estado |
 |---|---|---|
-| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado, secrets eGO API + CRM postos |
-| Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
+| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado, secrets eGO API + CRM + SCRAPER_SERVICE_* postos |
+| Scraper oportunidades | `https://figueirahome-scraper.fly.dev` | ✅ app Fly.io separada (1 vCPU/1GB, org `miguel-germano`), scale-to-zero |
+| Frontend | `https://figueirahome-agentos.pages.dev` | ⚠️ botão novo só entra no próximo `git push` (auto-deploy) |
 | WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
 | Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário, só **API** (CRM manual, ver Decisões) + `workflow_dispatch` |
-| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed (último: `81addb2`) |
+| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ⚠️ mudanças desta sessão ainda por commitar/pushar |
 
 ### Base de dados unificada (fases A–D2)
 
@@ -84,6 +91,14 @@ Descoberta desta fase: existe uma tabela `oportunidades` de produção (~90 colu
 
 `teste_imoveis`/`teste_oportunidades` (migrations `0009`–`0011`) são staging (todas `text` + `extra jsonb`, mesmos nomes de coluna que o destino real) — dados ainda não promovidos para produção, decisão em aberto (ver Próximos passos).
 
+### Fase 3 — sync completo de oportunidades (app Fly.io dedicada, escreve direto em produção)
+
+`scraper/` (app Fly.io `figueirahome-scraper`, separada de `figueirahome-agentos`) dispara o relatório `jmarques_todas_as_colunas` (todas as colunas, filtro "Editado em > Últimas 48 horas") e escreve **directo** em `oportunidades`/`notas`/`tarefas`/`contactos` de produção — primeira escrita deste repo nessas tabelas, em paralelo ao `sync_excel_supabase.py` externo (mesmas chaves de conflito, ver doc `PIPELINE_SYNC_EGO_SUPABASE_DEV.md`). Botão "Sincronizar Oportunidades" em `/imoveis` → Sincronização → `POST /api/oportunidades/sync/completo` (backend) → `POST /run/oportunidades-completo` (scraper, `X-Scraper-Secret`).
+
+Mapeamento (`scraper/mapping_todas_colunas.py`) usa nome-normalizado + sufixo de ocorrência (mesma técnica de `export_relatorio_oportunidades.py`), **não** o offset `SHIFT` absoluto da doc — confirmado em 2 corridas reais que a contagem/ordem de ocorrências de cada nome repetido é estável mesmo com o total de colunas a variar. Bloco de imóvel embutido na oportunidade é ignorado (já sincronizado por `imoveis_sync.py`).
+
+Descobertas do 1º run real (ver Decisões): eGO devolve preços/datas em formato PT (precisa conversão antes de upsert); `contactos` tem PK real `(nome, criado_em)`, não `ego_link`; e o popup de download do eGO **não funciona em Fly.io** — contorna-se lendo a URL directa do ficheiro na resposta JSON do POST de export.
+
 ### Ambiente local
 
 - Python: `C:\Users\joaoa\AppData\Local\Programs\Python\Python312\python.exe`
@@ -102,11 +117,13 @@ Descoberta desta fase: existe uma tabela `oportunidades` de produção (~90 colu
 
 ### Próximos passos
 
-1. **Decidir promoção `teste_imoveis`/`teste_oportunidades` → produção** — ou manter só como consulta manual pontual. `teste_oportunidades` não deve substituir a `oportunidades` real sem confirmar com o utilizador (já tem processo próprio a alimentá-la).
-2. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear.
-3. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor.
-4. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
-5. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
+1. **Commit + push das mudanças desta sessão** (`scraper/`, `backend/app/api/oportunidades_sync.py`, `backend/app/config.py`, `backend/app/main.py`, `frontend/src/pages/Imoveis.jsx`, `.gitignore`) — frontend só mostra o botão novo depois do push (Cloudflare Pages auto-deploy).
+2. **Decidir promoção `teste_imoveis`/`teste_oportunidades` → produção** — ou manter só como consulta manual pontual.
+3. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear.
+4. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor.
+5. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
+6. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
+7. Monitorizar 1ªs corridas do sync de oportunidades completo em paralelo ao `sync_excel_supabase.py` externo (confirmar que não duplicam/conflituam).
 
 ---
 
@@ -127,8 +144,11 @@ Descoberta desta fase: existe uma tabela `oportunidades` de produção (~90 colu
 - **CRM backoffice como fonte de verdade de `disponibilidade`, mas não no cron automático**: Web API pública só vê publicados; o CRM autenticado (`egorealestate_crm.py`) é a única fonte com visibilidade total, usado para criar/corrigir linhas fora do alcance da API pública — mas por sobrepor às vezes um estado "Disponível" que a API pública já confirmava (dados desactualizados do lado do CRM), passou a correr só manual, não no cron diário.
 - **"Sem acesso" no CRM ≠ permissão negada por defeito**: uma ficha que devolve "Você não pode consultar este imóvel" é, mais frequentemente, um `ego_id` desactualizado (imóvel recriado com novo ID) do que uma restrição real de permissão — `find_by_ref()` (campo `FreeText`, não `searchText`) resolve isto automaticamente antes de sinalizar tarefa.
 - **`publicado` como coluna GENERATED, não campo escrito pela app**: critério de publicação no site é puramente função de outras colunas da mesma linha (`disponibilidade`, `imovel_ref`, preços, `disponivel_na_api`) — Postgres recalcula sempre, nunca dessincroniza. `disponivel_na_api` é a excepção (plain boolean): só a app sabe, a cada pull da API, se um ref ainda foi devolvido.
-- **Scrapers de relatório eGO (Playwright) correm só local, nunca em Fly.io**: Chromium headless excede a RAM da VM Fly (256MB) — não criar botão no painel para isto sem rever o plano de hosting primeiro.
-- **Staging antes de produção para dados de scraping**: qualquer nova fonte via scraping de relatório entra primeiro numa tabela `teste_*` (todas `text` + `extra jsonb`, mesmos nomes de coluna que o destino real) para inspeccionar valores crus antes de decidir tipos/transformações — nunca escrever directo em `imoveis`/`oportunidades` de produção durante a fase de teste.
+- **Scrapers de relatório eGO em `backend/scripts/` (imóveis, oportunidades 48h/notas) correm só local**: Chromium headless excede a RAM da app principal (256MB). O scraper de oportunidades completo (`scraper/`) é a excepção — tem app Fly.io própria e dedicada (`figueirahome-scraper`, 1GB, scale-to-zero) só para isto, para não subir a RAM da app principal 24/7. Não juntar Playwright à app principal.
+- **Staging antes de produção para dados de scraping — excepto onde já confirmado com o utilizador**: regra por defeito continua a ser `teste_*` primeiro (`imoveis`, `oportunidades` via `backend/scripts/`). O sync de oportunidades completo (`scraper/`) é uma excepção explicitamente aprovada pelo utilizador — escreve direto em produção, validado ao vivo antes de activar.
+- **Popup de download do eGO não funciona em Fly.io/browser headless em datacenter**: confirmado ao vivo — `POST /egocore/report/export` responde 200 e abre popup, mas o popup nunca navega (fica em branco para sempre), nunca reproduzido em dev local. A resposta JSON de `/report/export` já traz a URL directa do ficheiro no campo `data` (domínio `media.egorealestate.com`, assinada) — usar essa URL directamente via httpx em vez de esperar pelo popup/evento `download` do browser. Os scrapers antigos (`backend/scripts/`) ainda usam o mecanismo de popup porque só correm local (nunca expostos a este problema) — se algum dia forem para Fly.io, aplicar a mesma técnica.
+- **Formato PT do eGO precisa de conversão antes de upsert em produção**: preços vêm com vírgula decimal ("240000,0" — Postgres `numeric` rejeita), datas em "dd/mm/aaaa" (Postgres `date`/`timestamptz` com datestyle ISO rejeita). `scraper/mapping_todas_colunas.py` converte antes de qualquer upsert — confirmado por erros reais em produção antes do fix.
+- **`contactos` tem chave primária real `(nome, criado_em)`, não `ego_link`**: ao contrário do que a doc do pipeline externo recomendava. Duas pessoas reais podem partilhar nome+data (visto ao vivo). `scraper/upsert.py` faz upsert registo-a-registo por `ego_link` e ignora (loga, não aborta o lote) colisões de `(nome, criado_em)` — não tentar "resolver" fundindo os dois registos.
 
 ## Bugs conhecidos
 
