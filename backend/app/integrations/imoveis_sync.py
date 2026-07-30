@@ -70,6 +70,7 @@ def _map_property(p: dict) -> dict:
         "plantas": [bp["Thumbnail"] for bp in (p.get("BluePrints") or []) if bp.get("Thumbnail")],
         "video_url": next((v["VideoUrl"] for v in (p.get("Videos") or []) if v.get("VideoUrl")), None),
         "panoramic_url": p.get("MainPanoramicUrl") or None,
+        "destaque": any(t.get("Name") == "Destaque" for t in (p.get("Tags") or [])),
         "ego_atualizado_em": _utc_iso(p.get("LastModified")),
         "fonte": "egorealestate",
         "disponivel_na_api": True,

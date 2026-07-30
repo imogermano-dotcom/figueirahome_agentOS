@@ -122,6 +122,7 @@ create table imoveis (
   plantas               jsonb default '[]'::jsonb,   -- array de URLs de plantas (eGO CDN). Migration 0012 — vem de `BluePrints` na Web API, confirmado ao vivo 2026-07-30 (2/55 imóveis tinham na altura)
   panoramic_url         text,        -- URL de visita virtual/360°. Adicionada directo em produção, sem migration — documentada agora (2026-07-26)
   video_url             text,        -- URL de vídeo (ex: YouTube). Adicionada directo em produção, sem migration — documentada agora (2026-07-26)
+  destaque              boolean default false,  -- Migration 0013 — vem da tag de sistema {"ID":1,"Name":"Destaque"} em `Tags` na Web API, confirmado ao vivo 2026-07-30 (1/55 imóveis tinha na altura)
   ego_id                bigint,      -- ID da propriedade no eGO Real Estate (null = nunca sincronizado)
   ego_atualizado_em     timestamptz,
   data_criacao          date,
