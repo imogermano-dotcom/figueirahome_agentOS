@@ -75,7 +75,7 @@ scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisõ
 
 1. **Sync completo de oportunidades** — nova app Fly.io dedicada (`scraper/`) dispara o relatório eGO `jmarques_todas_as_colunas` (todas as colunas, filtro "Últimas 48h") e escreve **directo** em `oportunidades`/`notas`/`tarefas`/`contactos` de produção — 1ª escrita deste repo nessas tabelas, em paralelo ao `sync_excel_supabase.py` externo (mesmas chaves de conflito, doc `PIPELINE_SYNC_EGO_SUPABASE_DEV.md`). Botão "Sincronizar Oportunidades" em `/imoveis` → Sincronização.
 2. **Scrapers de relatório eGO locais** (fase anterior, ainda válidos) — `backend/scripts/export_relatorio_imoveis.py` e `export_relatorio_oportunidades.py`, gravam em `teste_imoveis`/`teste_oportunidades` (staging, migrations `0009`-`0011`), correm só local.
-3. **`plantas` (BluePrints) mapeado em `imoveis`** — Web API do eGO já devolvia plantas, ignoradas até agora (migration `0012`). Confirmado: sem campo dedicado de visita virtual na API (só `MainPanoramicUrl`, vazio em todos os imóveis actuais); `video_url` e `panoramic_url` também já vêm na mesma chamada da API mas continuam por mapear (oportunidade futura, ver Próximos passos).
+3. **`plantas` (BluePrints), `video_url` e `panoramic_url` mapeados em `imoveis`** — Web API do eGO já devolvia os três, ignorados até agora (`plantas` via migration `0012`; `video_url`/`panoramic_url` em colunas já existentes em produção desde 2026-07-26, sem migration). Confirmado ao vivo: `Videos[0].VideoUrl` já vem como link YouTube pronto; `MainPanoramicUrl` sempre `None` nos 55 imóveis actuais (sem visita virtual real ainda, mas mapeamento fica pronto p/ quando existir). Consumo (UI) é do site público figueirahome.pt — **outro repo**, lê da mesma Supabase; não há UI a fazer aqui.
 
 **Ficheiros principais desta sessão**: `scraper/` (novo — `app.py`, `oportunidades_completo.py`, `mapping_todas_colunas.py`, `upsert.py`, `ego_auth.py`, `config.py`, `fly.toml`, `Dockerfile`), `backend/app/api/oportunidades_sync.py` (novo), `backend/app/config.py`/`main.py` (registo do router), `backend/app/integrations/imoveis_sync.py` (+`plantas`), `frontend/src/pages/Imoveis.jsx` (+botão), `supabase/migrations/0012_imoveis_plantas.sql`.
 
@@ -109,7 +109,7 @@ Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
 
 1. **Decidir promoção `teste_imoveis`/`teste_oportunidades` → produção** — ou manter só como consulta manual pontual.
 2. **Monitorizar sync de oportunidades completo** em paralelo ao `sync_excel_supabase.py` externo (confirmar que não duplicam/conflituam).
-3. **Mapear `video_url`/`panoramic_url`/mostrar `plantas` no frontend** — dados já disponíveis na Web API/BD, falta UI e (para os 2 primeiros) o mapeamento em `_map_property`.
+3. ~~Mapear `video_url`/`panoramic_url`~~ — feito (`_map_property`, sessão 2026-07-30). UI fica a cargo do site público (outro repo).
 4. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear.
 5. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor.
 6. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
