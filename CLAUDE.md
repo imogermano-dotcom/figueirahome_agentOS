@@ -58,53 +58,43 @@ scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisõ
 
 ---
 
-## Estado actual — Handoff 2026-07-29
+## Estado actual — Handoff 2026-07-30
 
 ### Produção
 
 | Componente | URL | Estado |
 |---|---|---|
-| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado, secrets eGO API + CRM + SCRAPER_SERVICE_* postos |
-| Scraper oportunidades | `https://figueirahome-scraper.fly.dev` | ✅ app Fly.io separada (1 vCPU/1GB, org `miguel-germano`), scale-to-zero |
-| Frontend | `https://figueirahome-agentos.pages.dev` | ⚠️ botão novo só entra no próximo `git push` (auto-deploy) |
+| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado (último: `eedd4bc`), secrets eGO API+CRM+SCRAPER_SERVICE_* postos |
+| Scraper oportunidades | `https://figueirahome-scraper.fly.dev` | ✅ app Fly.io separada (org `miguel-germano`, 1 vCPU/1GB, scale-to-zero) |
+| Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
-| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário, só **API** (CRM manual, ver Decisões) + `workflow_dispatch` |
-| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ⚠️ mudanças desta sessão ainda por commitar/pushar |
+| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário, só **API** (CRM manual) + `workflow_dispatch` |
+| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed |
 
-### Base de dados unificada (fases A–D2)
+### O que foi implementado (sessão 2026-07-28/30)
 
-Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`, settings `supabase_imoveis_*`). Projecto original (`supabase_url/key`) fica **só Auth** (contas reais dos corretores). `get_supabase()` = dados; `get_supabase_auth()` = só valida login.
+1. **Sync completo de oportunidades** — nova app Fly.io dedicada (`scraper/`) dispara o relatório eGO `jmarques_todas_as_colunas` (todas as colunas, filtro "Últimas 48h") e escreve **directo** em `oportunidades`/`notas`/`tarefas`/`contactos` de produção — 1ª escrita deste repo nessas tabelas, em paralelo ao `sync_excel_supabase.py` externo (mesmas chaves de conflito, doc `PIPELINE_SYNC_EGO_SUPABASE_DEV.md`). Botão "Sincronizar Oportunidades" em `/imoveis` → Sincronização.
+2. **Scrapers de relatório eGO locais** (fase anterior, ainda válidos) — `backend/scripts/export_relatorio_imoveis.py` e `export_relatorio_oportunidades.py`, gravam em `teste_imoveis`/`teste_oportunidades` (staging, migrations `0009`-`0011`), correm só local.
+3. **`plantas` (BluePrints) mapeado em `imoveis`** — Web API do eGO já devolvia plantas, ignoradas até agora (migration `0012`). Confirmado: sem campo dedicado de visita virtual na API (só `MainPanoramicUrl`, vazio em todos os imóveis actuais); `video_url` e `panoramic_url` também já vêm na mesma chamada da API mas continuam por mapear (oportunidade futura, ver Próximos passos).
 
-### Sincronismo eGO (fases B, F, G)
+**Ficheiros principais desta sessão**: `scraper/` (novo — `app.py`, `oportunidades_completo.py`, `mapping_todas_colunas.py`, `upsert.py`, `ego_auth.py`, `config.py`, `fly.toml`, `Dockerfile`), `backend/app/api/oportunidades_sync.py` (novo), `backend/app/config.py`/`main.py` (registo do router), `backend/app/integrations/imoveis_sync.py` (+`plantas`), `frontend/src/pages/Imoveis.jsx` (+botão), `supabase/migrations/0012_imoveis_plantas.sql`.
 
-Duas acções separadas em `backend/app/integrations/imoveis_sync.py`: `sync_egorealestate_api()` (Web API pública, full pull paginado, corre no cron diário) e `sync_egorealestate_crm()` (CRM backoffice autenticado, única fonte com visibilidade total incl. não-publicados; retirado do cron — ver Decisões arquitecturais — corre só via botão "Validar CRM"). Coluna `publicado` (GENERATED STORED, migration `0008`) e `disponivel_na_api` (plain boolean) — detalhe da regra em Decisões arquitecturais.
+**Decisões arquitecturais e bugs conhecidos** desta feature (popup de download do eGO que não funciona em Fly.io, formato PT de preços/datas, PK real de `contactos`, app Fly.io dedicada a Playwright) — ver secções abaixo, já actualizadas.
 
-### Fase 2 — scrapers de relatório eGO (Playwright)
+### Base de dados unificada
 
-Dois scripts novos, correm **só local** (Fly.io não tem RAM para Chromium — ver Decisões arquitecturais):
-- `backend/scripts/export_relatorio_imoveis.py` — dispara relatório `jmarques_imoveis` (filtro "Disponível") no CRM eGO, faz download, faz parse e grava em `teste_imoveis`.
-- `backend/scripts/export_relatorio_oportunidades.py` — dispara relatório `jmarques_oportunidades_notas` (filtro "Editado em > Últimas 48 horas", sem "Minhas oportunidades") e grava em `teste_oportunidades`.
+Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`, settings `supabase_imoveis_*`). Projecto original (`supabase_url/key`) fica **só Auth**. `get_supabase()` = dados; `get_supabase_auth()` = só valida login.
 
-Ambos reutilizam a sessão de login de `egorealestate_crm._login()` (cookies injectados no Playwright), aplicam filtros via `dispatchEvent` (não `.click()`), fundem múltiplas linhas de nota por entidade em `extra.notas[]`, e ignoram linhas do relatório sem referência. Testados com dados reais: 66 imóveis únicos / 19 oportunidades únicas.
+### Sincronismo eGO
 
-Descoberta desta fase: existe uma tabela `oportunidades` de produção (~90 colunas, ~25k linhas) alimentada por um processo externo ao repo, nunca antes documentada — agora em `docs/database-schema.md`, **não gerida por este projecto**.
-
-`teste_imoveis`/`teste_oportunidades` (migrations `0009`–`0011`) são staging (todas `text` + `extra jsonb`, mesmos nomes de coluna que o destino real) — dados ainda não promovidos para produção, decisão em aberto (ver Próximos passos).
-
-### Fase 3 — sync completo de oportunidades (app Fly.io dedicada, escreve direto em produção)
-
-`scraper/` (app Fly.io `figueirahome-scraper`, separada de `figueirahome-agentos`) dispara o relatório `jmarques_todas_as_colunas` (todas as colunas, filtro "Editado em > Últimas 48 horas") e escreve **directo** em `oportunidades`/`notas`/`tarefas`/`contactos` de produção — primeira escrita deste repo nessas tabelas, em paralelo ao `sync_excel_supabase.py` externo (mesmas chaves de conflito, ver doc `PIPELINE_SYNC_EGO_SUPABASE_DEV.md`). Botão "Sincronizar Oportunidades" em `/imoveis` → Sincronização → `POST /api/oportunidades/sync/completo` (backend) → `POST /run/oportunidades-completo` (scraper, `X-Scraper-Secret`).
-
-Mapeamento (`scraper/mapping_todas_colunas.py`) usa nome-normalizado + sufixo de ocorrência (mesma técnica de `export_relatorio_oportunidades.py`), **não** o offset `SHIFT` absoluto da doc — confirmado em 2 corridas reais que a contagem/ordem de ocorrências de cada nome repetido é estável mesmo com o total de colunas a variar. Bloco de imóvel embutido na oportunidade é ignorado (já sincronizado por `imoveis_sync.py`).
-
-Descobertas do 1º run real (ver Decisões): eGO devolve preços/datas em formato PT (precisa conversão antes de upsert); `contactos` tem PK real `(nome, criado_em)`, não `ego_link`; e o popup de download do eGO **não funciona em Fly.io** — contorna-se lendo a URL directa do ficheiro na resposta JSON do POST de export.
+`backend/app/integrations/imoveis_sync.py`: `sync_egorealestate_api()` (Web API pública, full pull paginado, cron diário) e `sync_egorealestate_crm()` (CRM autenticado, visibilidade total incl. não-publicados, só via botão "Validar CRM", fora do cron — ver Decisões). Coluna `publicado` (GENERATED STORED, migration `0008`) e `disponivel_na_api` (plain boolean).
 
 ### Ambiente local
 
 - Python: `C:\Users\joaoa\AppData\Local\Programs\Python\Python312\python.exe`
-- fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app figueirahome-agentos` (a partir de `backend/`)
-- `backend/.env` — Supabase (ambos) ✅, Anthropic ✅, OpenAI ✅, eGO API + CRM ✅, Telnyx ❌, Meta ❌
-- Scrapers Playwright: `pip install -r backend/scripts/requirements-scraper.txt` + `playwright install chromium`
+- fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` (a partir de `backend/` ou `scraper/`)
+- `backend/.env` / `scraper/.env` — Supabase (ambos) ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_SERVICE_* ✅, Telnyx ❌, Meta ❌
+- Scrapers Playwright: `pip install -r <pasta>/requirements*.txt` + `playwright install chromium`
 
 ### Bloqueadores activos
 
@@ -117,13 +107,13 @@ Descobertas do 1º run real (ver Decisões): eGO devolve preços/datas em format
 
 ### Próximos passos
 
-1. **Commit + push das mudanças desta sessão** (`scraper/`, `backend/app/api/oportunidades_sync.py`, `backend/app/config.py`, `backend/app/main.py`, `frontend/src/pages/Imoveis.jsx`, `.gitignore`) — frontend só mostra o botão novo depois do push (Cloudflare Pages auto-deploy).
-2. **Decidir promoção `teste_imoveis`/`teste_oportunidades` → produção** — ou manter só como consulta manual pontual.
-3. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear.
-4. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor.
-5. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
-6. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
-7. Monitorizar 1ªs corridas do sync de oportunidades completo em paralelo ao `sync_excel_supabase.py` externo (confirmar que não duplicam/conflituam).
+1. **Decidir promoção `teste_imoveis`/`teste_oportunidades` → produção** — ou manter só como consulta manual pontual.
+2. **Monitorizar sync de oportunidades completo** em paralelo ao `sync_excel_supabase.py` externo (confirmar que não duplicam/conflituam).
+3. **Mapear `video_url`/`panoramic_url`/mostrar `plantas` no frontend** — dados já disponíveis na Web API/BD, falta UI e (para os 2 primeiros) o mapeamento em `_map_property`.
+4. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear.
+5. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor.
+6. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
+7. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
 
 ---
 
