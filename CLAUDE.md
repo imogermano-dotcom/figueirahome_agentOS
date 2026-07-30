@@ -142,6 +142,7 @@ Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
 
 ## Bugs conhecidos
 
+- **Timeout esporádico no sync de oportunidades** (`scraper/oportunidades_completo.py:217`, 30s): confirmado 2026-07-30 — falha transiente do CRM eGO em responder a `POST /report/export`, não bug de código (retry manual resolveu de imediato). Teoria do comentário no código (eGO envia por email se resultado grande) não confirmada. Se repetir com frequência, subir timeout 30s→60s.
 - **Sem barge-in**: utilizador não pode interromper agente de voz enquanto fala
 - **Estado de sessão em memória**: sessões de voz perdidas em restart do servidor
 - **Race condition voz**: `is_speaking` depende de `call.speak.ended` antes do próximo chunk
