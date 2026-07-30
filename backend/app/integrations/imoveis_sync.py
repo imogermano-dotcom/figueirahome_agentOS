@@ -67,6 +67,7 @@ def _map_property(p: dict) -> dict:
         "arrendamento_preco": arrendamento_preco,
         "foto_principal": p.get("Thumbnail"),
         "fotos": [img["Thumbnail"] for img in (p.get("Images") or []) if img.get("Thumbnail")],
+        "plantas": [bp["Thumbnail"] for bp in (p.get("BluePrints") or []) if bp.get("Thumbnail")],
         "ego_atualizado_em": _utc_iso(p.get("LastModified")),
         "fonte": "egorealestate",
         "disponivel_na_api": True,

@@ -119,6 +119,7 @@ create table imoveis (
   portais               text,        -- lista de portais onde está syndicado (via eGO), texto separado por vírgulas
   foto_principal        text,
   fotos                 jsonb default '[]'::jsonb,   -- array de URLs (eGO CDN)
+  plantas               jsonb default '[]'::jsonb,   -- array de URLs de plantas (eGO CDN). Migration 0012 — vem de `BluePrints` na Web API, confirmado ao vivo 2026-07-30 (2/55 imóveis tinham na altura)
   panoramic_url         text,        -- URL de visita virtual/360°. Adicionada directo em produção, sem migration — documentada agora (2026-07-26)
   video_url             text,        -- URL de vídeo (ex: YouTube). Adicionada directo em produção, sem migration — documentada agora (2026-07-26)
   ego_id                bigint,      -- ID da propriedade no eGO Real Estate (null = nunca sincronizado)
