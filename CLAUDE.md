@@ -95,9 +95,9 @@ Reformulação dos agentes segundo `assistentes-ia-especificacao.md`. Detalhe em
    `instrucoes` descartado com persona vazia, `ativo` nunca lido.
 6. **Testes**: `backend/tests/test_{router,guards}.py` — primeiros do projecto.
 
-**Verificado ao vivo** (Supabase + API Anthropic): router, 80% (recusa não
-escreve), dedup de formatos de telefone, kill switch sem chamada à API.
-Por verificar: WhatsApp em produção e painel no browser.
+**Verificado ao vivo**: router, 80% (recusa não escreve), dedup de formatos de
+telefone, kill switch sem chamada à API. Confirmado end-to-end em produção
+pelo utilizador (2026-08-02) — **chat do painel e WhatsApp, ambos a funcionar**.
 
 ### Sessões anteriores (resumo)
 

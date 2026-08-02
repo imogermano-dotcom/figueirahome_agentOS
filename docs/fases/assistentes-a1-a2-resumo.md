@@ -79,6 +79,10 @@ Contra a Supabase real e a API da Anthropic:
 
 Linhas de teste removidas da BD no fim; estado de `agente_config` restaurado.
 
+**Produção (2026-08-02)**: backend deployado no Fly.io (`/health` 200, v0.4.0),
+frontend no Cloudflare Pages. Confirmado end-to-end pelo utilizador — **chat do
+painel e WhatsApp, ambos a funcionar**.
+
 ## Adiado
 
 A3 Recrutamento, A4 Angariador, SC (simulação de crédito), FP (propostas
