@@ -4,6 +4,7 @@ import logging
 
 from anthropic import AsyncAnthropic
 
+from app.agents.broker.guards import find_or_create_cliente
 from app.agents.voice.session import CallSession
 from app.config import settings
 from app.db.supabase_client import get_supabase
@@ -55,35 +56,6 @@ async def _extract_data(transcricao: str) -> dict:
     return {"resumo": "Chamada sem dados suficientes para extrair."}
 
 
-def _supabase_upsert_cliente(supabase, dados: dict, numero_origem: str) -> str | None:
-    telefone = dados.get("telefone") or numero_origem
-    existing = (
-        supabase.table("agente_clientes")
-        .select("id")
-        .eq("telefone", telefone)
-        .limit(1)
-        .execute()
-    )
-    cliente_data = {
-        "nome": dados.get("nome"),
-        "telefone": telefone,
-        "tipo_interesse": dados.get("tipo_interesse"),
-        "orcamento": dados.get("orcamento"),
-        "zona_preferida": dados.get("zona_preferida"),
-        "origem": "chamada",
-    }
-    cliente_data = {k: v for k, v in cliente_data.items() if v is not None}
-
-    if existing.data:
-        cliente_id = existing.data[0]["id"]
-        supabase.table("agente_clientes").update(cliente_data).eq("id", cliente_id).execute()
-    else:
-        result = supabase.table("agente_clientes").insert(cliente_data).execute()
-        cliente_id = result.data[0]["id"] if result.data else None
-
-    return cliente_id
-
-
 def _supabase_insert_chamada(supabase, session: CallSession, cliente_id: str | None, dados: dict) -> None:
     duracao = int((session.iniciada_em.utcnow() - session.iniciada_em).total_seconds())
     supabase.table("agente_chamadas").insert(
@@ -120,13 +92,25 @@ async def save_call(session: CallSession) -> None:
         logger.exception("Erro ao extrair dados da chamada %s", session.call_control_id)
         dados = {"resumo": "Erro na extracção de dados."}
 
+    # Dedup partilhado com os assistentes (spec §2.7): antes havia aqui uma
+    # cópia artesanal do mesmo upsert por telefone, que não normalizava
+    # formatos e por isso duplicava clientes já conhecidos do WhatsApp.
+    cliente = await find_or_create_cliente(
+        nome=dados.get("nome"),
+        telefone=dados.get("telefone") or session.numero_origem,
+        tipo_interesse=dados.get("tipo_interesse"),
+        orcamento=dados.get("orcamento"),
+        zona_preferida=dados.get("zona_preferida"),
+        origem="chamada",
+    )
+    cliente_id = cliente["id"] if cliente else None
+
     supabase = get_supabase()
     loop = asyncio.get_event_loop()
 
     def _save():
-        cliente_id = _supabase_upsert_cliente(supabase, dados, session.numero_origem)
         _supabase_insert_chamada(supabase, session, cliente_id, dados)
-        if dados.get("tipo_interesse"):
+        if cliente_id and dados.get("tipo_interesse"):
             _supabase_insert_lead(supabase, cliente_id, dados)
 
     await loop.run_in_executor(None, _save)

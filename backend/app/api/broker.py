@@ -1,10 +1,9 @@
-import uuid
 import logging
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.agents.broker.claude_agent import get_response
+from app.agents.broker.engine import responder
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +13,8 @@ router = APIRouter(prefix="/api")
 class BrokerChatRequest(BaseModel):
     mensagem: str
     participante: str = "web_user"
+    # None deixa o router decidir — é assim que o painel testa o roteamento.
+    agente: str | None = None
 
 
 class BrokerChatResponse(BaseModel):
@@ -27,13 +28,14 @@ async def broker_chat(body: BrokerChatRequest):
         raise HTTPException(status_code=400, detail="Mensagem não pode estar vazia.")
 
     try:
-        resposta = await get_response(
-            participante=body.participante,
+        resposta = await responder(
             canal="web",
-            mensagem_user=body.mensagem,
+            participante=body.participante,
+            mensagem=body.mensagem,
+            agente=body.agente,
         )
     except Exception:
-        logger.exception("Erro no broker chat")
-        raise HTTPException(status_code=500, detail="Erro interno do agente broker.")
+        logger.exception("Erro no chat do painel")
+        raise HTTPException(status_code=500, detail="Erro interno do assistente.")
 
     return BrokerChatResponse(resposta=resposta, participante=body.participante)

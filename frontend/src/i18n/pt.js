@@ -1,8 +1,12 @@
 export const pt = {
   nav: {
     dashboard: 'Dashboard',
-    agente1: 'Agente de Voz',
-    agente2: 'Assistente Broker',
+    chat: 'Chat',
+    assistentes: 'Assistentes',
+    a1: 'A1 — Vendedor',
+    a2: 'A2 — Geral',
+    voz: 'Voz',
+    broker: 'Broker (interno)',
     clientes: 'Clientes',
     imoveis: 'Imóveis',
     leads: 'Leads',

@@ -4,8 +4,13 @@ import { supabase } from '../lib/supabase'
 
 const navItems = [
   { to: '/', label: pt.nav.dashboard, icon: '▦' },
-  { to: '/agente1', label: pt.nav.agente1, icon: '☎' },
-  { to: '/agente2', label: pt.nav.agente2, icon: '💬' },
+  { to: '/chat', label: pt.nav.chat, icon: '💬' },
+  { grupo: pt.nav.assistentes },
+  { to: '/agentes/a1_vendedor', label: pt.nav.a1, icon: '🏠' },
+  { to: '/agentes/a2_geral', label: pt.nav.a2, icon: '📞' },
+  { to: '/agentes/voz', label: pt.nav.voz, icon: '☎' },
+  { to: '/agentes/broker', label: pt.nav.broker, icon: '🔒' },
+  { grupo: null },
   { to: '/clientes', label: pt.nav.clientes, icon: '👥' },
   { to: '/imoveis', label: pt.nav.imoveis, icon: '🏠' },
   { to: '/leads', label: pt.nav.leads, icon: '📋' },
@@ -27,7 +32,11 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 py-3 overflow-y-auto space-y-0.5 px-2">
-        {navItems.map(({ to, label, icon }) => (
+        {navItems.map(({ to, label, icon, grupo }, i) => !to ? (
+          <p key={`g${i}`} className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-zinc-600">
+            {grupo}
+          </p>
+        ) : (
           <NavLink
             key={to}
             to={to}

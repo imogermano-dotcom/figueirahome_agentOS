@@ -1,11 +1,10 @@
-import asyncio
 import logging
 
 from anthropic import AsyncAnthropic
 
+from app.agents.broker.assistants import load_config
 from app.agents.voice.session import CallSession
 from app.config import settings
-from app.db.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 
@@ -29,30 +28,12 @@ Instruções:
 """
 
 
-async def _load_config() -> str:
-    loop = asyncio.get_event_loop()
-    supabase = get_supabase()
-
-    def _fetch():
-        return (
-            supabase.table("agente_config")
-            .select("persona,instrucoes")
-            .eq("agente", "voz")
-            .single()
-            .execute()
-        )
-
-    resp = await loop.run_in_executor(None, _fetch)
-    data = resp.data or {}
-    persona = data.get("persona", "")
-    instrucoes = data.get("instrucoes", "")
-    extra = f"\nPersona: {persona}\n{instrucoes}" if persona else ""
-    return _SYSTEM_BASE + extra
-
-
 async def get_response(session: CallSession, user_text: str) -> str:
     if not session.system_prompt:
-        session.system_prompt = await _load_config()
+        # `load_config` é a versão partilhada: já não descarta `instrucoes`
+        # quando a persona está vazia, e já não rebenta se a linha faltar.
+        extra, _ativo = await load_config("voz")
+        session.system_prompt = _SYSTEM_BASE + extra
 
     session.historico.append({"role": "user", "content": user_text})
 

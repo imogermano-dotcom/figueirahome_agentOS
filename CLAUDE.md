@@ -37,8 +37,9 @@ backend/app/
 ├── config.py        ← pydantic-settings (SUPABASE_*, SUPABASE_IMOVEIS_*, EGOREALESTATE_*, SCRAPER_SERVICE_*)
 ├── api/             ← clientes, imoveis, imoveis_sync, oportunidades_sync, leads, tarefas, config, dashboard, broker
 ├── agents/
-│   ├── voice/       ← webhook Telnyx, audio_ws, whatsapp_intake, save_call
-│   └── broker/      ← tools, conversation, claude_agent, channels/whatsapp/
+│   ├── voice/       ← webhook Telnyx, audio_ws, save_call, claude_agent (só voz)
+│   └── broker/      ← engine (motor único), assistants (registry), router,
+│                       guards (dedup + 80%), tools, conversation, channels/whatsapp/
 ├── integrations/    ← egorealestate.py (cliente API), imoveis_sync.py (upsert)
 ├── db/supabase_client.py  ← get_supabase() [dados, projecto unificado] + get_supabase_auth() [só login]
 └── models/          ← Pydantic (imovel, cliente, lead, tarefa, ...)
@@ -46,7 +47,7 @@ backend/app/
 frontend/src/
 ├── App.jsx          ← React Router v6
 ├── components/      ← Layout, Sidebar (dark), ProtectedRoute
-├── pages/           ← Dashboard, Clientes, Imoveis (abas: Portfólio/Tarefas/Sincronização), Leads, Agente1, Agente2, Config
+├── pages/           ← Dashboard, Clientes, Imoveis (abas: Portfólio/Tarefas/Sincronização), Leads, Chat, AgenteConfig (/agentes/:agente), Config
 └── lib/             ← supabase.js, api.js
 
 scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisões)
@@ -58,7 +59,7 @@ scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisõ
 
 ---
 
-## Estado actual — Handoff 2026-07-31
+## Estado actual — Handoff 2026-08-02
 
 ### Produção
 
@@ -71,12 +72,37 @@ scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisõ
 | Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário (última run 2026-07-31T08:48, sucesso), só **API** (CRM manual) + `workflow_dispatch` |
 | Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed |
 
-### O que foi implementado (sessão 2026-07-30/31)
+### O que foi implementado (sessão 2026-08-02) — Assistentes A1/A2
 
-1. **Campos extra da Web API eGO mapeados em `imoveis`**: `plantas` (migration `0012`), `video_url`/`panoramic_url` (colunas já existiam em produção, sem migration), `destaque` (migration `0013`, aplicada em produção). Todos vêm da mesma chamada `GET /v1/Properties` já usada p/ fotos — confirmado ao vivo: `Videos[0].VideoUrl` já é link YouTube pronto, `MainPanoramicUrl` sempre vazio p/ já, `destaque` vem da tag de sistema `{"ID":1,"Name":"Destaque"}` em `Tags[]` (1/55 imóveis actuais, `FH2450`). Confirmado por cron real (2026-07-31T08:48) que o full-pull grava `destaque` correctamente. Consumo (UI) é do site público figueirahome.pt — **outro repo**, lê da mesma Supabase; nada a fazer aqui.
-2. **Sync completo de oportunidades** (sessão anterior, 2026-07-28/30, já em produção) — app Fly.io dedicada (`scraper/`) dispara relatório eGO `jmarques_todas_as_colunas`, escreve directo em `oportunidades`/`notas`/`tarefas`/`contactos`. Detalhe em Decisões arquitecturais.
+Reformulação dos agentes segundo `assistentes-ia-especificacao.md`. Detalhe em
+`docs/fases/assistentes-a1-a2-{plano,resumo}.md`. Saldo: **−197 linhas**.
 
-**Ficheiros principais desta sessão (07-30/31)**: `backend/app/integrations/imoveis_sync.py` (+`video_url`/`panoramic_url`/`destaque`), `supabase/migrations/0013_imoveis_destaque.sql`, `docs/database-schema.md`.
+1. **Motor único** (`agents/broker/engine.py`) substitui os 3 cérebros duplicados.
+   Apagados `broker/claude_agent.py` e `voice/whatsapp_intake.py` — o ciclo de
+   imports broker↔voice morreu por remoção. Prompt caching e tool forcing (antes
+   só no WhatsApp) valem agora para todos.
+2. **Assistentes por configuração** (`assistants.py`): prompt base + subconjunto
+   de tools + forcing. A1 Vendedor (SI-A/SI-B/SV), A2 Geral, Broker interno.
+   `consultar_clientes`/`consultar_leads` restritas ao Broker — antes estavam
+   expostas no endpoint que passa a servir clientes.
+3. **Router de intenção** (`router.py`): regex + stickiness na coluna nova
+   `agente_conversas.agente` (migration `0014`, aplicada em produção). A3/A4
+   reconhecidos mas encaminhados para o A2 enquanto não existirem.
+4. **Guardas em código** (`guards.py`): dedup de clientes (única via de escrita,
+   4 upserts artesanais eliminados) e regra dos 80% dentro de `agendar_visita`.
+5. **Bugs corrigidos**: `pesquisar_imoveis` devolvia vendidos/retirados (falta
+   `publicado`), zona só por `concelho`, `execute_tool` devolvia `str(list)`,
+   `instrucoes` descartado com persona vazia, `ativo` nunca lido.
+6. **Testes**: `backend/tests/test_{router,guards}.py` — primeiros do projecto.
+
+**Verificado ao vivo** (Supabase + API Anthropic): router, 80% (recusa não
+escreve), dedup de formatos de telefone, kill switch sem chamada à API.
+Por verificar: WhatsApp em produção e painel no browser.
+
+### Sessões anteriores (resumo)
+
+- **2026-07-30/31** — campos extra da Web API eGO em `imoveis`: `plantas` (`0012`), `video_url`/`panoramic_url` (colunas já em produção, sem migration), `destaque` (`0013`, da tag de sistema `{"ID":1,"Name":"Destaque"}`). Todos da mesma chamada `GET /v1/Properties` já usada p/ fotos; `MainPanoramicUrl` vem sempre vazio p/ já. Consumo (UI) é do site público figueirahome.pt — **outro repo**, mesma Supabase.
+- **2026-07-28/30** — sync completo de oportunidades: app Fly.io dedicada (`scraper/`) dispara relatório eGO `jmarques_todas_as_colunas`, escreve directo em `oportunidades`/`notas`/`tarefas`/`contactos`. Detalhe em Decisões.
 
 ### Base de dados unificada
 
@@ -99,15 +125,18 @@ Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
 |---|---|
 | Credenciais Telnyx (3 vars) | ❌ bloqueia chamadas de voz |
 | Número PT +351 Telnyx | ❌ requer regulatory requirement group |
-| Número WhatsApp do corretor | ❌ bloqueia `escalar_para_broker` |
+| Número WhatsApp do corretor | ⚠️ escalada já funciona via `agente_tarefas`; só a notificação por WhatsApp está bloqueada |
 | ~3459 linhas `fonte='manual'`/`Em Prospecção` de origem desconhecida | ⚠️ investigação parada a pedido do utilizador — não mexer sem ser pedido de novo |
 
 ### Próximos passos
 
 1. **Decidir promoção `teste_imoveis`/`teste_oportunidades` → produção** — ou manter só como consulta manual pontual.
 2. **Monitorizar sync de oportunidades completo** em paralelo ao `sync_excel_supabase.py` externo (confirmar que não duplicam/conflituam).
-3. **Reformulação Agentes + Dashboard** — pedido original antes de imóveis ter aberto esta sessão; ainda por planear.
-4. **`escalar_para_broker`** — plano pronto (tool no WhatsApp, padrão de `pesquisar_imoveis`); falta só o número do corretor.
+3. **Assistentes A3 (Recrutamento) e A4 (Angariador)** — adiados da fase A1/A2. Router já os reconhece e encaminha para o A2; falta criar as linhas em `agente_config` e os prompts.
+4. **A1 — sub-fluxos SC (simulação de crédito) e FP (propostas)** — adiados. A *escalada* do FP já está honrada via `escalar_para_humano`.
+5. **Lembretes de visita 24h / follow-up 48h** — precisam de scheduler (cron GitHub Actions é o hospedeiro óbvio). É a condição para criar `agente_visitas`; até lá as visitas vivem em `agente_tarefas`.
+6. **Dashboard** — não tocado nesta fase. A coluna `agente` permite agora métricas por assistente.
+7. **`escalar_para_broker` via WhatsApp** — hoje escala para `agente_tarefas` (visível no painel). Enviar mensagem ao corretor ainda depende do número dele.
 5. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
 6. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
 
@@ -115,9 +144,18 @@ Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
 
 ## Decisões arquitecturais
 
-- **Agente unificado**: `agente_config[agente='voz']` é a persona de atendimento ao cliente (voz, WhatsApp, web). `agente_config[agente='broker']` é exclusivo para uso interno do corretor.
+- **Um motor, N assistentes — nunca N cópias do loop**: assistentes distinguem-se por 3 coisas em `assistants.ASSISTENTES` (prompt base, subconjunto de tools, tool forcing), não por código próprio. Antes havia 3 loops agênticos duplicados que divergiam em silêncio: só um tinha prompt caching, só um tinha tool forcing. Acrescentar A3/A4 é uma entrada no dict + uma linha em `agente_config`, não um ficheiro novo.
+- **Subconjunto de tools por assistente é uma fronteira de segurança, não organização**: `consultar_clientes`/`consultar_leads` expõem a base de clientes da agência e o mesmo endpoint (`/api/broker/chat`) serve agora clientes no banco de ensaio. Restritas ao assistente `broker`. Não alargar sem pensar em quem fala com o endpoint.
+- **Router por regex, não por LLM**: o nível 1 da spec é uma tabela de keywords que escolhe entre dois baldes, um dos quais é "não classificado". Falhas são baratas nos dois sentidos (keyword falhada cai no A2, que encaminha). Upgrade só se os logs mostrarem má taxa de acerto — e mesmo aí, classificação forçada só na 1ª mensagem da thread, nunca uma chamada por mensagem.
+- **Routing sticky em `agente_conversas.agente`** (migration `0014`): a thread fica com o assistente decidido, em vez de ser re-classificada a cada mensagem. Sentido único — A2→A1 com sinal de compra, nunca A1→A2 (uma thread de comprador não volta atrás e perde o contexto de qualificação).
+- **`agente_config` é a tabela de assistentes; não há lista em código**: `AGENTES_VALIDOS` foi removido de `api/config.py`. A validação é "a linha existe". Acrescentar assistente = INSERT, não deploy. `instrucoes` do A2 faz de base de conhecimento editável (horários, morada, serviços) — foi por isso que a tabela `agency_knowledge` da spec foi rejeitada.
+- **Regras que não podem falhar vivem em `guards.py`, não no prompt**: dedup de clientes (única via de escrita — havia 4 upserts artesanais que duplicavam entre canais) e regra dos 80% dentro de `agendar_visita`, antes de qualquer escrita. Um LLM esquece uma regra; um `if` não.
+- **Fallback de tipologia dentro da tool, não no prompt**: o modelo traduz "T2" para `natureza="Apartamento"` e perde as moradias T2 — observado ao vivo a responder "não temos" havendo uma moradia T2 a 65k. Zero resultados com `natureza` dispara segunda pesquisa sem esse filtro. O nível 1 do fallback da spec (§3.2 SI-B fase 5) é determinístico; os níveis 2 e 3 continuam no prompt.
+- **Tabelas da spec dos assistentes rejeitadas por duplicação**: `ai_conversations`→`agente_conversas`, `ai_messages`→`mensagens` jsonb, `ai_visit_bookings`→`agente_tarefas` (já indexada e já no painel), `agency_knowledge`→`agente_config.instrucoes`. `consultants`/`agency_info`/`properties`/`feedback_queries` não existem — a spec inventou-as. Migration `0014` = 1 coluna e 2 linhas de seed, mais nada.
+- **Assistentes nunca escrevem em `oportunidades`/`contactos`**: são espelho do eGO, escritos por pipeline externo. `pref_*` só via RPC `bulk_update_prefs` com `pref_extraido_em IS NULL`; `contactos` tem PK `(nome, criado_em)` mas o sync usa `ego_link` — insert nosso colide ou fica órfão. Leitura sim, escrita não. A spec §2.5 pede o contrário; ignorar.
+- **Agente unificado**: `agente_config[agente='voz']` é a persona da voz telefónica. Atendimento ao cliente (WhatsApp, web) passou para `a1_vendedor`/`a2_geral`. `agente_config[agente='broker']` continua exclusivo do corretor.
 - **Dois projectos Supabase, papéis divididos**: `get_supabase()` = todos os dados (projecto `zphasvfopnbzwnaidsnw`, dados unificados desde 2026-07-21); `get_supabase_auth()` = só validação de login (projecto original, onde vivem as contas reais). Backend usa sempre `service_role_key` para dados — nunca passa o JWT ao Postgres — por isso um token emitido pelo projecto de Auth valida-se normalmente mesmo com os dados noutro projecto (RLS nunca chega a ser avaliado). Lazy singletons em `db/supabase_client.py`.
-- **Tool forcing WhatsApp**: quando user menciona critérios de pesquisa (regex `_SEARCH_RE`), `tool_choice: {"type":"tool","name":"pesquisar_imoveis"}` é forçado na iteração 0. Sem este mecanismo Claude ignorava as tools e prometia callbacks.
+- **Tool forcing**: quando o utilizador menciona critérios de pesquisa (regex `_SEARCH_RE`, em `assistants.py`), `tool_choice: {"type":"tool","name":"pesquisar_imoveis"}` é forçado na iteração 0. Sem este mecanismo Claude ignorava as tools e prometia callbacks. Hoje é declarado por assistente (`spec["force"]`), não hardcoded — mas o regex e o comportamento são os mesmos, provados em produção. Não remover sem reconfirmar ao vivo.
 - **Prompt caching**: system prompt como lista com `cache_control: ephemeral` + beta header. Cache hits custam 10% do preço normal.
 - **Aging de conversas**: `load_conversation` verifica `atualizado_em`; se > 48h retorna `None, []` e `save_conversation` cria nova linha.
 - **Tailwind v4** via `@tailwindcss/vite` — sem `tailwind.config.js`

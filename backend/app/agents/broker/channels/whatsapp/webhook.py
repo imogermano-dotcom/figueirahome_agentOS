@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response
 
 from app.agents.broker.channels.whatsapp.meta_api import mark_as_read, send_text_message
-from app.agents.voice.whatsapp_intake import get_response
+from app.agents.broker.engine import responder
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,10 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
 async def _handle_message(from_number: str, message_id: str, text: str) -> None:
     try:
         await mark_as_read(message_id)
-        response = await get_response(from_number=from_number, mensagem_user=text)
+        # Sem `agente=`: o router decide e a escolha fica colada à thread.
+        response = await responder(
+            canal="whatsapp", participante=from_number, mensagem=text
+        )
         await send_text_message(from_number, response)
     except Exception:
         logger.exception("Erro ao processar mensagem WhatsApp de %s", from_number)
