@@ -455,6 +455,11 @@ async def _agendar_visita(inputs: dict, contexto: dict) -> str:
             "imovel_ref": imovel.get("imovel_ref"),
             "prazo": _data_valida(inputs.get("data_iso")),
             "estado": "pendente",
+            # Campos de métrica (migration 0018). O título continua legível
+            # para o corretor, mas deixa de ser a fonte de verdade.
+            "tipo": "visita",
+            "agente": contexto.get("agente"),
+            "conversa_id": contexto.get("conversa_id"),
         },
     )
     return (
@@ -489,6 +494,11 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             "imovel_ref": inputs.get("imovel_ref"),
             "prazo": date.today().isoformat(),
             "estado": "pendente",
+            "tipo": "escalar",
+            "agente": contexto.get("agente"),
+            "conversa_id": contexto.get("conversa_id"),
+            # Agregável: antes o motivo só existia dentro do título.
+            "motivo": motivo,
         },
     )
     return (

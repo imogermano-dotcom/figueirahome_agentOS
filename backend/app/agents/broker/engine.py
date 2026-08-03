@@ -80,6 +80,26 @@ def _perfil_cliente(telefone: str) -> str:
     )
 
 
+# Tools cujos argumentos são critérios de pesquisa e nada mais. Só destas se
+# guardam os `input` em `agente_interacoes.tools_detalhe`.
+#
+# `guardar_dados_cliente`, `agendar_visita` e `escalar_para_humano` recebem
+# nome, telefone e email — copiá-los para cá espalharia dados pessoais por uma
+# segunda tabela sem necessidade. Dessas guarda-se o nome da tool e mais nada.
+#
+# Allowlist e não blocklist de propósito: uma tool nova entra por omissão no
+# lado seguro. Acrescentar aqui exige olhar para o schema dela primeiro.
+_TOOLS_INPUT_SEGURO = frozenset({"pesquisar_imoveis", "ficha_imovel"})
+
+
+def _detalhe_tool(bloco: dict) -> dict:
+    """Nome da tool, e os argumentos apenas quando não carregam PII."""
+    nome = bloco.get("name", "")
+    if nome in _TOOLS_INPUT_SEGURO:
+        return {"nome": nome, "input": bloco.get("input") or {}}
+    return {"nome": nome}
+
+
 async def _registar_interacao(dados: dict) -> None:
     """Grava uma linha em `agente_interacoes`.
 
@@ -130,7 +150,16 @@ async def responder(
         )
 
     system_prompt = spec["prompt"] + perfil + extra
-    contexto = {"canal": canal, "telefone": telefone, "origem": canal}
+    contexto = {
+        "canal": canal,
+        "telefone": telefone,
+        "origem": canal,
+        "agente": agente,
+        # None no 1.º turno de uma conversa nova: o id só existe depois do
+        # save_conversation, no fim do turno. A tarefa fica sem conversa mas
+        # com agente — preferível a inverter a ordem de gravação só por isto.
+        "conversa_id": conversa_id,
+    }
 
     now = datetime.now(timezone.utc).isoformat()
     mensagens.append({"role": "user", "content": mensagem, "timestamp": now})
@@ -158,6 +187,7 @@ async def responder(
     # era descartado — sem ele o custo é incalculável.
     tokens: dict[str, int] = {}
     tools_usadas: list[str] = []
+    tools_detalhe: list[dict] = []
     iteracoes = 0
     erro: str | None = None
     inicio = time.monotonic()
@@ -195,6 +225,7 @@ async def responder(
                     if bloco.get("type") != "tool_use":
                         continue
                     tools_usadas.append(bloco["name"])
+                    tools_detalhe.append(_detalhe_tool(bloco))
                     saida = await execute_tool(
                         bloco["name"], bloco.get("input", {}), contexto
                     )
@@ -234,6 +265,7 @@ async def responder(
         "latencia_ms": latencia_ms,
         "iteracoes": iteracoes,
         "tools_usadas": tools_usadas or None,
+        "tools_detalhe": tools_detalhe or None,
         "tool_forcada": forcar_agora,
         "erro": erro,
     })

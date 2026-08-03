@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.agents.broker.guards import (  # noqa: E402
+    _compativel,
     normalizar_email,
     normalizar_telefone,
     visita_permitida,
@@ -46,9 +47,39 @@ def test_visita_permitida_sem_dados():
     assert visita_permitida(100000, 0) is False
 
 
+def test_compativel_preenche_dados_em_falta():
+    """O bug de 2026-08-03: nome gravado sem telefone, telefone chega depois.
+
+    `guardar_dados_cliente` grava o nome (o modelo nem sempre passa o
+    telefone); no turno seguinte `agendar_visita` traz o telefone. Sem isto,
+    a procura por telefone falhava e criava-se uma segunda linha.
+    """
+    existente = {"nome": "Carlos Mendes", "telefone": None, "email": None}
+    assert _compativel(existente, "912777888", None) is True
+    assert _compativel(existente, None, "c@x.pt") is True
+
+
+def test_compativel_recusa_quando_ha_contradicao():
+    """Dois homónimos com telefones diferentes são duas pessoas."""
+    joao_a = {"nome": "João Silva", "telefone": "911111111", "email": None}
+    assert _compativel(joao_a, "922222222", None) is False
+    assert _compativel(joao_a, "911111111", None) is True
+    # Formatos diferentes do MESMO número continuam compatíveis.
+    assert _compativel({"nome": "X", "telefone": "351911111111"}, "911111111", None) is True
+
+    com_email = {"nome": "Ana", "telefone": None, "email": "ana@x.pt"}
+    assert _compativel(com_email, None, "outra@x.pt") is False
+    assert _compativel(com_email, None, "ana@x.pt") is True
+
+
+def test_compativel_sem_identificadores():
+    """Nada a contradizer — o nome é o único dado que temos."""
+    assert _compativel({"nome": "Ana", "telefone": None, "email": None}, None, None) is True
+
+
 if __name__ == "__main__":
-    test_normalizar_telefone()
-    test_normalizar_email()
-    test_visita_permitida()
-    test_visita_permitida_sem_dados()
+    for nome, fn in list(globals().items()):
+        if nome.startswith("test_"):
+            fn()
+            print(f"  ok  {nome}")
     print("test_guards OK")

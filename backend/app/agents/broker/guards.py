@@ -95,21 +95,43 @@ def _procurar_cliente(supabase, telefone: str | None, email: str | None, nome: s
         if resp.data:
             return resp.data[0]
 
-    # Nome é só confirmação (spec §2.7): sem telefone nem email não chega
-    # para afirmar que é a mesma pessoa, mas evita duplicar quando é o
-    # único dado que temos.
-    if nome and not telefone and not email:
+    # Nome é só confirmação (spec §2.7) — mas é preciso tentá-lo mesmo quando
+    # há telefone ou email que não deram correspondência.
+    #
+    # Bug real (2026-08-03): `guardar_dados_cliente` gravava o nome sem
+    # telefone (o modelo nem sempre o passa) e, no turno seguinte,
+    # `agendar_visita` trazia o telefone. A procura por telefone falhava e a
+    # procura por nome era saltada — duas linhas para a mesma pessoa. É o
+    # padrão normal de uma conversa: dados parciais primeiro, completos depois.
+    #
+    # Só se aceita a correspondência por nome quando o registo encontrado
+    # **não contradiz** os identificadores que trazemos: telefone/email vazios
+    # ou iguais. Dois "João Silva" com telefones diferentes continuam a ser
+    # duas pessoas — a spec proíbe fundir por nome sozinho.
+    if nome:
         resp = (
             supabase.table("agente_clientes")
             .select("id,nome,telefone,email")
             .ilike("nome", nome.strip())
-            .limit(1)
+            .limit(5)
             .execute()
         )
-        if resp.data:
-            return resp.data[0]
+        for candidato in resp.data or []:
+            if _compativel(candidato, telefone, email):
+                return candidato
 
     return None
+
+
+def _compativel(candidato: dict, telefone: str | None, email: str | None) -> bool:
+    """O candidato pode ser a mesma pessoa? Só se nada contradisser."""
+    tel_c = normalizar_telefone(candidato.get("telefone"))
+    if telefone and tel_c and tel_c != telefone:
+        return False
+    email_c = normalizar_email(candidato.get("email"))
+    if email and email_c and email_c != email:
+        return False
+    return True
 
 
 async def find_or_create_cliente(
