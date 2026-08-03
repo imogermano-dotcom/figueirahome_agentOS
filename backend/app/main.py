@@ -11,6 +11,7 @@ from app.api.imoveis_sync import router as imoveis_sync_router
 from app.api.leads import router as leads_router
 from app.api.oportunidades_sync import router as oportunidades_sync_router
 from app.api.tarefas import router as tarefas_router
+from app.api.agentes import router as agentes_router
 from app.api.config import router as config_router
 from app.api.dashboard import router as dashboard_router
 from app.config import settings
@@ -43,6 +44,7 @@ app.include_router(leads_router)
 app.include_router(tarefas_router)
 app.include_router(config_router)
 app.include_router(dashboard_router)
+app.include_router(agentes_router)
 
 
 @app.get("/health")

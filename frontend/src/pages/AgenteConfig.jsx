@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../lib/api'
+import AgenteMetricas from '../components/AgenteMetricas'
+import AgenteConversas from '../components/AgenteConversas'
 
 const inputCls = "w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition-colors"
 
@@ -47,10 +49,17 @@ export const META = {
 
 const FALLBACK = { titulo: 'Assistente', subtitulo: '', icon: '🤖' }
 
+const ABAS = [
+  { id: 'config', label: 'Configuração' },
+  { id: 'metricas', label: 'Métricas' },
+  { id: 'conversas', label: 'Conversas' },
+]
+
 export default function AgenteConfig() {
   const { agente } = useParams()
   const meta = META[agente] || FALLBACK
 
+  const [aba, setAba] = useState('config')
   const [form, setForm] = useState({ persona: '', instrucoes: '', ativo: true })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -75,19 +84,33 @@ export default function AgenteConfig() {
   }
 
   return (
-    <div className="max-w-2xl">
-      <div className="mb-6">
+    <div className={aba === 'config' ? 'max-w-2xl' : 'max-w-5xl'}>
+      <div className="mb-4">
         <h1 className="text-2xl font-bold text-white">{meta.icon} {meta.titulo}</h1>
         <p className="text-zinc-500 text-sm mt-1">{meta.subtitulo}</p>
       </div>
 
-      {meta.aviso && (
+      <div className="flex gap-1 mb-6 border-b border-white/5">
+        {ABAS.map(a => (
+          <button key={a.id} onClick={() => setAba(a.id)}
+            className={`px-4 py-2 text-sm transition-colors border-b-2 -mb-px ${
+              aba === a.id ? 'text-white border-blue-500'
+                           : 'text-zinc-500 hover:text-zinc-300 border-transparent'}`}>
+            {a.label}
+          </button>
+        ))}
+      </div>
+
+      {aba === 'metricas' && <AgenteMetricas agente={agente} />}
+      {aba === 'conversas' && <AgenteConversas agente={agente} />}
+
+      {aba === 'config' && meta.aviso && (
         <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-sm text-amber-400">
           {meta.aviso}
         </div>
       )}
 
-      {loading ? (
+      {aba !== 'config' ? null : loading ? (
         <p className="text-zinc-600 text-sm">A carregar…</p>
       ) : (
         <form onSubmit={handleSave} className="bg-zinc-900 border border-white/5 rounded-2xl p-6 space-y-5">
