@@ -2,6 +2,7 @@ import logging
 
 import httpx
 
+from app.agents.broker.channels.whatsapp.formatacao import para_whatsapp
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,10 @@ async def send_text_message(to: str, text: str) -> None:
         "Authorization": f"Bearer {settings.meta_whatsapp_token}",
         "Content-Type": "application/json",
     }
+
+    # O modelo escreve Markdown; o WhatsApp não o percebe. Converter aqui, no
+    # único ponto de saída, em vez de confiar que o prompt se lembra sempre.
+    text = para_whatsapp(text)
 
     # Split long messages
     chunks = [text[i:i + _MAX_MESSAGE_LENGTH] for i in range(0, len(text), _MAX_MESSAGE_LENGTH)]
