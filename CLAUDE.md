@@ -7,9 +7,11 @@
 ## O que é
 
 Plataforma de IA para agência imobiliária em Portugal:
-1. **Agente de Voz** — atende clientes em todos os canais (voz, WhatsApp, web), recolhe dados, grava no Supabase.
-2. **Assistente Broker** — chat interno com acesso à base de dados (uso exclusivo do corretor).
-3. **Painel de gestão** — React web app para gerir clientes, imóveis, leads e agentes.
+1. **Assistentes de atendimento** — **A1 Vendedor** (compradores e arrendatários) e
+   **A2 Geral** (recepção e encaminhamento), em WhatsApp e no chat do painel.
+2. **Agente de Voz** — atendimento telefónico (Telnyx). Bloqueado por credenciais.
+3. **Assistente Broker** — chat interno do corretor, com acesso de leitura à BD.
+4. **Painel de gestão** — React: clientes, imóveis, leads, métricas dos assistentes.
 
 ---
 
@@ -64,7 +66,7 @@ scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisõ
 
 | Componente | URL | Estado |
 |---|---|---|
-| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado (2026-08-03, `aac16f1`), secrets eGO API+CRM+SCRAPER_SERVICE_* postos |
+| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado (2026-08-03, `85221a4`), secrets eGO API+CRM+SCRAPER_SERVICE_* postos |
 | Scraper oportunidades | `https://figueirahome-scraper.fly.dev` | ✅ app Fly.io separada (org `miguel-germano`, 1 vCPU/1GB, scale-to-zero) |
 | Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
@@ -73,45 +75,40 @@ scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisõ
 
 ### Assistentes A1/A2 (2026-08-02)
 
-Reformulação segundo `assistentes-ia-especificacao.md`; detalhe em
-`docs/fases/assistentes-a1-a2-{plano,resumo}.md`. Saldo **−197 linhas**. Motor
-único (`engine.py`) no lugar de 3 cérebros duplicados; assistentes por
-configuração (`assistants.py`); router com stickiness (`router.py`, `0014`);
-guardas em código (`guards.py`). Primeiros testes do projecto. **Confirmado
+Motor único (`engine.py`) no lugar de 3 cérebros duplicados; assistentes por
+configuração (`assistants.py`); router com stickiness; guardas em código
+(`guards.py`). Saldo **−197 linhas**; primeiros testes do projecto. **Confirmado
 end-to-end em produção — chat do painel e WhatsApp.**
 
-### Dashboard (2026-08-03)
+### Fases anteriores — o histórico vive em `docs/fases/`
 
-Antes, 3 dos 5 cartões estavam sempre a zero. Detalhe em
-`docs/fases/dashboard-{plano,resumo}.md`. **RPC `dashboard_metricas()`**
-(migration `0015`); `api/dashboard.py` 69 → 33 linhas, 5 queries → 1. Barras em
-CSS, sem biblioteca de gráficos (+5,6 kB). Cartão de imóveis conta `publicado`
-(53) e não `disponibilidade` (67). **Sem gráfico de evolução nem de receita**:
-`data_criacao_iso` falta em 8432 registos e `valor_negocio` está preenchido em
-7 de 1000 — mentiriam; vão para o cartão "A precisar de atenção".
+Só o que uma sessão nova precisa de saber para não partir nada. Cada fase tem
+plano e resumo em `docs/fases/`.
 
-### Observabilidade dos assistentes (2026-08-03)
+| Quando | Fase | Migrations |
+|---|---|---|
+| 08-02 | Assistentes A1/A2 | `0014` |
+| 08-03 | Dashboard | `0015` |
+| 08-03 | Observabilidade + métricas em 4 blocos | `0016`–`0019` |
+| 07-28/31 | Campos extra eGO (`plantas`, `video_url`, `destaque`); sync de oportunidades via app `scraper/` | `0012`, `0013` |
 
-O `engine.py` recebia o `usage` da API e deitava-o fora — custos, latência,
-tools e erros não existiam. Detalhe em
-`docs/fases/assistentes-observabilidade-{plano,resumo}.md`.
+Invariantes que não são óbvias no código:
 
-- **`agente_interacoes`** (`0016`): um turno = uma linha. **RPC `agente_metricas`** (`0017`).
-  Três abas na página do assistente: Configuração · Métricas · Conversas. +10 kB.
-- **Prompt caching confirmado a funcionar — 67%.** O cartão fica vermelho se cair
-  a zero havendo turnos: sem esse alarme, uma quebra multiplica por 10 o custo
-  dos tokens de entrada sem nada dar sinal.
-- **Preços** em `custos.py` ($3/$15 por MTok, cache read 0,1×, write 1,25× —
-  confirmados na doc oficial). Custo é **gravado**, não recalculado.
-- ⚠️ **10,1s num turno com pesquisa** (3 turnos, indicativo). Ver a p95 no painel
-  com tráfego real antes de agir.
-- **Markdown no WhatsApp corrigido** (`channels/whatsapp/formatacao.py`): 14 das
-  17 respostas reais tinham asterisco duplo ou tabelas, que o WhatsApp não lê.
-
-### Sessões anteriores (resumo)
-
-- **2026-07-30/31** — campos extra da Web API eGO em `imoveis`: `plantas` (`0012`), `video_url`/`panoramic_url` (sem migration), `destaque` (`0013`, tag de sistema). Todos da mesma chamada `GET /v1/Properties` já usada p/ fotos. UI é do site público figueirahome.pt — **outro repo**, mesma Supabase.
-- **2026-07-28/30** — sync completo de oportunidades: app Fly.io dedicada (`scraper/`) dispara relatório eGO `jmarques_todas_as_colunas`, escreve directo em `oportunidades`/`notas`/`tarefas`/`contactos`. Detalhe em Decisões.
+- **Prompt caching a 67%** — o cartão "Servido de cache" fica vermelho se cair a
+  zero havendo turnos. Sem esse alarme, uma quebra multiplica por 10 o custo dos
+  tokens de entrada sem nada dar sinal.
+- **PII nunca entra em `tools_detalhe`** — allowlist `_TOOLS_INPUT_SEGURO`: só
+  `pesquisar_imoveis` e `ficha_imovel` guardam argumentos. Tool nova entra no
+  lado seguro por omissão; um teste falha se a allowlist crescer sem revisão.
+- **Preços em `custos.py`** ($3/$15 por MTok, cache read 0,1×, write 1,25×). O
+  custo é **gravado**, não recalculado.
+- **Imóveis contam-se por `publicado` (53), não `disponibilidade` (67)**.
+- **Sem gráficos de evolução nem de receita, e sem uptime** — `data_criacao_iso`
+  falta em 8432 registos, `valor_negocio` está em 7 de 1000, e não há sonda de
+  disponibilidade. Mentiriam; os ecrãs dizem-no em vez de os desenhar.
+- **Percentagens com < 20 turnos mostram a fracção** ("33% (1 de 3)").
+- **WhatsApp não lê Markdown** — `channels/whatsapp/formatacao.py` converte no
+  único ponto de saída. 14 das 17 respostas reais estavam afectadas.
 
 ### Base de dados unificada
 
@@ -144,11 +141,13 @@ Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
 3. **Assistentes A3 (Recrutamento) e A4 (Angariador)** — adiados da fase A1/A2. Router já os reconhece e encaminha para o A2; falta criar as linhas em `agente_config` e os prompts.
 4. **A1 — sub-fluxos SC (simulação de crédito) e FP (propostas)** — adiados. A *escalada* do FP já está honrada via `escalar_para_humano`.
 5. **Confirmar a latência com tráfego real** — 10,1s num turno com pesquisa (só 3 turnos medidos). Ver a p95 em Assistentes → A1 → Métricas antes de mexer em `_MAX_TOOL_ITERATIONS`.
-6. **Lembretes de visita 24h / follow-up 48h** — precisam de scheduler (cron GitHub Actions é o hospedeiro óbvio). É a condição para criar `agente_visitas`; até lá as visitas vivem em `agente_tarefas`.
-7. **Corrigir dados a montante** — `responsavel` das oportunidades tem valores de origem ("Internet" em 892 registos); 8432 sem `data_criacao_iso`; `valor_negocio` quase vazio. Enquanto assim for, não há gráficos de evolução nem de receita.
-8. **`escalar_para_broker` via WhatsApp** — hoje escala para `agente_tarefas` (visível no painel). Enviar mensagem ao corretor ainda depende do número dele.
-9. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
-10. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
+6. **Investigar o dedup sob carga** — um teste falhou e voltou a passar com o mesmo código; hipótese não confirmada de atraso leitura-após-escrita no PostgREST. Se aparecerem clientes duplicados em produção, é por aqui.
+7. **`agente_clientes` sem coluna `agente`** — impede atribuir leads por assistente; o bloco Funil mostra o mesmo no A1 e no A2.
+8. **Lembretes de visita 24h / follow-up 48h** — precisam de scheduler (cron GitHub Actions é o hospedeiro óbvio). É a condição para criar `agente_visitas`; até lá as visitas vivem em `agente_tarefas`.
+9. **Corrigir dados a montante** — `responsavel` das oportunidades tem valores de origem ("Internet" em 892 registos); 8432 sem `data_criacao_iso`; `valor_negocio` quase vazio. Enquanto assim for, não há gráficos de evolução nem de receita.
+10. **`escalar_para_broker` via WhatsApp** — hoje escala para `agente_tarefas` (visível no painel). Enviar mensagem ao corretor ainda depende do número dele.
+11. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
+12. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
 
 ---
 
@@ -160,6 +159,7 @@ Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
 - **Routing sticky em `agente_conversas.agente`** (migration `0014`): a thread fica com o assistente decidido, em vez de ser re-classificada a cada mensagem. Sentido único — A2→A1 com sinal de compra, nunca A1→A2 (uma thread de comprador não volta atrás e perde o contexto de qualificação).
 - **`agente_config` é a tabela de assistentes; não há lista em código**: `AGENTES_VALIDOS` foi removido de `api/config.py`. A validação é "a linha existe". Acrescentar assistente = INSERT, não deploy. `instrucoes` do A2 faz de base de conhecimento editável (horários, morada, serviços) — foi por isso que a tabela `agency_knowledge` da spec foi rejeitada.
 - **Regras que não podem falhar vivem em `guards.py`, não no prompt**: dedup de clientes (única via de escrita — havia 4 upserts artesanais que duplicavam entre canais) e regra dos 80% dentro de `agendar_visita`, antes de qualquer escrita. Um LLM esquece uma regra; um `if` não.
+- **Dedup: o nome é sempre tentado, mesmo com telefone presente**. A ordem é telefone → email → nome, mas a procura por nome corre *também* quando telefone/email não deram correspondência — antes era saltada (`if nome and not telefone`), e isso duplicava a pessoa no padrão mais comum de uma conversa: `guardar_dados_cliente` grava o nome sem telefone (o modelo nem sempre o passa) e `agendar_visita` traz o telefone no turno seguinte. A correspondência por nome só é aceite quando nada contradiz (`_compativel`): telefone/email vazios ou iguais. Dois homónimos com telefones diferentes continuam a ser duas pessoas — a spec proíbe fundir por nome sozinho.
 - **Fallback de tipologia dentro da tool, não no prompt**: o modelo traduz "T2" para `natureza="Apartamento"` e perde as moradias T2 — observado ao vivo a responder "não temos" havendo uma moradia T2 a 65k. Zero resultados com `natureza` dispara segunda pesquisa sem esse filtro. O nível 1 do fallback da spec (§3.2 SI-B fase 5) é determinístico; os níveis 2 e 3 continuam no prompt.
 - **Tabelas da spec dos assistentes rejeitadas por duplicação**: `ai_conversations`→`agente_conversas`, `ai_messages`→`mensagens` jsonb, `ai_visit_bookings`→`agente_tarefas` (já indexada e já no painel), `agency_knowledge`→`agente_config.instrucoes`. `consultants`/`agency_info`/`properties`/`feedback_queries` não existem — a spec inventou-as. Migration `0014` = 1 coluna e 2 linhas de seed, mais nada.
 - **Assistentes nunca escrevem em `oportunidades`/`contactos`**: são espelho do eGO, escritos por pipeline externo. `pref_*` só via RPC `bulk_update_prefs` com `pref_extraido_em IS NULL`; `contactos` tem PK `(nome, criado_em)` mas o sync usa `ego_link` — insert nosso colide ou fica órfão. Leitura sim, escrita não. A spec §2.5 pede o contrário; ignorar.
