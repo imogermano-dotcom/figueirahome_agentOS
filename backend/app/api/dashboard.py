@@ -1,8 +1,7 @@
 import asyncio
 import logging
-from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import require_auth
 from app.db.supabase_client import get_supabase
@@ -11,59 +10,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", dependencies=[Depends(require_auth)])
 
 
-async def _run(fn):
-    return await asyncio.get_event_loop().run_in_executor(None, fn)
-
-
 @router.get("/dashboard")
 async def dashboard():
-    hoje = date.today().isoformat()
+    """Métricas do painel — uma RPC, um round-trip.
+
+    Antes eram 5 queries em série sobre as tabelas do agente (1 a 5 linhas cada),
+    deixando de fora as 25 mil oportunidades e os 4462 imóveis. A agregação vive
+    agora em `dashboard_metricas()` (migration 0015): contar isto do lado do
+    cliente não é opção.
+    """
 
     def _fetch():
-        db = get_supabase()
+        return get_supabase().rpc("dashboard_metricas").execute()
 
-        chamadas = (
-            db.table("agente_chamadas")
-            .select("id", count="exact")
-            .gte("data_hora", f"{hoje}T00:00:00+00:00")
-            .execute()
-        )
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    except Exception:
+        logger.exception("Erro ao obter métricas do dashboard")
+        raise HTTPException(status_code=500, detail="Erro ao obter métricas.")
 
-        leads_novos = (
-            db.table("agente_leads")
-            .select("id", count="exact")
-            .eq("estado", "novo")
-            .execute()
-        )
-
-        imoveis_disponiveis = (
-            get_supabase()
-            .table("imoveis")
-            .select("imovel_ref", count="exact")
-            .eq("disponibilidade", "Disponível")
-            .execute()
-        )
-
-        conversas_hoje = (
-            db.table("agente_conversas")
-            .select("id", count="exact")
-            .gte("atualizado_em", f"{hoje}T00:00:00+00:00")
-            .execute()
-        )
-
-        tarefas_pendentes = (
-            db.table("agente_tarefas")
-            .select("id", count="exact")
-            .eq("estado", "pendente")
-            .execute()
-        )
-
-        return {
-            "chamadas_hoje": chamadas.count or 0,
-            "leads_novos": leads_novos.count or 0,
-            "imoveis_disponiveis": imoveis_disponiveis.count or 0,
-            "conversas_hoje": conversas_hoje.count or 0,
-            "tarefas_pendentes": tarefas_pendentes.count or 0,
-        }
-
-    return await _run(_fetch)
+    return resp.data or {}

@@ -99,6 +99,24 @@ Reformulação dos agentes segundo `assistentes-ia-especificacao.md`. Detalhe em
 telefone, kill switch sem chamada à API. Confirmado end-to-end em produção
 pelo utilizador (2026-08-02) — **chat do painel e WhatsApp, ambos a funcionar**.
 
+### Dashboard (sessão 2026-08-03)
+
+Reformulado. Antes, 3 dos 5 cartões estavam sempre a zero (liam tabelas do agente
+com 1–5 linhas) e as 25 mil oportunidades não apareciam. Detalhe em
+`docs/fases/dashboard-{plano,resumo}.md`.
+
+- **RPC `dashboard_metricas()`** (migration `0015`, aplicada) devolve tudo num
+  `jsonb`. `api/dashboard.py` passou de 69 para 33 linhas, de 5 queries para 1.
+- **Secções**: KPI row, pipeline (barra empilhada), por responsável/origem,
+  portefólio, assistentes IA, saúde dos syncs, alertas de dados incompletos.
+- **Sem biblioteca de gráficos** — barras são `div` com `width: %`. Custo do
+  dashboard inteiro: +5,6 kB.
+- **Cartão de imóveis mostra `publicado` (53), não `disponibilidade` (67)** — é o
+  que está mesmo no site.
+- **Não há gráfico de evolução nem de receita**: `data_criacao_iso` falta em 8432
+  registos e `valor_negocio` está preenchido em 7 de 1000. Mentiriam. Esses
+  números aparecem no cartão "A precisar de atenção" em vez de gráficos.
+
 ### Sessões anteriores (resumo)
 
 - **2026-07-30/31** — campos extra da Web API eGO em `imoveis`: `plantas` (`0012`), `video_url`/`panoramic_url` (colunas já em produção, sem migration), `destaque` (`0013`, da tag de sistema `{"ID":1,"Name":"Destaque"}`). Todos da mesma chamada `GET /v1/Properties` já usada p/ fotos; `MainPanoramicUrl` vem sempre vazio p/ já. Consumo (UI) é do site público figueirahome.pt — **outro repo**, mesma Supabase.
@@ -135,7 +153,7 @@ Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
 3. **Assistentes A3 (Recrutamento) e A4 (Angariador)** — adiados da fase A1/A2. Router já os reconhece e encaminha para o A2; falta criar as linhas em `agente_config` e os prompts.
 4. **A1 — sub-fluxos SC (simulação de crédito) e FP (propostas)** — adiados. A *escalada* do FP já está honrada via `escalar_para_humano`.
 5. **Lembretes de visita 24h / follow-up 48h** — precisam de scheduler (cron GitHub Actions é o hospedeiro óbvio). É a condição para criar `agente_visitas`; até lá as visitas vivem em `agente_tarefas`.
-6. **Dashboard** — não tocado nesta fase. A coluna `agente` permite agora métricas por assistente.
+6. **Corrigir dados a montante** — `responsavel` das oportunidades tem valores de origem ("Internet" em 892 registos); 8432 sem `data_criacao_iso`; `valor_negocio` quase vazio. Enquanto assim for, não há gráficos de evolução nem de receita.
 7. **`escalar_para_broker` via WhatsApp** — hoje escala para `agente_tarefas` (visível no painel). Enviar mensagem ao corretor ainda depende do número dele.
 5. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
 6. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
