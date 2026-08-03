@@ -72,50 +72,28 @@ scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisõ
 | Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário (última run 2026-07-31T08:48, sucesso), só **API** (CRM manual) + `workflow_dispatch` |
 | Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed |
 
-### O que foi implementado (sessão 2026-08-02) — Assistentes A1/A2
+### Assistentes A1/A2 (2026-08-02)
 
-Reformulação dos agentes segundo `assistentes-ia-especificacao.md`. Detalhe em
-`docs/fases/assistentes-a1-a2-{plano,resumo}.md`. Saldo: **−197 linhas**.
+Reformulação segundo `assistentes-ia-especificacao.md`. Detalhe em
+`docs/fases/assistentes-a1-a2-{plano,resumo}.md`. Saldo **−197 linhas**.
+Motor único (`engine.py`) no lugar de 3 cérebros duplicados; assistentes por
+configuração (`assistants.py`); router com stickiness (`router.py`, migration
+`0014`); guardas em código (`guards.py`). Primeiros testes do projecto.
+**Confirmado end-to-end em produção pelo utilizador — chat do painel e WhatsApp.**
 
-1. **Motor único** (`agents/broker/engine.py`) substitui os 3 cérebros duplicados.
-   Apagados `broker/claude_agent.py` e `voice/whatsapp_intake.py` — o ciclo de
-   imports broker↔voice morreu por remoção. Prompt caching e tool forcing (antes
-   só no WhatsApp) valem agora para todos.
-2. **Assistentes por configuração** (`assistants.py`): prompt base + subconjunto
-   de tools + forcing. A1 Vendedor (SI-A/SI-B/SV), A2 Geral, Broker interno.
-   `consultar_clientes`/`consultar_leads` restritas ao Broker — antes estavam
-   expostas no endpoint que passa a servir clientes.
-3. **Router de intenção** (`router.py`): regex + stickiness na coluna nova
-   `agente_conversas.agente` (migration `0014`, aplicada em produção). A3/A4
-   reconhecidos mas encaminhados para o A2 enquanto não existirem.
-4. **Guardas em código** (`guards.py`): dedup de clientes (única via de escrita,
-   4 upserts artesanais eliminados) e regra dos 80% dentro de `agendar_visita`.
-5. **Bugs corrigidos**: `pesquisar_imoveis` devolvia vendidos/retirados (falta
-   `publicado`), zona só por `concelho`, `execute_tool` devolvia `str(list)`,
-   `instrucoes` descartado com persona vazia, `ativo` nunca lido.
-6. **Testes**: `backend/tests/test_{router,guards}.py` — primeiros do projecto.
+### Dashboard (2026-08-03)
 
-**Verificado ao vivo**: router, 80% (recusa não escreve), dedup de formatos de
-telefone, kill switch sem chamada à API. Confirmado end-to-end em produção
-pelo utilizador (2026-08-02) — **chat do painel e WhatsApp, ambos a funcionar**.
-
-### Dashboard (sessão 2026-08-03)
-
-Reformulado. Antes, 3 dos 5 cartões estavam sempre a zero (liam tabelas do agente
-com 1–5 linhas) e as 25 mil oportunidades não apareciam. Detalhe em
+Antes, 3 dos 5 cartões estavam sempre a zero (liam tabelas do agente com 1–5
+linhas) e as 25 mil oportunidades não apareciam. Detalhe em
 `docs/fases/dashboard-{plano,resumo}.md`.
 
 - **RPC `dashboard_metricas()`** (migration `0015`, aplicada) devolve tudo num
-  `jsonb`. `api/dashboard.py` passou de 69 para 33 linhas, de 5 queries para 1.
-- **Secções**: KPI row, pipeline (barra empilhada), por responsável/origem,
-  portefólio, assistentes IA, saúde dos syncs, alertas de dados incompletos.
-- **Sem biblioteca de gráficos** — barras são `div` com `width: %`. Custo do
-  dashboard inteiro: +5,6 kB.
-- **Cartão de imóveis mostra `publicado` (53), não `disponibilidade` (67)** — é o
-  que está mesmo no site.
+  `jsonb`. `api/dashboard.py`: 69 → 33 linhas, 5 queries → 1.
+- **Sem biblioteca de gráficos** — barras são `div` com `width: %`. +5,6 kB.
+- **Cartão de imóveis conta `publicado` (53), não `disponibilidade` (67)**.
 - **Não há gráfico de evolução nem de receita**: `data_criacao_iso` falta em 8432
-  registos e `valor_negocio` está preenchido em 7 de 1000. Mentiriam. Esses
-  números aparecem no cartão "A precisar de atenção" em vez de gráficos.
+  registos e `valor_negocio` está preenchido em 7 de 1000. Mentiriam. Vão para o
+  cartão "A precisar de atenção" em vez de gráficos.
 
 ### Sessões anteriores (resumo)
 
