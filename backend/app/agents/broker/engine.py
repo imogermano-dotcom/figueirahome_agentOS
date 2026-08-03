@@ -12,6 +12,7 @@ Chamado por:
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -23,6 +24,7 @@ from app.agents.broker.assistants import (
     load_config,
 )
 from app.agents.broker.conversation import load_conversation, save_conversation
+from app.agents.broker.custos import calcular_custo, somar_usage
 from app.agents.broker.guards import normalizar_telefone, variantes_telefone
 from app.agents.broker.router import route
 from app.agents.broker.tools import execute_tool, tools_para
@@ -76,6 +78,25 @@ def _perfil_cliente(telefone: str) -> str:
         "\n\nEste cliente já está registado: " + " | ".join(campos) +
         "\nCumprimenta-o pelo nome e não voltes a pedir dados que já temos."
     )
+
+
+async def _registar_interacao(dados: dict) -> None:
+    """Grava uma linha em `agente_interacoes`.
+
+    Engolir a excepção é deliberado: isto corre depois de a resposta estar
+    pronta, e observabilidade nunca pode derrubar uma conversa com um cliente.
+    Se a tabela não existir (migration 0016 por aplicar), fica só o aviso.
+    """
+
+    def _inserir():
+        get_supabase().table("agente_interacoes").insert(
+            {k: v for k, v in dados.items() if v is not None}
+        ).execute()
+
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _inserir)
+    except Exception:
+        logger.exception("Falha ao registar interacao (%s)", dados.get("agente"))
 
 
 async def responder(
@@ -133,8 +154,17 @@ async def responder(
 
     resposta = _ERRO
 
+    # Instrumentação do turno. O `usage` chega em cada resposta da API e antes
+    # era descartado — sem ele o custo é incalculável.
+    tokens: dict[str, int] = {}
+    tools_usadas: list[str] = []
+    iteracoes = 0
+    erro: str | None = None
+    inicio = time.monotonic()
+
     async with httpx.AsyncClient(timeout=60.0) as client:
         for iteracao in range(_MAX_TOOL_ITERATIONS):
+            iteracoes = iteracao + 1
             payload = {
                 "model": _MODEL,
                 "max_tokens": MAX_TOKENS.get(canal, 512),
@@ -149,11 +179,13 @@ async def responder(
             try:
                 http_resp = await client.post(_URL, headers=headers, json=payload)
                 http_resp.raise_for_status()
-            except Exception:
+            except Exception as exc:
                 logger.exception("Erro na API Anthropic (%s, %s)", agente, participante)
+                erro = f"{type(exc).__name__}: {exc}"[:500]
                 break
 
             data = http_resp.json()
+            somar_usage(tokens, data.get("usage"))
             blocos = data.get("content", [])
 
             if data.get("stop_reason") == "tool_use":
@@ -162,6 +194,7 @@ async def responder(
                 for bloco in blocos:
                     if bloco.get("type") != "tool_use":
                         continue
+                    tools_usadas.append(bloco["name"])
                     saida = await execute_tool(
                         bloco["name"], bloco.get("input", {}), contexto
                     )
@@ -179,12 +212,30 @@ async def responder(
                     break
             break
 
+    latencia_ms = int((time.monotonic() - inicio) * 1000)
+
     now = datetime.now(timezone.utc).isoformat()
     mensagens.append({"role": "assistant", "content": resposta, "timestamp": now})
 
     try:
-        await save_conversation(conversa_id, canal, participante, mensagens, agente)
+        conversa_id = await save_conversation(
+            conversa_id, canal, participante, mensagens, agente
+        )
     except Exception:
         logger.exception("Erro ao guardar conversa %s/%s", canal, participante)
+
+    await _registar_interacao({
+        "conversa_id": conversa_id,
+        "agente": agente,
+        "canal": canal,
+        "modelo": _MODEL,
+        **tokens,
+        "custo_usd": calcular_custo(tokens, _MODEL),
+        "latencia_ms": latencia_ms,
+        "iteracoes": iteracoes,
+        "tools_usadas": tools_usadas or None,
+        "tool_forcada": forcar_agora,
+        "erro": erro,
+    })
 
     return resposta
