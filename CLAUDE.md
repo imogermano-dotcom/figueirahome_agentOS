@@ -35,11 +35,12 @@ Backend **obrigatoriamente** em Fly.io — WebSockets persistentes para streamin
 backend/app/
 ├── main.py          ← FastAPI + CORS + routers
 ├── config.py        ← pydantic-settings (SUPABASE_*, SUPABASE_IMOVEIS_*, EGOREALESTATE_*, SCRAPER_SERVICE_*)
-├── api/             ← clientes, imoveis, imoveis_sync, oportunidades_sync, leads, tarefas, config, dashboard, broker
+├── api/             ← clientes, imoveis, imoveis_sync, oportunidades_sync, leads,
+│                      tarefas, config, dashboard, broker, agentes (métricas)
 ├── agents/
 │   ├── voice/       ← webhook Telnyx, audio_ws, save_call, claude_agent (só voz)
-│   └── broker/      ← engine (motor único), assistants (registry), router,
-│                       guards (dedup + 80%), tools, conversation, channels/whatsapp/
+│   └── broker/      ← engine (motor único), assistants (registry), router, guards
+│                      (dedup + 80%), custos, tools, conversation, channels/whatsapp/
 ├── integrations/    ← egorealestate.py (cliente API), imoveis_sync.py (upsert)
 ├── db/supabase_client.py  ← get_supabase() [dados, projecto unificado] + get_supabase_auth() [só login]
 └── models/          ← Pydantic (imovel, cliente, lead, tarefa, ...)
@@ -51,10 +52,8 @@ frontend/src/
 └── lib/             ← supabase.js, api.js
 
 scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisões)
-├── app.py           ← FastAPI, POST /run/oportunidades-completo (X-Scraper-Secret)
-├── oportunidades_completo.py  ← dispara relatório, lê URL directa do export (não usa popup/download event)
-├── mapping_todas_colunas.py   ← mapeia/agrupa p/ oportunidades/notas/tarefas/contactos/prefs
-└── upsert.py         ← upsert em produção (conflict keys, strip nulls, RPC bulk_update_prefs)
+    app.py (POST /run/oportunidades-completo) · oportunidades_completo.py (lê a
+    URL directa do export, não o popup) · mapping_todas_colunas.py · upsert.py
 ```
 
 ---
@@ -65,39 +64,53 @@ scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisõ
 
 | Componente | URL | Estado |
 |---|---|---|
-| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado (último: `ce4cbef`), secrets eGO API+CRM+SCRAPER_SERVICE_* postos |
+| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado (2026-08-03, `aac16f1`), secrets eGO API+CRM+SCRAPER_SERVICE_* postos |
 | Scraper oportunidades | `https://figueirahome-scraper.fly.dev` | ✅ app Fly.io separada (org `miguel-germano`, 1 vCPU/1GB, scale-to-zero) |
 | Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
-| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário (última run 2026-07-31T08:48, sucesso), só **API** (CRM manual) + `workflow_dispatch` |
+| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário (última run 2026-08-03T09:42, 54 actualizados), só **API** (CRM manual) + `workflow_dispatch` |
 | Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed |
 
 ### Assistentes A1/A2 (2026-08-02)
 
-Reformulação segundo `assistentes-ia-especificacao.md`. Detalhe em
-`docs/fases/assistentes-a1-a2-{plano,resumo}.md`. Saldo **−197 linhas**.
-Motor único (`engine.py`) no lugar de 3 cérebros duplicados; assistentes por
-configuração (`assistants.py`); router com stickiness (`router.py`, migration
-`0014`); guardas em código (`guards.py`). Primeiros testes do projecto.
-**Confirmado end-to-end em produção pelo utilizador — chat do painel e WhatsApp.**
+Reformulação segundo `assistentes-ia-especificacao.md`; detalhe em
+`docs/fases/assistentes-a1-a2-{plano,resumo}.md`. Saldo **−197 linhas**. Motor
+único (`engine.py`) no lugar de 3 cérebros duplicados; assistentes por
+configuração (`assistants.py`); router com stickiness (`router.py`, `0014`);
+guardas em código (`guards.py`). Primeiros testes do projecto. **Confirmado
+end-to-end em produção — chat do painel e WhatsApp.**
 
 ### Dashboard (2026-08-03)
 
-Antes, 3 dos 5 cartões estavam sempre a zero (liam tabelas do agente com 1–5
-linhas) e as 25 mil oportunidades não apareciam. Detalhe em
-`docs/fases/dashboard-{plano,resumo}.md`.
+Antes, 3 dos 5 cartões estavam sempre a zero. Detalhe em
+`docs/fases/dashboard-{plano,resumo}.md`. **RPC `dashboard_metricas()`**
+(migration `0015`); `api/dashboard.py` 69 → 33 linhas, 5 queries → 1. Barras em
+CSS, sem biblioteca de gráficos (+5,6 kB). Cartão de imóveis conta `publicado`
+(53) e não `disponibilidade` (67). **Sem gráfico de evolução nem de receita**:
+`data_criacao_iso` falta em 8432 registos e `valor_negocio` está preenchido em
+7 de 1000 — mentiriam; vão para o cartão "A precisar de atenção".
 
-- **RPC `dashboard_metricas()`** (migration `0015`, aplicada) devolve tudo num
-  `jsonb`. `api/dashboard.py`: 69 → 33 linhas, 5 queries → 1.
-- **Sem biblioteca de gráficos** — barras são `div` com `width: %`. +5,6 kB.
-- **Cartão de imóveis conta `publicado` (53), não `disponibilidade` (67)**.
-- **Não há gráfico de evolução nem de receita**: `data_criacao_iso` falta em 8432
-  registos e `valor_negocio` está preenchido em 7 de 1000. Mentiriam. Vão para o
-  cartão "A precisar de atenção" em vez de gráficos.
+### Observabilidade dos assistentes (2026-08-03)
+
+O `engine.py` recebia o `usage` da API e deitava-o fora — custos, latência,
+tools e erros não existiam. Detalhe em
+`docs/fases/assistentes-observabilidade-{plano,resumo}.md`.
+
+- **`agente_interacoes`** (`0016`): um turno = uma linha. **RPC `agente_metricas`** (`0017`).
+  Três abas na página do assistente: Configuração · Métricas · Conversas. +10 kB.
+- **Prompt caching confirmado a funcionar — 67%.** O cartão fica vermelho se cair
+  a zero havendo turnos: sem esse alarme, uma quebra multiplica por 10 o custo
+  dos tokens de entrada sem nada dar sinal.
+- **Preços** em `custos.py` ($3/$15 por MTok, cache read 0,1×, write 1,25× —
+  confirmados na doc oficial). Custo é **gravado**, não recalculado.
+- ⚠️ **10,1s num turno com pesquisa** (3 turnos, indicativo). Ver a p95 no painel
+  com tráfego real antes de agir.
+- **Markdown no WhatsApp corrigido** (`channels/whatsapp/formatacao.py`): 14 das
+  17 respostas reais tinham asterisco duplo ou tabelas, que o WhatsApp não lê.
 
 ### Sessões anteriores (resumo)
 
-- **2026-07-30/31** — campos extra da Web API eGO em `imoveis`: `plantas` (`0012`), `video_url`/`panoramic_url` (colunas já em produção, sem migration), `destaque` (`0013`, da tag de sistema `{"ID":1,"Name":"Destaque"}`). Todos da mesma chamada `GET /v1/Properties` já usada p/ fotos; `MainPanoramicUrl` vem sempre vazio p/ já. Consumo (UI) é do site público figueirahome.pt — **outro repo**, mesma Supabase.
+- **2026-07-30/31** — campos extra da Web API eGO em `imoveis`: `plantas` (`0012`), `video_url`/`panoramic_url` (sem migration), `destaque` (`0013`, tag de sistema). Todos da mesma chamada `GET /v1/Properties` já usada p/ fotos. UI é do site público figueirahome.pt — **outro repo**, mesma Supabase.
 - **2026-07-28/30** — sync completo de oportunidades: app Fly.io dedicada (`scraper/`) dispara relatório eGO `jmarques_todas_as_colunas`, escreve directo em `oportunidades`/`notas`/`tarefas`/`contactos`. Detalhe em Decisões.
 
 ### Base de dados unificada
@@ -130,11 +143,12 @@ Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
 2. **Monitorizar sync de oportunidades completo** em paralelo ao `sync_excel_supabase.py` externo (confirmar que não duplicam/conflituam).
 3. **Assistentes A3 (Recrutamento) e A4 (Angariador)** — adiados da fase A1/A2. Router já os reconhece e encaminha para o A2; falta criar as linhas em `agente_config` e os prompts.
 4. **A1 — sub-fluxos SC (simulação de crédito) e FP (propostas)** — adiados. A *escalada* do FP já está honrada via `escalar_para_humano`.
-5. **Lembretes de visita 24h / follow-up 48h** — precisam de scheduler (cron GitHub Actions é o hospedeiro óbvio). É a condição para criar `agente_visitas`; até lá as visitas vivem em `agente_tarefas`.
-6. **Corrigir dados a montante** — `responsavel` das oportunidades tem valores de origem ("Internet" em 892 registos); 8432 sem `data_criacao_iso`; `valor_negocio` quase vazio. Enquanto assim for, não há gráficos de evolução nem de receita.
-7. **`escalar_para_broker` via WhatsApp** — hoje escala para `agente_tarefas` (visível no painel). Enviar mensagem ao corretor ainda depende do número dele.
-5. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
-6. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
+5. **Confirmar a latência com tráfego real** — 10,1s num turno com pesquisa (só 3 turnos medidos). Ver a p95 em Assistentes → A1 → Métricas antes de mexer em `_MAX_TOOL_ITERATIONS`.
+6. **Lembretes de visita 24h / follow-up 48h** — precisam de scheduler (cron GitHub Actions é o hospedeiro óbvio). É a condição para criar `agente_visitas`; até lá as visitas vivem em `agente_tarefas`.
+7. **Corrigir dados a montante** — `responsavel` das oportunidades tem valores de origem ("Internet" em 892 registos); 8432 sem `data_criacao_iso`; `valor_negocio` quase vazio. Enquanto assim for, não há gráficos de evolução nem de receita.
+8. **`escalar_para_broker` via WhatsApp** — hoje escala para `agente_tarefas` (visível no painel). Enviar mensagem ao corretor ainda depende do número dele.
+9. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
+10. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
 
 ---
 
@@ -173,10 +187,7 @@ Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
 ## Bugs conhecidos
 
 - **Timeout esporádico no sync de oportunidades** (`scraper/oportunidades_completo.py:217`, 30s): confirmado 2026-07-30 — falha transiente do CRM eGO em responder a `POST /report/export`, não bug de código (retry manual resolveu de imediato). Teoria do comentário no código (eGO envia por email se resultado grande) não confirmada. Se repetir com frequência, subir timeout 30s→60s.
-- **Sem barge-in**: utilizador não pode interromper agente de voz enquanto fala
-- **Estado de sessão em memória**: sessões de voz perdidas em restart do servidor
-- **Race condition voz**: `is_speaking` depende de `call.speak.ended` antes do próximo chunk
-- **Janelas fixas de 2s**: sem VAD real; pode cortar frases longas
+- **Agente de voz** (bloqueado por Telnyx, nenhum destes se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2s sem VAD, podem cortar frases.
 
 ---
 
