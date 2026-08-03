@@ -27,8 +27,6 @@ Plataforma de IA para agência imobiliária em Portugal:
 | IA | Claude API — Sonnet 4.6 (httpx directo, não SDK) |
 | TTS | Telnyx `speak()` — voz `Polly.Ines-Neural` |
 
-Backend **obrigatoriamente** em Fly.io — WebSockets persistentes para streaming de áudio.
-
 ---
 
 ## Estrutura
@@ -44,55 +42,45 @@ backend/app/
 │   └── broker/      ← engine (motor único), assistants (registry), router, guards
 │                      (dedup + 80%), custos, tools, conversation, channels/whatsapp/
 ├── integrations/    ← egorealestate.py (cliente API), imoveis_sync.py (upsert)
-├── db/supabase_client.py  ← get_supabase() [dados, projecto unificado] + get_supabase_auth() [só login]
+├── db/supabase_client.py  ← get_supabase() [dados] + get_supabase_auth() [só login]
 └── models/          ← Pydantic (imovel, cliente, lead, tarefa, ...)
 
-frontend/src/
-├── App.jsx          ← React Router v6
-├── components/      ← Layout, Sidebar (dark), ProtectedRoute
-├── pages/           ← Dashboard, Clientes, Imoveis (abas: Portfólio/Tarefas/Sincronização), Leads, Chat, AgenteConfig (/agentes/:agente), Config
-└── lib/             ← supabase.js, api.js
+frontend/src/    App.jsx · lib/ (supabase.js, api.js)
+├── components/  ← Layout, Sidebar, ProtectedRoute, AgenteMetricas, AgenteConversas, Barras
+└── pages/       ← Dashboard, Clientes, Imoveis (Portfólio/Tarefas/Sincronização),
+                   Leads, Chat, AgenteConfig (/agentes/:agente), Config
 
-scraper/             ← app Fly.io separada, dedicada a Playwright (ver Decisões)
+scraper/             ← app Fly.io separada, dedicada a Playwright (ver docs/decisoes.md)
     app.py (POST /run/oportunidades-completo) · oportunidades_completo.py (lê a
     URL directa do export, não o popup) · mapping_todas_colunas.py · upsert.py
 ```
 
 ---
 
-## Estado actual — Handoff 2026-08-02
+## Estado actual — Handoff 2026-08-03
 
 ### Produção
 
 | Componente | URL | Estado |
 |---|---|---|
-| Backend | `https://figueirahome-agentos.fly.dev` | ✅ deployado (2026-08-03, `85221a4`), secrets eGO API+CRM+SCRAPER_SERVICE_* postos |
-| Scraper oportunidades | `https://figueirahome-scraper.fly.dev` | ✅ app Fly.io separada (org `miguel-germano`, 1 vCPU/1GB, scale-to-zero) |
-| Frontend | `https://figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
-| WhatsApp | agente responde + pesquisa imóveis reais | ✅ end-to-end funcional |
-| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário (última run 2026-08-03T09:42, 54 actualizados), só **API** (CRM manual) + `workflow_dispatch` |
-| Git | `https://github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed |
+| Backend | `figueirahome-agentos.fly.dev` | ✅ deployado (`85221a4`), secrets eGO API+CRM+SCRAPER_SERVICE_* postos |
+| Scraper oportunidades | `figueirahome-scraper.fly.dev` | ✅ app Fly.io separada (1 vCPU/1GB, scale-to-zero) |
+| Frontend | `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
+| Assistentes A1/A2 | WhatsApp + chat do painel | ✅ end-to-end, com pesquisa de imóveis reais |
+| Cron sync eGO | `.github/workflows/sync-imoveis.yml` | ✅ diário (última run 08-03T09:42, 54 actualizados), só **API** (CRM manual) |
+| Git | `github.com/imogermano-dotcom/figueirahome_agentOS` | ✅ master, tudo pushed |
 
-### Assistentes A1/A2 (2026-08-02)
-
-Motor único (`engine.py`) no lugar de 3 cérebros duplicados; assistentes por
-configuração (`assistants.py`); router com stickiness; guardas em código
-(`guards.py`). Saldo **−197 linhas**; primeiros testes do projecto. **Confirmado
-end-to-end em produção — chat do painel e WhatsApp.**
-
-### Fases anteriores — o histórico vive em `docs/fases/`
-
-Só o que uma sessão nova precisa de saber para não partir nada. Cada fase tem
-plano e resumo em `docs/fases/`.
+### Fases concluídas — o histórico vive em `docs/fases/`
 
 | Quando | Fase | Migrations |
 |---|---|---|
-| 08-02 | Assistentes A1/A2 | `0014` |
-| 08-03 | Dashboard | `0015` |
-| 08-03 | Observabilidade + métricas em 4 blocos | `0016`–`0019` |
 | 07-28/31 | Campos extra eGO (`plantas`, `video_url`, `destaque`); sync de oportunidades via app `scraper/` | `0012`, `0013` |
+| 08-02 | **Assistentes A1/A2** — motor único (`engine.py`) no lugar de 3 cérebros duplicados, assistentes por configuração, router sticky, guardas em código. Saldo −197 linhas; primeiros testes do projecto | `0014` |
+| 08-03 | **Dashboard** — RPC única, cartões mortos removidos, dados sujos expostos como alertas | `0015` |
+| 08-03 | **Observabilidade** — `agente_interacoes` (1 linha por turno): custo, latência, tokens, tools | `0016`, `0017` |
+| 08-03 | **Métricas do A1 em 4 blocos de negócio** — funil, atendimento, preferências, operacional | `0018`, `0019` |
 
-Invariantes que não são óbvias no código:
+Invariantes que não são óbvias a ler o código:
 
 - **Prompt caching a 67%** — o cartão "Servido de cache" fica vermelho se cair a
   zero havendo turnos. Sem esse alarme, uma quebra multiplica por 10 o custo dos
@@ -109,20 +97,30 @@ Invariantes que não são óbvias no código:
 - **Percentagens com < 20 turnos mostram a fracção** ("33% (1 de 3)").
 - **WhatsApp não lê Markdown** — `channels/whatsapp/formatacao.py` converte no
   único ponto de saída. 14 das 17 respostas reais estavam afectadas.
+- **MQL = orçamento + zona + tipo de interesse.** O "timing" não é recolhido.
 
 ### Base de dados unificada
 
-Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`, settings `supabase_imoveis_*`). Projecto original (`supabase_url/key`) fica **só Auth**. `get_supabase()` = dados; `get_supabase_auth()` = só valida login.
+Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
+settings `supabase_imoveis_*`). Projecto original (`supabase_url/key`) fica **só
+Auth**. `get_supabase()` = dados; `get_supabase_auth()` = só valida login.
+**Migrations são corridas à mão pelo utilizador** no editor SQL do Supabase — não
+há psql nem ligação directa; explicar o SQL antes de pedir que o corra.
 
 ### Sincronismo eGO
 
-`backend/app/integrations/imoveis_sync.py`: `sync_egorealestate_api()` (Web API pública, full pull paginado, cron diário) e `sync_egorealestate_crm()` (CRM autenticado, visibilidade total incl. não-publicados, só via botão "Validar CRM", fora do cron — ver Decisões). Coluna `publicado` (GENERATED STORED, migration `0008`) e `disponivel_na_api` (plain boolean).
+`backend/app/integrations/imoveis_sync.py`: `sync_egorealestate_api()` (Web API
+pública, full pull paginado, cron diário) e `sync_egorealestate_crm()` (CRM
+autenticado, visibilidade total incl. não-publicados, só via botão "Validar CRM",
+fora do cron). Coluna `publicado` (GENERATED STORED, `0008`) e `disponivel_na_api`.
 
 ### Ambiente local
 
 - Python: `C:\Users\joaoa\AppData\Local\Programs\Python\Python312\python.exe`
-- fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` (a partir de `backend/` ou `scraper/`)
-- `backend/.env` / `scraper/.env` — Supabase (ambos) ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_SERVICE_* ✅, Telnyx ❌, Meta ❌
+- fly CLI: `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` (de `backend/` ou `scraper/`)
+- `backend/.env` / `scraper/.env` — Supabase (ambos) ✅, Anthropic ✅, OpenAI ✅,
+  eGO API+CRM ✅, SCRAPER_SERVICE_* ✅, Telnyx ❌, Meta ❌
+- Testes: `pytest backend/tests/` **a partir de `backend/`** (fora daí o `.env` não é encontrado)
 - Scrapers Playwright: `pip install -r <pasta>/requirements*.txt` + `playwright install chromium`
 
 ### Bloqueadores activos
@@ -136,77 +134,66 @@ Todas as tabelas vivem no projecto Supabase secundário (`zphasvfopnbzwnaidsnw`,
 
 ### Próximos passos
 
-1. **Decidir promoção `teste_imoveis`/`teste_oportunidades` → produção** — ou manter só como consulta manual pontual.
-2. **Monitorizar sync de oportunidades completo** em paralelo ao `sync_excel_supabase.py` externo (confirmar que não duplicam/conflituam).
-3. **Assistentes A3 (Recrutamento) e A4 (Angariador)** — adiados da fase A1/A2. Router já os reconhece e encaminha para o A2; falta criar as linhas em `agente_config` e os prompts.
-4. **A1 — sub-fluxos SC (simulação de crédito) e FP (propostas)** — adiados. A *escalada* do FP já está honrada via `escalar_para_humano`.
-5. **Confirmar a latência com tráfego real** — 10,1s num turno com pesquisa (só 3 turnos medidos). Ver a p95 em Assistentes → A1 → Métricas antes de mexer em `_MAX_TOOL_ITERATIONS`.
-6. **Investigar o dedup sob carga** — um teste falhou e voltou a passar com o mesmo código; hipótese não confirmada de atraso leitura-após-escrita no PostgREST. Se aparecerem clientes duplicados em produção, é por aqui.
-7. **`agente_clientes` sem coluna `agente`** — impede atribuir leads por assistente; o bloco Funil mostra o mesmo no A1 e no A2.
-8. **Lembretes de visita 24h / follow-up 48h** — precisam de scheduler (cron GitHub Actions é o hospedeiro óbvio). É a condição para criar `agente_visitas`; até lá as visitas vivem em `agente_tarefas`.
-9. **Corrigir dados a montante** — `responsavel` das oportunidades tem valores de origem ("Internet" em 892 registos); 8432 sem `data_criacao_iso`; `valor_negocio` quase vazio. Enquanto assim for, não há gráficos de evolução nem de receita.
-10. **`escalar_para_broker` via WhatsApp** — hoje escala para `agente_tarefas` (visível no painel). Enviar mensagem ao corretor ainda depende do número dele.
-11. **Telnyx PT** — regulatory requirement, comprar +351, configurar secrets Fly.io.
-12. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
+1. **A3 (Recrutamento) e A4 (Angariador)** — adiados. Router já os reconhece e manda para o A2; falta a linha em `agente_config` e os prompts.
+2. **A1 — sub-fluxos SC (simulação de crédito) e FP (propostas)** — adiados; a *escalada* do FP já vai via `escalar_para_humano`.
+3. **Confirmar latência com tráfego real** — 10,1s num turno com pesquisa, só 3 medidos. Ver a p95 antes de mexer em `_MAX_TOOL_ITERATIONS`.
+4. **Investigar o dedup sob carga** — teste falhou e voltou a passar com o mesmo código. Se aparecerem clientes duplicados em produção, é por aqui.
+5. **`agente_clientes` sem coluna `agente`** — impede atribuir leads por assistente; o bloco Funil mostra o mesmo no A1 e no A2.
+6. **Lembretes de visita 24h / follow-up 48h** — precisam de scheduler (cron GitHub Actions). É a condição para criar `agente_visitas`.
+7. **`escalar_para_broker` via WhatsApp** — hoje só cria tarefa no painel; enviar mensagem depende do número do corretor.
+8. **Corrigir dados a montante** — `responsavel` com valores de origem ("Internet", 892 registos); 8432 sem `data_criacao_iso`; `valor_negocio` quase vazio.
+9. **Monitorizar o sync de oportunidades** contra o `sync_excel_supabase.py` externo (não devem duplicar) e decidir `teste_*` → produção.
+10. **Telnyx PT** — regulatory requirement, comprar +351, secrets Fly.io.
+11. Reavaliar se/quando voltar a incluir a validação CRM no cron diário.
 
 ---
 
 ## Decisões arquitecturais
 
-- **Um motor, N assistentes — nunca N cópias do loop**: assistentes distinguem-se por 3 coisas em `assistants.ASSISTENTES` (prompt base, subconjunto de tools, tool forcing), não por código próprio. Antes havia 3 loops agênticos duplicados que divergiam em silêncio: só um tinha prompt caching, só um tinha tool forcing. Acrescentar A3/A4 é uma entrada no dict + uma linha em `agente_config`, não um ficheiro novo.
-- **Subconjunto de tools por assistente é uma fronteira de segurança, não organização**: `consultar_clientes`/`consultar_leads` expõem a base de clientes da agência e o mesmo endpoint (`/api/broker/chat`) serve agora clientes no banco de ensaio. Restritas ao assistente `broker`. Não alargar sem pensar em quem fala com o endpoint.
-- **Router por regex, não por LLM**: o nível 1 da spec é uma tabela de keywords que escolhe entre dois baldes, um dos quais é "não classificado". Falhas são baratas nos dois sentidos (keyword falhada cai no A2, que encaminha). Upgrade só se os logs mostrarem má taxa de acerto — e mesmo aí, classificação forçada só na 1ª mensagem da thread, nunca uma chamada por mensagem.
-- **Routing sticky em `agente_conversas.agente`** (migration `0014`): a thread fica com o assistente decidido, em vez de ser re-classificada a cada mensagem. Sentido único — A2→A1 com sinal de compra, nunca A1→A2 (uma thread de comprador não volta atrás e perde o contexto de qualificação).
-- **`agente_config` é a tabela de assistentes; não há lista em código**: `AGENTES_VALIDOS` foi removido de `api/config.py`. A validação é "a linha existe". Acrescentar assistente = INSERT, não deploy. `instrucoes` do A2 faz de base de conhecimento editável (horários, morada, serviços) — foi por isso que a tabela `agency_knowledge` da spec foi rejeitada.
-- **Regras que não podem falhar vivem em `guards.py`, não no prompt**: dedup de clientes (única via de escrita — havia 4 upserts artesanais que duplicavam entre canais) e regra dos 80% dentro de `agendar_visita`, antes de qualquer escrita. Um LLM esquece uma regra; um `if` não.
-- **Dedup: o nome é sempre tentado, mesmo com telefone presente**. A ordem é telefone → email → nome, mas a procura por nome corre *também* quando telefone/email não deram correspondência — antes era saltada (`if nome and not telefone`), e isso duplicava a pessoa no padrão mais comum de uma conversa: `guardar_dados_cliente` grava o nome sem telefone (o modelo nem sempre o passa) e `agendar_visita` traz o telefone no turno seguinte. A correspondência por nome só é aceite quando nada contradiz (`_compativel`): telefone/email vazios ou iguais. Dois homónimos com telefones diferentes continuam a ser duas pessoas — a spec proíbe fundir por nome sozinho.
-- **Fallback de tipologia dentro da tool, não no prompt**: o modelo traduz "T2" para `natureza="Apartamento"` e perde as moradias T2 — observado ao vivo a responder "não temos" havendo uma moradia T2 a 65k. Zero resultados com `natureza` dispara segunda pesquisa sem esse filtro. O nível 1 do fallback da spec (§3.2 SI-B fase 5) é determinístico; os níveis 2 e 3 continuam no prompt.
-- **Tabelas da spec dos assistentes rejeitadas por duplicação**: `ai_conversations`→`agente_conversas`, `ai_messages`→`mensagens` jsonb, `ai_visit_bookings`→`agente_tarefas` (já indexada e já no painel), `agency_knowledge`→`agente_config.instrucoes`. `consultants`/`agency_info`/`properties`/`feedback_queries` não existem — a spec inventou-as. Migration `0014` = 1 coluna e 2 linhas de seed, mais nada.
-- **Assistentes nunca escrevem em `oportunidades`/`contactos`**: são espelho do eGO, escritos por pipeline externo. `pref_*` só via RPC `bulk_update_prefs` com `pref_extraido_em IS NULL`; `contactos` tem PK `(nome, criado_em)` mas o sync usa `ego_link` — insert nosso colide ou fica órfão. Leitura sim, escrita não. A spec §2.5 pede o contrário; ignorar.
-- **Agente unificado**: `agente_config[agente='voz']` é a persona da voz telefónica. Atendimento ao cliente (WhatsApp, web) passou para `a1_vendedor`/`a2_geral`. `agente_config[agente='broker']` continua exclusivo do corretor.
-- **Dois projectos Supabase, papéis divididos**: `get_supabase()` = todos os dados (projecto `zphasvfopnbzwnaidsnw`, dados unificados desde 2026-07-21); `get_supabase_auth()` = só validação de login (projecto original, onde vivem as contas reais). Backend usa sempre `service_role_key` para dados — nunca passa o JWT ao Postgres — por isso um token emitido pelo projecto de Auth valida-se normalmente mesmo com os dados noutro projecto (RLS nunca chega a ser avaliado). Lazy singletons em `db/supabase_client.py`.
-- **Tool forcing**: quando o utilizador menciona critérios de pesquisa (regex `_SEARCH_RE`, em `assistants.py`), `tool_choice: {"type":"tool","name":"pesquisar_imoveis"}` é forçado na iteração 0. Sem este mecanismo Claude ignorava as tools e prometia callbacks. Hoje é declarado por assistente (`spec["force"]`), não hardcoded — mas o regex e o comportamento são os mesmos, provados em produção. Não remover sem reconfirmar ao vivo.
-- **Prompt caching**: system prompt como lista com `cache_control: ephemeral` + beta header. Cache hits custam 10% do preço normal.
-- **Aging de conversas**: `load_conversation` verifica `atualizado_em`; se > 48h retorna `None, []` e `save_conversation` cria nova linha.
-- **Tailwind v4** via `@tailwindcss/vite` — sem `tailwind.config.js`
-- **Auth backend**: `require_auth` FastAPI Depends por router; RLS activo (service_role_key no backend = bypass automático)
-- **Supabase backend**: sync via `asyncio.run_in_executor()` (supabase-py é síncrono)
-- **TTS** via `speak()` REST, não via WebSocket; **µ-law decode** manual (sem `audioop`, removido no Python 3.13)
-- **Extracção de dados voz**: só no hangup (Claude tool use sobre transcrição completa)
-- **CORS**: `frontend_url` + regex `*.figueirahome-agentos.pages.dev` para preview deploys
-- **Sync eGO sempre full, nunca incremental**: `/v1/Properties/Latest?Since=` confirmado avariado (ignora `Since`, devolve sempre 1 imóvel) — não tentar reintroduzir cursor incremental nesta API sem reconfirmar que o eGO corrigiu o bug.
-- **CRM backoffice como fonte de verdade de `disponibilidade`, mas não no cron automático**: Web API pública só vê publicados; o CRM autenticado (`egorealestate_crm.py`) é a única fonte com visibilidade total, usado para criar/corrigir linhas fora do alcance da API pública — mas por sobrepor às vezes um estado "Disponível" que a API pública já confirmava (dados desactualizados do lado do CRM), passou a correr só manual, não no cron diário.
-- **"Sem acesso" no CRM ≠ permissão negada por defeito**: uma ficha que devolve "Você não pode consultar este imóvel" é, mais frequentemente, um `ego_id` desactualizado (imóvel recriado com novo ID) do que uma restrição real de permissão — `find_by_ref()` (campo `FreeText`, não `searchText`) resolve isto automaticamente antes de sinalizar tarefa.
-- **`publicado` como coluna GENERATED, não campo escrito pela app**: critério de publicação no site é puramente função de outras colunas da mesma linha (`disponibilidade`, `imovel_ref`, preços, `disponivel_na_api`) — Postgres recalcula sempre, nunca dessincroniza. `disponivel_na_api` é a excepção (plain boolean): só a app sabe, a cada pull da API, se um ref ainda foi devolvido.
-- **Scrapers de relatório eGO em `backend/scripts/` (imóveis, oportunidades 48h/notas) correm só local**: Chromium headless excede a RAM da app principal (256MB). O scraper de oportunidades completo (`scraper/`) é a excepção — tem app Fly.io própria e dedicada (`figueirahome-scraper`, 1GB, scale-to-zero) só para isto, para não subir a RAM da app principal 24/7. Não juntar Playwright à app principal.
-- **Staging antes de produção para dados de scraping — excepto onde já confirmado com o utilizador**: regra por defeito continua a ser `teste_*` primeiro (`imoveis`, `oportunidades` via `backend/scripts/`). O sync de oportunidades completo (`scraper/`) é uma excepção explicitamente aprovada pelo utilizador — escreve direto em produção, validado ao vivo antes de activar.
-- **Popup de download do eGO não funciona em Fly.io/browser headless em datacenter**: confirmado ao vivo — `POST /egocore/report/export` responde 200 e abre popup, mas o popup nunca navega (fica em branco para sempre), nunca reproduzido em dev local. A resposta JSON de `/report/export` já traz a URL directa do ficheiro no campo `data` (domínio `media.egorealestate.com`, assinada) — usar essa URL directamente via httpx em vez de esperar pelo popup/evento `download` do browser. Os scrapers antigos (`backend/scripts/`) ainda usam o mecanismo de popup porque só correm local (nunca expostos a este problema) — se algum dia forem para Fly.io, aplicar a mesma técnica.
-- **Formato PT do eGO precisa de conversão antes de upsert em produção**: preços vêm com vírgula decimal ("240000,0" — Postgres `numeric` rejeita), datas em "dd/mm/aaaa" (Postgres `date`/`timestamptz` com datestyle ISO rejeita). `scraper/mapping_todas_colunas.py` converte antes de qualquer upsert — confirmado por erros reais em produção antes do fix.
-- **`contactos` tem chave primária real `(nome, criado_em)`, não `ego_link`**: ao contrário do que a doc do pipeline externo recomendava. Duas pessoas reais podem partilhar nome+data (visto ao vivo). `scraper/upsert.py` faz upsert registo-a-registo por `ego_link` e ignora (loga, não aborta o lote) colisões de `(nome, criado_em)` — não tentar "resolver" fundindo os dois registos.
+**Texto completo e o porquê de cada uma: `docs/decisoes.md`.** Ler antes de mexer
+na área respectiva — quase todas registam uma tentativa que já falhou ao vivo.
+
+- **Um motor, N assistentes** — nunca N cópias do loop. A3/A4 = entrada no dict + linha em `agente_config`.
+- **Subconjunto de tools por assistente é fronteira de segurança**, não organização (`consultar_*` só no `broker`).
+- **Router por regex, não por LLM**; routing **sticky** em `agente_conversas.agente`, sentido único A2→A1.
+- **`agente_config` é a tabela de assistentes** — não há lista em código; acrescentar = INSERT, não deploy.
+- **Regras que não podem falhar vivem em `guards.py`** (dedup + 80%), nunca no prompt.
+- **Dedup: o nome é sempre tentado**, aceite só quando nada contradiz (`_compativel`).
+- **Fallback de tipologia dentro da tool** — o modelo perdia moradias T2 ao traduzir "T2"→`natureza`.
+- **Tool forcing** na iteração 0 quando `_SEARCH_RE` bate; sem ele Claude prometia callbacks.
+- **Assistentes nunca escrevem em `oportunidades`/`contactos`** — espelho do eGO, pipeline externo.
+- **`publicado` é coluna GENERATED**; `disponivel_na_api` é a excepção escrita pela app.
+- **Sync eGO sempre full, nunca incremental** — `?Since=` confirmado avariado.
+- **CRM é a fonte com visibilidade total, mas só manual** — sobrepunha estados desactualizados no cron.
+- **Playwright nunca na app principal** — RAM; o `scraper/` tem app Fly.io própria.
+- **O eGO devolve a URL do export no JSON** — o popup nunca navega em datacenter.
 
 ## Bugs conhecidos
 
-- **Timeout esporádico no sync de oportunidades** (`scraper/oportunidades_completo.py:217`, 30s): confirmado 2026-07-30 — falha transiente do CRM eGO em responder a `POST /report/export`, não bug de código (retry manual resolveu de imediato). Teoria do comentário no código (eGO envia por email se resultado grande) não confirmada. Se repetir com frequência, subir timeout 30s→60s.
-- **Agente de voz** (bloqueado por Telnyx, nenhum destes se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2s sem VAD, podem cortar frases.
+- **Timeout esporádico no sync de oportunidades** (`scraper/oportunidades_completo.py:217`,
+  30s): confirmado 2026-07-30 — falha transiente do CRM eGO a responder a
+  `POST /report/export`, não bug de código (retry manual resolveu). Se repetir com
+  frequência, subir 30s→60s.
+- **Dedup sob carga**: ver Próximos passos 4 — não reproduzido, não explicado.
+- **Agente de voz** (bloqueado por Telnyx, nenhum destes se manifesta hoje): sem
+  barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking`
+  vs `call.speak.ended`); janelas fixas de 2s sem VAD, podem cortar frases.
 
 ---
 
 ## Convenções
 
-- **Python:** PEP 8, type hints, async.
-- **React:** componentes funcionais + hooks. Sem class components.
-- **Nomes:** código em inglês; UI em PT-PT.
-- **DB:** tabelas e colunas em português, snake_case.
+- **Python:** PEP 8, type hints, async. **React:** funcionais + hooks, sem classes.
+- **Nomes:** código em inglês; UI em PT-PT. **DB:** português, snake_case.
 - **Segredos:** nunca hardcoded. Só em `.env` / Fly.io secrets.
-
----
 
 ## Regras para o Claude Code
 
-1. Ler `docs/PRD.md` antes de feature nova.
-2. Consultar `docs/database-schema.md` antes de tocar na DB.
-3. Consultar `docs/api-spec.md` antes de criar/alterar endpoints.
-4. **Fase nova → seguir `planeamento-fases.md`. Plano antes de código. Sempre.**
-5. Uma fase de cada vez. Primeira resposta a fase nova = plano (nunca código directo).
-6. Manter este ficheiro actualizado após cada fase. Limite: 200 linhas.
-7. Nunca inventar credenciais.
+1. Ler `docs/PRD.md` antes de feature nova; `docs/database-schema.md` antes de
+   tocar na DB; `docs/api-spec.md` antes de criar/alterar endpoints;
+   `docs/decisoes.md` antes de contrariar uma decisão.
+2. **Fase nova → seguir `planeamento-fases.md`. Plano antes de código. Sempre.**
+   Uma fase de cada vez; primeira resposta = plano, nunca código directo.
+3. Manter este ficheiro actualizado após cada fase. **Limite: 200 linhas** — o
+   histórico vai para `docs/fases/`, as decisões para `docs/decisoes.md`.
+4. Nunca inventar credenciais.
