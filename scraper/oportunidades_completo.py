@@ -214,10 +214,10 @@ async def _trigger_and_download(headless: bool = True) -> Path:
             raise RuntimeError(f'Relatório "{REPORT_NAME}" não encontrado na lista de relatórios gravados.')
 
         try:
-            file_url = await asyncio.wait_for(export_url_future, timeout=30)
+            file_url = await asyncio.wait_for(export_url_future, timeout=90)
         except asyncio.TimeoutError:
             raise RuntimeError(
-                "Relatório não devolveu URL de download em 30s — se o filtro (48h) devolver muitos "
+                "Relatório não devolveu URL de download em 90s — se o filtro (48h) devolver muitos "
                 "resultados, o eGO pode enviar o relatório por email em vez de gerar download directo."
             )
 
