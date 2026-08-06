@@ -170,10 +170,10 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 
 ## Bugs conhecidos
 
-- **Timeout esporádico no sync de oportunidades** (`scraper/oportunidades_completo.py:217`,
-  30s): confirmado 2026-07-30 — falha transiente do CRM eGO a responder a
-  `POST /report/export`, não bug de código (retry manual resolveu). Se repetir com
-  frequência, subir 30s→60s.
+- ~~**Timeout esporádico no sync de oportunidades**~~ — **resolvido 2026-08-06.**
+  `scraper/oportunidades_completo.py:217`: CRM eGO por vezes demora mais de 30s a
+  responder a `POST /report/export`, falhando a 1ª tentativa manual. Timeout subido
+  para 90s, deploy `v11`. Ver `docs/decisoes.md`.
 - **Dedup sob carga**: ver Próximos passos 4 — não reproduzido, não explicado.
 - **Agente de voz** (bloqueado por Telnyx, nenhum destes se manifesta hoje): sem
   barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking`
