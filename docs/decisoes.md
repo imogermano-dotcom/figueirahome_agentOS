@@ -21,6 +21,7 @@
 - **Tool forcing**: quando o utilizador menciona critérios de pesquisa (regex `_SEARCH_RE`, em `assistants.py`), `tool_choice: {"type":"tool","name":"pesquisar_imoveis"}` é forçado na iteração 0. Sem este mecanismo Claude ignorava as tools e prometia callbacks. Hoje é declarado por assistente (`spec["force"]`), não hardcoded — mas o regex e o comportamento são os mesmos, provados em produção. Não remover sem reconfirmar ao vivo.
 - **Prompt caching**: system prompt como lista com `cache_control: ephemeral` + beta header. Cache hits custam 10% do preço normal.
 - **Aging de conversas**: `load_conversation` verifica `atualizado_em`; se > 48h retorna `None, []` e `save_conversation` cria nova linha.
+- **`agente_config[a1_vendedor].instrucoes` carregado a 2026-08-06** com o ficheiro que o Miguel entregou (`kb-a1-vendedor.md`, raiz do repo). Até aqui tinha só o texto placeholder da seed da migration `0014` (112 caracteres) — o agente respondia no WhatsApp a partir do prompt base, nunca da base de conhecimento real. Valor anterior fez backup fora do repo antes de sobrescrever.
 
 ## Regras de negócio em código
 
