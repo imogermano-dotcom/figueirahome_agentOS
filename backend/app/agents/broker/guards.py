@@ -91,7 +91,12 @@ def _promover_lead(supabase, cliente: dict) -> None:
     if not telefone and not email:
         return
 
-    q = supabase.table("leads").select("id,estado,cliente_id").neq("estado", "qualificada")
+    # Só leads que já receberam o template e responderam. Uma lead `nova` não é
+    # qualificada por muito completo que o formulário venha: a semeadura chama
+    # `find_or_create_cliente` com os campos do formulário e, sem este filtro,
+    # criava a tarefa antes de a pessoa dizer fosse o que fosse — e o estado
+    # `contactada` que o endpoint escreve a seguir apagava a promoção na mesma.
+    q = supabase.table("leads").select("id,estado,cliente_id").eq("estado", "contactada")
     q = q.in_("telefone", variantes_telefone(telefone)) if telefone else q.eq("email", email)
     leads = q.limit(1).execute().data
     if not leads:

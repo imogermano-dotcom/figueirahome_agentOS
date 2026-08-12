@@ -188,6 +188,21 @@ def test_semeadura_cria_thread_do_a1_com_o_template_no_historico(cliente_e_estad
     assert conversa["participante"] == "912345678"
 
 
+def test_semeadura_nao_qualifica_lead_que_ainda_nao_respondeu(cliente_e_estado):
+    """O formulário Meta traz os três campos do MQL, e a semeadura passa-os a
+    `find_or_create_cliente`. Sem cuidado, a lead era promovida e criava tarefa
+    antes de a pessoa responder — e o `contactada` que o endpoint escreve a
+    seguir apagava a promoção na mesma. Qualificar é o que acontece na conversa."""
+    client, estado = cliente_e_estado
+    r = client.post(f"/api/leads/{LEAD['id']}/conversa-semeada", json={"template": "olá"})
+    assert r.status_code == 200
+
+    assert not [d for t, d in estado["inserts"] if t == "agente_tarefas"], \
+        "criou tarefa de lead qualificada antes de a lead responder"
+    leads_updates = [d for t, d in estado["updates"] if t == "leads"]
+    assert leads_updates and leads_updates[-1]["estado"] == "contactada"
+
+
 def test_angariacao_nao_e_seguida_pelo_a1(cliente_e_estado):
     """O A4 está adiado; angariação continua com a consultora ao telefone."""
     client, estado = cliente_e_estado
