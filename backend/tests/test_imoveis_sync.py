@@ -67,11 +67,19 @@ def test_zona_envolvente_nunca_vira_feature_do_imovel():
     afirmar ao comprador que o imóvel tem piscina e jardim que não tem."""
     r = _map_property(_payload())
     assert r["piscina"] is False
-    assert "jardim" not in r  # sem fonte na API — nunca escrito, não se apaga
+    assert r["jardim"] is False
 
-    # a piscina do próprio imóvel é outra tag
-    com_piscina = _payload(FeatureTags=[{"Tag": "PROPERTY_HAS_POOL", "Value": ""}])
-    assert _map_property(com_piscina)["piscina"] is True
+    # as do próprio imóvel são outras tags. FH2581 traz `PROPERTY_HAS_GARDEN`
+    # ([Infraestruturas] Jardim) e `PROPERTY_NEAR_GARDENS` ([Zona Envolvente]
+    # Espaços Verdes) ao mesmo tempo — o caso que prova que são coisas distintas.
+    proprio = _payload(FeatureTags=[
+        {"Tag": "PROPERTY_HAS_POOL", "Value": ""},
+        {"Tag": "PROPERTY_HAS_GARDEN", "Value": ""},
+        {"Tag": "PROPERTY_NEAR_GARDENS", "Value": ""},
+    ])
+    r = _map_property(proprio)
+    assert r["piscina"] is True
+    assert r["jardim"] is True
 
 
 def test_vista_praia_e_vista_mar_sao_vistas_nao_proximidade():

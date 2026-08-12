@@ -32,11 +32,13 @@ def _int_or_none(v):
 # imóvel tem coisas que não tem. Duas armadilhas medidas ao vivo (2026-08-12):
 #   - `SWIMMING_POOLS` (4/54) é "[Zona Envolvente] Piscinas" = há piscinas na
 #     zona. A piscina do imóvel é `PROPERTY_HAS_POOL` (2/54).
-#   - `PROPERTY_NEAR_GARDENS` (23/54) é "[Zona Envolvente] Espaços Verdes", não
-#     jardim próprio — por isso `jardim` fica sem fonte na API.
+#   - `PROPERTY_NEAR_GARDENS` (23/54) é "[Zona Envolvente] Espaços Verdes"; o
+#     jardim do imóvel é `PROPERTY_HAS_GARDEN`, "[Infraestruturas] Jardim".
+#     FH2581 traz as duas ao mesmo tempo — é o caso que prova a distinção.
 # `arrecadacao` e `numero` não existem em lado nenhum da Web API.
 _FEATURE_BOOLS = {
     "garagem": "PROPERTY_HAS_GARAGE",
+    "jardim": "PROPERTY_HAS_GARDEN",
     "estacionamento": "PROPERTY_NUM_PARKING_SPACES",
     "elevador": "PROPERTY_HAS_ELEVATOR",
     "varanda": "PROPERTY_HAS_BALCONY",
