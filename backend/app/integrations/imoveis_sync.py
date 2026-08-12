@@ -23,6 +23,66 @@ def _int_or_none(v):
     return None if v is None or v == _INT_SENTINEL else v
 
 
+# `FeatureTags` é uma lista plana {Tag, Value} — a presença da tag é que conta,
+# o Value vem vazio na maioria (ex: PROPERTY_HAS_AC).
+#
+# Escolher a tag certa importa: `Features` vem agrupado, e o grupo distingue o
+# que o imóvel TEM ([Divisões]/[Equipamentos]/[Infraestruturas]) do que há PERTO
+# ([Zona Envolvente]). Mapear a tag errada faz o A1 afirmar ao comprador que um
+# imóvel tem coisas que não tem. Duas armadilhas medidas ao vivo (2026-08-12):
+#   - `SWIMMING_POOLS` (4/54) é "[Zona Envolvente] Piscinas" = há piscinas na
+#     zona. A piscina do imóvel é `PROPERTY_HAS_POOL` (2/54).
+#   - `PROPERTY_NEAR_GARDENS` (23/54) é "[Zona Envolvente] Espaços Verdes", não
+#     jardim próprio — por isso `jardim` fica sem fonte na API.
+# `arrecadacao` e `numero` não existem em lado nenhum da Web API.
+_FEATURE_BOOLS = {
+    "garagem": "PROPERTY_HAS_GARAGE",
+    "estacionamento": "PROPERTY_NUM_PARKING_SPACES",
+    "elevador": "PROPERTY_HAS_ELEVATOR",
+    "varanda": "PROPERTY_HAS_BALCONY",
+    "terraco": "PROPERTY_HAS_TERRACE",
+    "ar_condicionado": "PROPERTY_HAS_AC",
+    "aquecimento_central": "PROPERTY_HAS_CENTRAL_HEATING",
+    "piscina": "PROPERTY_HAS_POOL",
+    "vista_mar": "SEA_VIEW",
+    "vista_praia": "BEACH_VIEW",
+}
+
+# `ExclusiveRegime` é binário (0/1) mas a coluna é texto e tem 4 valores vindos
+# do Excel. Nos 53 imóveis que a API devolve o vocabulário bate certo (44/9),
+# por isso não há perda; Co-Exclusivo/Concorrência só existem em linhas que a
+# API nunca toca.
+_EXCLUSIVIDADE = {0: "Regime aberto", 1: "Exclusivo"}
+
+
+def _feature_tags(p: dict) -> dict[str, str]:
+    return {f["Tag"]: (f.get("Value") or "") for f in (p.get("FeatureTags") or []) if f.get("Tag")}
+
+
+def _angariador(p: dict) -> str | None:
+    """Um agente por imóvel, role sempre `Angariador` (ID 4) — confirmado nos 54."""
+    for agente in p.get("PropertyAgents") or []:
+        if any(r.get("ID") == 4 for r in agente.get("Roles") or []):
+            return agente.get("AgentName") or None
+    return None
+
+
+def _data(value: str | None) -> str | None:
+    """`CreatedDate`/`LastModified` vêm ISO com hora; as colunas são `date`."""
+    return value[:10] if value else None
+
+
+def _gps(p: dict) -> tuple[float, float] | tuple[None, None]:
+    """`GPSLat`/`GPSLon` vêm sempre preenchidos, mas só valem alguma coisa com
+    `HasGPSLocation` — sem ele o eGO devolve o centróide da zona. Medido ao vivo
+    (2026-08-12): 42 dos 54 imóveis têm o flag a False e partilham 10
+    coordenadas, 19 deles no mesmo ponto. Marcá-los no mapa seria inventar uma
+    morada que não sabemos."""
+    if not p.get("HasGPSLocation"):
+        return None, None
+    return p.get("GPSLat"), p.get("GPSLon")
+
+
 def _utc_iso(value: str | None) -> str | None:
     """eGO devolve timestamps sem offset (mas são UTC, per doc oficial)."""
     if not value:
@@ -31,6 +91,7 @@ def _utc_iso(value: str | None) -> str | None:
 
 
 def _map_property(p: dict) -> dict:
+    tags = _feature_tags(p)
     venda_preco = None
     arrendamento_preco = None
     for biz in p.get("PropertyBusiness") or []:
@@ -42,7 +103,7 @@ def _map_property(p: dict) -> dict:
         elif nome in _BUSINESS_ARRENDAMENTO:
             arrendamento_preco = valor
 
-    return {
+    record = {
         "ego_id": p.get("ID"),
         "imovel_ref": p.get("Reference"),
         "natureza": p.get("Type"),
@@ -50,7 +111,6 @@ def _map_property(p: dict) -> dict:
         "disponibilidade": p.get("Availability"),
         "quartos": _int_or_none(p.get("Rooms")),
         "casas_banho": _int_or_none(p.get("Bathrooms")),
-        "piso": str(p["Floor"]) if _int_or_none(p.get("Floor")) is not None else None,
         "num_pisos": _int_or_none(p.get("Floors")),
         "fracao": p.get("Fraction") or None,
         "area_util": p.get("NetArea"),
@@ -72,9 +132,46 @@ def _map_property(p: dict) -> dict:
         "panoramic_url": p.get("MainPanoramicUrl") or None,
         "destaque": any(t.get("Name") == "Destaque" for t in (p.get("Tags") or [])),
         "ego_atualizado_em": _utc_iso(p.get("LastModified")),
+        "data_criacao": _data(p.get("CreatedDate")),
+        "data_alteracao": _data(p.get("LastModified")),
+        "exclusividade": _EXCLUSIVIDADE.get(p.get("ExclusiveRegime")),
         "fonte": "egorealestate",
         "disponivel_na_api": True,
+        **{col: tag in tags for col, tag in _FEATURE_BOOLS.items()},
     }
+
+    return record
+
+
+def _map_extras(p: dict) -> dict:
+    """Campos que a API só traz para alguns imóveis, mas que a BD já tem
+    preenchidos pelo import Excel/CRM (`conservacao`: 6/54 na API contra 42
+    linhas na BD).
+
+    Vão FORA do upsert, aplicados linha a linha, e a razão é dura: o PostgREST
+    constrói um único `INSERT ... ON CONFLICT` sobre a UNIÃO das chaves de todo
+    o lote. Basta um registo trazer `latitude` para a coluna entrar no
+    statement, e todos os outros do lote são escritos a NULL — omitir a chave
+    não protege nada. Aconteceu ao vivo em 2026-08-12: 40 imóveis publicados
+    perderam a coordenada num único sync. Ver `test_upsert_com_chaves_uniformes`.
+    """
+    tags = _feature_tags(p)
+    n_suites = tags.get("PROPERTY_HAS_SUITE") or ""
+    # `Floor` só vem em 17/54; a tag `PROPERTY_FLOOR` cobre 19 e nunca diverge
+    # do `Floor` quando ambos existem — serve de fallback.
+    piso = _int_or_none(p.get("Floor"))
+    piso = str(piso) if piso is not None else (tags.get("PROPERTY_FLOOR") or None)
+    latitude, longitude = _gps(p)
+    extras = {
+        "conservacao": tags.get("FEATURE_CONDITION") or None,
+        "certificacao_energetica": p.get("EnergyCertification") or None,
+        "angariador": _angariador(p),
+        "suites": int(n_suites) if n_suites.isdigit() else None,
+        "piso": piso,
+        "latitude": latitude,
+        "longitude": longitude,
+    }
+    return {k: v for k, v in extras.items() if v is not None}
 
 
 async def _run(fn):
@@ -466,6 +563,7 @@ async def sync_egorealestate_api() -> dict:
 
     now_iso = datetime.now(timezone.utc).isoformat()
     records = []
+    extras_por_ref: dict[str, dict] = {}
     erros = 0
     for p in properties:
         try:
@@ -474,6 +572,7 @@ async def sync_egorealestate_api() -> dict:
                 raise ValueError("propriedade eGO sem Reference")
             record["ego_atualizado_em"] = record["ego_atualizado_em"] or now_iso
             records.append(record)
+            extras_por_ref[record["imovel_ref"]] = _map_extras(p)
         except Exception:
             logger.exception("Falha a mapear propriedade eGO %s", p.get("ID"))
             erros += 1
@@ -498,6 +597,20 @@ async def sync_egorealestate_api() -> dict:
         return get_supabase().table("imoveis").upsert(records, on_conflict="imovel_ref").execute()
 
     await _run(_upsert)
+
+    # Os esparsos vão depois e um a um: dentro do lote, uma chave presente em
+    # qualquer registo torna-se coluna do statement e escreve NULL em todos os
+    # outros. Ver `_map_extras`.
+    # ponytail: um UPDATE por imóvel (~53/dia). Se o portefólio crescer uma
+    # ordem de grandeza, agrupar por conjunto de chaves e mandar um upsert por
+    # grupo — cada grupo tem chaves uniformes, que é a condição que falta aqui.
+    def _aplicar_extras():
+        sb = get_supabase()
+        for ref, extras in extras_por_ref.items():
+            if extras:
+                sb.table("imoveis").update(extras).eq("imovel_ref", ref).execute()
+
+    await _run(_aplicar_extras)
 
     criados = sum(1 for r in records if r["imovel_ref"] not in existentes)
     atualizados = len(records) - criados
