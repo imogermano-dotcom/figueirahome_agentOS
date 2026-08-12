@@ -9,7 +9,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.integrations.imoveis_sync import _map_extras, _map_property  # noqa: E402
+from app.integrations.imoveis_sync import (  # noqa: E402
+    _dedup_por_ref,
+    _map_extras,
+    _map_property,
+)
 
 
 def _payload(**over) -> dict:
@@ -142,6 +146,19 @@ def test_piso_usa_a_tag_quando_Floor_nao_vem():
     assert _map_extras(_payload(Floor=2))["piso"] == "2"
     # INT32_MIN é o "sem valor" do eGO, não um piso
     assert "piso" not in _map_extras(_payload(Floor=-2147483648))
+
+
+def test_dedup_fica_com_a_copia_mais_recente():
+    """Caso real FH2460 4D: o eGO devolve dois imóveis com a mesma Reference e
+    a ordem da lista escolhia o que não tinha `Floor` — 4.º andar gravado como
+    piso 0. Desempata a data de alteração, não a posição."""
+    velho = _map_property(_payload(ID=24968319, Floor=-2147483648, LastModified="2026-06-19T14:13:27"))
+    novo = _map_property(_payload(ID=24968346, Floor=4, LastModified="2026-06-19T14:13:28"))
+
+    # a boa aparece primeiro na lista — a ordem não pode decidir
+    assert _dedup_por_ref([novo, velho])["FH2483_C"]["ego_id"] == 24968346
+    # e também quando aparece depois
+    assert _dedup_por_ref([velho, novo])["FH2483_C"]["ego_id"] == 24968346
 
 
 def test_angariador_so_do_role_certo():

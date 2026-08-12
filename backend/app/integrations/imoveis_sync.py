@@ -174,6 +174,34 @@ def _map_extras(p: dict) -> dict:
     return {k: v for k, v in extras.items() if v is not None}
 
 
+def _dedup_por_ref(records: list[dict]) -> dict[str, dict]:
+    """`imovel_ref` é a PK real da tabela (chave partilhada com o resto do
+    sistema); o upsert por `ego_id` colidiria com linhas já existentes por
+    referência (ex: entradas manuais que o eGO agora também reporta). O eGO
+    ocasionalmente devolve a mesma Reference em 2 propriedades — dado sujo do
+    lado deles — e o Postgres não aceita ON CONFLICT duplicado no mesmo batch.
+
+    Desempate pela data de alteração, não pela ordem da lista: a ordem do eGO é
+    arbitrária e a cópia velha costuma ser a que ficou por preencher. Medido em
+    `FH2460 4D` (2026-08-12) — duas propriedades com a mesma Reference, e a que
+    a ordem escolhia não tinha `Floor`, gravando piso 0 num 4.º andar.
+    """
+    by_ref: dict[str, dict] = {}
+    for r in records:
+        anterior = by_ref.get(r["imovel_ref"])
+        if anterior is None:
+            by_ref[r["imovel_ref"]] = r
+            continue
+        perdedor = min(anterior, r, key=lambda x: x.get("ego_atualizado_em") or "")
+        vencedor = anterior if perdedor is r else r
+        logger.warning(
+            "imovel_ref duplicado no batch eGO: %s (ego_id %s ignorado, fica %s por ser mais recente)",
+            r["imovel_ref"], perdedor["ego_id"], vencedor["ego_id"],
+        )
+        by_ref[r["imovel_ref"]] = vencedor
+    return by_ref
+
+
 async def _run(fn):
     return await asyncio.get_event_loop().run_in_executor(None, fn)
 
@@ -563,7 +591,7 @@ async def sync_egorealestate_api() -> dict:
 
     now_iso = datetime.now(timezone.utc).isoformat()
     records = []
-    extras_por_ref: dict[str, dict] = {}
+    extras_por_ego_id: dict[int, dict] = {}
     erros = 0
     for p in properties:
         try:
@@ -572,24 +600,15 @@ async def sync_egorealestate_api() -> dict:
                 raise ValueError("propriedade eGO sem Reference")
             record["ego_atualizado_em"] = record["ego_atualizado_em"] or now_iso
             records.append(record)
-            extras_por_ref[record["imovel_ref"]] = _map_extras(p)
+            extras_por_ego_id[record["ego_id"]] = _map_extras(p)
         except Exception:
             logger.exception("Falha a mapear propriedade eGO %s", p.get("ID"))
             erros += 1
 
-    # imovel_ref é a PK real da tabela (chave partilhada com o resto do
-    # sistema); upsert por ego_id colidiria com linhas já existentes por
-    # referência (ex: entradas manuais que o eGO agora também reporta).
-    # O eGO ocasionalmente devolve o mesmo Reference em 2 propriedades
-    # (dado sujo do lado deles) — Postgres não aceita ON CONFLICT duplicado
-    # no mesmo batch, por isso mantemos só a última ocorrência.
-    by_ref: dict[str, dict] = {}
-    for r in records:
-        if r["imovel_ref"] in by_ref:
-            logger.warning("imovel_ref duplicado no batch eGO: %s (ego_id %s ignorado)", r["imovel_ref"], by_ref[r["imovel_ref"]]["ego_id"])
-        by_ref[r["imovel_ref"]] = r
+    by_ref = _dedup_por_ref(records)
     records = list(by_ref.values())
 
+    extras_por_ref = {ref: extras_por_ego_id.get(r["ego_id"], {}) for ref, r in by_ref.items()}
     refs = list(by_ref)
     existentes = await _existing_refs(refs)
 
