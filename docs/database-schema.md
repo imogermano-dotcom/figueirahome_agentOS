@@ -21,6 +21,7 @@
 | `conversas` | Histórico de conversas do Agente 2, por canal. |
 | `config_agentes` | Persona e instruções configuráveis de cada agente. |
 | `agente_tarefas` | Tarefas genéricas (não exclusivas de imóveis) do corretor/agência. |
+| `leads` | Leads **não qualificadas**, de qualquer origem (migration 0021). Nasce a servir o Meta Lead Ads; é para aqui que `agente_leads` e `leads_angariacao` vão convergir. |
 
 ---
 
@@ -143,6 +144,22 @@ create unique index idx_imoveis_ego_id on imoveis(ego_id);  -- integridade (Post
 -- `disponibilidade` tem 2 fontes: Web API pública do eGO (só publicados, `imoveis_sync.py::sync_egorealestate_api`)
 -- e o backoffice autenticado (visibilidade total, incl. nunca-publicados; `imoveis_sync.py::validar_disponibilidade_crm`,
 -- via `egorealestate_crm.py` — scraping de sessão, credenciais EGOREALESTATE_CRM_*). O backoffice é autoritativo.
+-- Colunas preenchidas pela Web API desde 2026-08-12 (`_map_property`): as 11 booleanas
+-- de features, `conservacao`, `certificacao_energetica`, `angariador`, `suites`,
+-- `exclusividade`, `data_criacao`, `data_alteracao`. As booleanas vêm de `FeatureTags`
+-- e a tag tem de ser a do imóvel, não a da zona envolvente — `SWIMMING_POOLS` e
+-- `PROPERTY_NEAR_GARDENS` são "há na zona"; ver comentário em `imoveis_sync.py`.
+-- `arrecadacao`, `numero`, `proprietario`, `vendedor` e as 3 comissões não existem
+-- na Web API pública (só Excel/CRM) — o mapeamento nunca lhes toca.
+-- Campos esparsos (`conservacao`, `certificacao_energetica`, `angariador`, `suites`,
+-- `piso`, `latitude`, `longitude`) saem por `_map_extras` e são aplicados com um
+-- UPDATE por linha, FORA do upsert. O upsert por lotes é um único INSERT ... ON
+-- CONFLICT sobre a UNIÃO das chaves do lote: uma chave presente num só registo vira
+-- coluna e escreve NULL em todos os outros. Omitir a chave não protege — custou 40
+-- coordenadas em 2026-08-12. `_map_property` devolve sempre as mesmas chaves.
+-- `latitude`/`longitude` só se escrevem com `HasGPSLocation=true` (13/53): sem o flag
+-- o eGO devolve o centróide da zona, não a morada — 40 imóveis em 11 coordenadas, 19
+-- no mesmo ponto. As linhas já preenchidas com esse centróide vêm do import Excel.
 create index idx_imoveis_fonte on imoveis(fonte);
 create index idx_imoveis_disponibilidade on imoveis(disponibilidade);
 create index idx_imoveis_publicado on imoveis(publicado);
@@ -229,6 +246,41 @@ create table agente_tarefas (
 );
 create index idx_agente_tarefas_estado on agente_tarefas(estado);
 create index idx_agente_tarefas_imovel on agente_tarefas(imovel_ref);
+
+-- ──────────────────────────────────────────────
+-- LEADS — migration 0021
+-- Leads NÃO qualificadas, de qualquer origem. Esquema genérico de propósito:
+-- `agente_leads` e `leads_angariacao` vão convergir para aqui (ainda não).
+-- Ciclo: `nova` -> n8n manda template e marca `contactada` -> o A1 conversa e
+-- qualifica -> `qualificada` + tarefa para o corretor passar ao eGO à mão.
+-- `telefone` e `email` ficam na própria linha: `leads_angariacao` depende de um
+-- join a `contactos` por (nome, data) que resolve 74/79 mas parte-se assim que
+-- dois leads com o mesmo nome cheguem no mesmo dia.
+-- NÃO escrever em `contactos` a partir daqui — ver `docs/decisoes.md`.
+-- ──────────────────────────────────────────────
+create table leads (
+  id              uuid primary key default gen_random_uuid(),
+  tipo            text not null default 'compra',  -- 'compra'|'arrendamento' vão para o A1; 'angariacao' fica com a consultora
+  estado          text not null default 'nova',    -- nova | contactada | qualificada | sem_interesse | perdida
+  nome            text,
+  telefone        text,                            -- normalizado a 9 dígitos (guards.normalizar_telefone)
+  email           text,
+  meta_lead_id    text unique,                     -- unique = idempotência para o Make
+  meta_form_name  text,
+  meta_created_at timestamptz,
+  imovel_ref      text,                            -- sem FK: pode citar imóvel ainda por sincronizar
+  ficha           jsonb not null default '{}'::jsonb,
+  responsavel     text,
+  notas           text,
+  cliente_id      uuid references agente_clientes(id) on delete set null,
+  conversa_id     uuid references agente_conversas(id) on delete set null,
+  qualificada_em  timestamptz,
+  criado_em       timestamptz not null default now(),
+  atualizado_em   timestamptz not null default now()
+);
+create index idx_leads_telefone on leads(telefone);  -- caminho quente: webhook procura por telefone a cada mensagem
+create index idx_leads_estado on leads(estado);
+create index idx_leads_tipo on leads(tipo);
 
 -- ──────────────────────────────────────────────
 -- Índices úteis

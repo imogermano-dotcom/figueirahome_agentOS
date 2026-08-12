@@ -9,6 +9,7 @@ from app.api.clientes import router as clientes_router
 from app.api.imoveis import router as imoveis_router
 from app.api.imoveis_sync import router as imoveis_sync_router
 from app.api.leads import router as leads_router
+from app.api.leads_meta import router as leads_meta_router
 from app.api.oportunidades_sync import router as oportunidades_sync_router
 from app.api.tarefas import router as tarefas_router
 from app.api.agentes import router as agentes_router
@@ -41,6 +42,7 @@ app.include_router(imoveis_router)
 app.include_router(imoveis_sync_router)
 app.include_router(oportunidades_sync_router)
 app.include_router(leads_router)
+app.include_router(leads_meta_router)  # semeadura das leads da Meta — n8n, X-Automacao-Secret
 app.include_router(tarefas_router)
 app.include_router(config_router)
 app.include_router(dashboard_router)

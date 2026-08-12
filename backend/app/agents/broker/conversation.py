@@ -2,11 +2,30 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
+from app.agents.broker.guards import normalizar_telefone, variantes_telefone
 from app.db.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 
 _CONVERSATION_TTL_HOURS = 48
+
+
+def _participantes(canal: str, participante: str) -> list[str]:
+    """Formatos sob os quais a mesma thread pode estar gravada.
+
+    No WhatsApp o mesmo número aparece de várias formas: a Meta entrega
+    `351912345678` no webhook, mas uma conversa semeada por nós (lead da Meta,
+    `api/leads_meta.py`) guarda o número já normalizado. Um `.eq()` exacto não
+    encontrava a thread semeada e a lead caía no A2 — que é precisamente o que a
+    semeadura existe para evitar. `engine._perfil_cliente` já procura por
+    variantes em `agente_clientes` pela mesma razão.
+    """
+    if canal != "whatsapp":
+        return [participante]
+    numero = normalizar_telefone(participante)
+    if not numero:
+        return [participante]
+    return list(dict.fromkeys([participante, *variantes_telefone(numero)]))
 
 
 async def load_conversation(
@@ -27,7 +46,7 @@ async def load_conversation(
             supabase.table("agente_conversas")
             .select("id,mensagens,atualizado_em,agente")
             .eq("canal", canal)
-            .eq("participante", participante)
+            .in_("participante", _participantes(canal, participante))
             .order("criado_em", desc=True)
             .limit(1)
             .execute()

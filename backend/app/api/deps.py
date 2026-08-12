@@ -39,3 +39,23 @@ async def require_sync_access(
     ):
         return "sync-secret"
     return await require_auth(authorization)
+
+
+async def require_automacao_access(
+    authorization: str = Header(None),
+    x_automacao_secret: str = Header(None, alias="X-Automacao-Secret"),
+):
+    """Aceita JWT normal (painel) OU X-Automacao-Secret (Make, n8n).
+
+    Segredo distinto do de sync de propósito: são fronteiras diferentes. Quem
+    ingere leads não precisa de poder disparar syncs do eGO, e rodar um segredo
+    não deve obrigar a mexer no outro.
+
+    Sem `automacao_secret` configurado, o header nunca é aceite — um segredo
+    vazio não pode passar a valer como "qualquer um serve".
+    """
+    if settings.automacao_secret and x_automacao_secret and hmac.compare_digest(
+        x_automacao_secret, settings.automacao_secret
+    ):
+        return "automacao-secret"
+    return await require_auth(authorization)

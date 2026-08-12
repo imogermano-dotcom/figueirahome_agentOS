@@ -17,6 +17,7 @@ Duas guardas, ambas da spec `assistentes-ia-especificacao.md`:
 import asyncio
 import logging
 import re
+from datetime import datetime, timedelta, timezone
 
 from app.db.supabase_client import get_supabase
 
@@ -56,6 +57,109 @@ def variantes_telefone(numero: str) -> list[str]:
     só para a frente faria os lookups novos falharem e duplicarem o cliente.
     """
     return [numero, f"351{numero}", f"+351{numero}", f"00351{numero}"]
+
+
+# MQL segundo o CLAUDE.md: orçamento + zona + tipo de interesse. O `prazo_compra`
+# (migration 0020) fica de fora de propósito — só o gate das landing pages o
+# recolhe, e exigi-lo aqui deixava toda a lead de WhatsApp por qualificar.
+_CAMPOS_MQL = ("tipo_interesse", "orcamento", "zona_preferida")
+
+_TAREFA_QUALIFICADA = "Lead qualificada — passar ao eGO"
+
+
+def lead_qualificada(cliente: dict | None) -> bool:
+    """Os três campos do MQL preenchidos. Função pura, sem DB."""
+    if not cliente:
+        return False
+    return all(cliente.get(campo) not in (None, "") for campo in _CAMPOS_MQL)
+
+
+def _promover_lead(supabase, cliente: dict) -> None:
+    """Marca a lead como qualificada e cria a tarefa para o corretor.
+
+    A passagem ao eGO é manual: `contactos` é espelho do eGO (upsert por
+    `ego_link`, que só o eGO atribui) e um insert nosso ficaria órfão — ver
+    `docs/decisoes.md`. Não existe API de escrita do eGO configurada, por isso
+    esta fase pára aqui, na tarefa.
+
+    Chamada de dentro de `find_or_create_cliente` porque é o ponto único por
+    onde todos os caminhos de escrita passam — WhatsApp, painel e landing pages
+    ganham a regra sem a repetir.
+    """
+    telefone = normalizar_telefone(cliente.get("telefone"))
+    email = normalizar_email(cliente.get("email"))
+    if not telefone and not email:
+        return
+
+    q = supabase.table("leads").select("id,estado,cliente_id").neq("estado", "qualificada")
+    q = q.in_("telefone", variantes_telefone(telefone)) if telefone else q.eq("email", email)
+    leads = q.limit(1).execute().data
+    if not leads:
+        return
+    lead = leads[0]
+
+    agora = datetime.now(timezone.utc).isoformat()
+    supabase.table("leads").update({
+        "estado": "qualificada",
+        "qualificada_em": agora,
+        "cliente_id": cliente.get("id"),
+        "atualizado_em": agora,
+    }).eq("id", lead["id"]).execute()
+
+    supabase.table("agente_tarefas").insert({
+        "titulo": f"{_TAREFA_QUALIFICADA} — {cliente.get('nome') or telefone or email}",
+        "descricao": (
+            "Lead da Meta qualificada pelo assistente "
+            f"(interesse: {cliente.get('tipo_interesse')}, "
+            f"orçamento: {cliente.get('orcamento')}, "
+            f"zona: {cliente.get('zona_preferida')}). "
+            "Criar o contacto no eGO e associar a oportunidade."
+        ),
+    }).execute()
+    logger.info("Lead %s qualificada (cliente %s)", lead["id"], cliente.get("id"))
+
+
+# Uma lead da Meta responde ao template quando lhe apetece. A thread semeada
+# expira às 48h (`conversation._CONVERSATION_TTL_HOURS`) e a partir daí a
+# resposta ("Sim", "Olá") deixa de ter routing colado e cai no A2. Esta janela
+# cobre esse intervalo sem forçar o A1 para sempre a quem já foi trabalhado.
+_JANELA_LEAD_DIAS = 30
+_ESTADOS_LEAD_ABERTA = ("nova", "contactada")
+
+
+async def agente_de_lead(telefone: str | None) -> str | None:
+    """`a1_vendedor` se o número for de uma lead de compra ainda em aberto.
+
+    Devolve `None` em qualquer outro caso — incluindo erro ou tabela ainda por
+    criar — para o router decidir como decidia antes.
+    """
+    numero = normalizar_telefone(telefone)
+    if not numero:
+        return None
+
+    limite = (datetime.now(timezone.utc) - timedelta(days=_JANELA_LEAD_DIAS)).isoformat()
+
+    def _fetch():
+        return (
+            get_supabase()
+            .table("leads")
+            .select("id,tipo")
+            .in_("telefone", variantes_telefone(numero))
+            .in_("estado", list(_ESTADOS_LEAD_ABERTA))
+            .gte("criado_em", limite)
+            .limit(1)
+            .execute()
+        )
+
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    except Exception:
+        logger.exception("Falha a procurar lead para %s", numero)
+        return None
+
+    if resp.data and resp.data[0].get("tipo") in ("compra", "arrendamento"):
+        return "a1_vendedor"
+    return None
 
 
 def visita_permitida(orcamento: float | None, preco: float | None) -> bool:
@@ -165,10 +269,21 @@ async def find_or_create_cliente(
                 .eq("id", existente["id"])
                 .execute()
             )
-            return resp.data[0] if resp.data else existente
+            cliente = resp.data[0] if resp.data else existente
+        else:
+            resp = supabase.table("agente_clientes").insert(dados).execute()
+            cliente = resp.data[0] if resp.data else None
 
-        resp = supabase.table("agente_clientes").insert(dados).execute()
-        return resp.data[0] if resp.data else None
+        # A promoção nunca pode derrubar a gravação do cliente nem a conversa em
+        # curso: se a `leads` não existir (migration 0021 por aplicar) ou falhar,
+        # fica o aviso e o cliente é devolvido na mesma.
+        if lead_qualificada(cliente):
+            try:
+                _promover_lead(supabase, cliente)
+            except Exception:
+                logger.exception("Falha ao promover lead (cliente=%s)", cliente.get("id"))
+
+        return cliente
 
     try:
         cliente = await asyncio.get_event_loop().run_in_executor(None, _run)

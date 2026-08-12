@@ -61,6 +61,27 @@ PUT    /api/leads/{id}             → actualizar
 DELETE /api/leads/{id}             → apagar
 ```
 
+### Leads da Meta — semeadura (implementado 2026-08-12 — `api/leads_meta.py`)
+```
+POST /api/leads/{lead_id}/conversa-semeada    body: {"template": "<texto enviado>"}
+     → cria/actualiza o cliente, semeia a thread do A1 e marca a lead `contactada`
+     → 200 {lead_id, cliente_id, conversa_id, ja_existia}
+     → 404 lead inexistente · 422 tipo != compra/arrendamento, ou lead sem telefone
+```
+Chamado pelo **n8n** logo após enviar o template de WhatsApp. Autenticação:
+`X-Automacao-Secret` **ou** JWT — `deps.require_automacao_access`. Segredo
+distinto do `X-Sync-Secret` de propósito: quem ingere leads não tem de poder
+disparar syncs do eGO.
+
+Existe porque a resposta a um template é quase sempre "Sim" ou "Olá", que
+`router._A1_RE` não reconhece — sem a thread semeada com `agente='a1_vendedor'`
+a lead cai no A2. O texto do template entra no histórico como `assistant`, para
+o A1 não repetir o que já foi dito. Idempotente: repetir a chamada com a lead já
+semeada devolve `ja_existia: true` sem tocar na conversa.
+
+O **Make escreve em `leads` directamente pelo PostgREST** — não há endpoint de
+ingestão.
+
 ### Dashboard
 ```
 GET  /api/dashboard

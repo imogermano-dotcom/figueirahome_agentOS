@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, R
 
 from app.agents.broker.channels.whatsapp.meta_api import mark_as_read, send_text_message
 from app.agents.broker.engine import responder
+from app.agents.broker.guards import agente_de_lead
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -73,9 +74,13 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
 async def _handle_message(from_number: str, message_id: str, text: str) -> None:
     try:
         await mark_as_read(message_id)
-        # Sem `agente=`: o router decide e a escolha fica colada à thread.
+        # Normalmente sem `agente=`: o router decide e a escolha fica colada à
+        # thread. A excepção são as leads da Meta — a resposta a um template é
+        # "Sim" ou "Olá", que `router._A1_RE` não reconhece, e a thread semeada
+        # já pode ter expirado (48h). Aí força-se o A1, que é quem as segue.
+        agente = await agente_de_lead(from_number)
         response = await responder(
-            canal="whatsapp", participante=from_number, mensagem=text
+            canal="whatsapp", participante=from_number, mensagem=text, agente=agente
         )
         await send_text_message(from_number, response)
     except Exception:

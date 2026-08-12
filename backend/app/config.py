@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     scraper_service_url: str = ""
     scraper_service_secret: str = ""
 
+    # Automações externas (Make, n8n) — header X-Automacao-Secret.
+    # Segredo próprio e não o de sync: quem ingere leads não tem de poder
+    # disparar syncs do eGO, e rodar um não obriga a rodar o outro.
+    automacao_secret: str = ""
+
     # OpenAI
     openai_api_key: str = ""
 
