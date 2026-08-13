@@ -190,6 +190,12 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Python:** PEP 8, type hints, async. **React:** funcionais + hooks, sem classes.
 - **Nomes:** código em inglês; UI em PT-PT. **DB:** português, snake_case.
 - **Segredos:** nunca hardcoded. Só em `.env` / Fly.io secrets.
+- ⚠️ **O repositório GitHub é PÚBLICO** (`imogermano-dotcom/figueirahome_agentOS`).
+  Varrido a 2026-08-13: zero credenciais, zero dados de clientes — os telefones
+  em código são todos `912345678`, os emails são placeholders, os `.env.example`
+  só têm `YOUR_*`. O que está exposto é arquitectura e método, não segredos.
+  **Material interno da agência não entra** — ver `kb-a1-vendedor.md` no
+  `.gitignore` e a decisão respectiva em `docs/decisoes.md`.
 - **Excepção:** os templates das landing pages não usam Tailwind — CSS à mão, zero
   pedidos externos, porque a página abre a partir de um anúncio pago.
 

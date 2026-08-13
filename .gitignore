@@ -4,6 +4,13 @@
 .env.production.local
 *.env
 
+# Material interno da agência — este repositório é PÚBLICO.
+# `kb-a1-vendedor.md` é a base de conhecimento que o Miguel entregou e que foi
+# carregada para `agente_config[a1_vendedor].instrucoes` (ver docs/decisoes.md).
+# As secções 1.1, 7.2 e 8 são o método comercial da agência. Guardar fora do
+# repo; commitar aqui publica-o e o histórico mantém-no depois de um `git rm`.
+kb-a1-vendedor.md
+
 # Python
 __pycache__/
 *.pyc
