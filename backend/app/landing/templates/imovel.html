@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ c.headline or imovel.titulo or imovel.imovel_ref }} · Figueirahome</title>
+<meta name="description" content="{{ c.subheadline or '' }}">
+{# Sem estas quatro linhas, o link partilhado no WhatsApp mostra pré-visualização
+   genérica. É a razão de esta página ser servida pelo backend e não pelo SPA. #}
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ c.headline or imovel.titulo or imovel.imovel_ref }}">
+<meta property="og:description" content="{{ c.subheadline or '' }}">
+{% if foto_principal %}<meta property="og:image" content="{{ foto_principal }}">{% endif %}
+<meta property="og:url" content="{{ page_url }}">
+<meta property="og:site_name" content="Figueirahome">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="{{ page_url }}">
+{# Sem robots noindex: a página é para tráfego pago, mas indexá-la não faz mal. #}
+<style>
+/* CSS à mão em vez de Tailwind por CDN: a página abre a partir de um anúncio
+   pago, e um <script> de 300 kB a compilar classes no browser antes do primeiro
+   pixel paga-se em leads perdidas. Zero pedidos externos. */
+*,*::before,*::after{box-sizing:border-box}
+body,h1,h2,h3,p,ul,figure{margin:0}
+ul{padding:0;list-style:none}
+img{max-width:100%;display:block}
+:root{
+  --tinta:#16181d; --tinta-suave:#5b6270; --linha:#e4e6ea;
+  --fundo:#ffffff; --fundo-alt:#f6f7f9; --marca:#1d4ed8; --marca-escura:#1739a8;
+  --aviso-fundo:#fef3c7; --aviso-tinta:#7c4a03;
+}
+body{
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color:var(--tinta); background:var(--fundo); line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:64rem;margin:0 auto;padding:0 1.25rem}
+.topo{border-bottom:1px solid var(--linha);padding:1rem 0}
+.topo .wrap{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.marca{font-weight:700;letter-spacing:-.02em;font-size:1.05rem}
+.ref{font-size:.8rem;color:var(--tinta-suave);font-variant-numeric:tabular-nums}
+
+.aviso{background:var(--aviso-fundo);color:var(--aviso-tinta);padding:.85rem 0;font-size:.92rem;font-weight:600}
+.aviso .wrap{display:flex;gap:.6rem;align-items:baseline}
+
+.hero{position:relative;background:#1a1d23;color:#fff}
+.hero-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.5}
+.hero-conteudo{position:relative;padding:4.5rem 0 3.5rem}
+.hero h1{font-size:clamp(1.9rem,5vw,3.1rem);line-height:1.12;letter-spacing:-.025em;font-weight:800;max-width:20ch}
+.hero .sub{margin-top:1rem;font-size:clamp(1.02rem,2.2vw,1.2rem);color:#e6e8ec;max-width:52ch}
+.preco{margin-top:1.75rem;font-size:clamp(1.5rem,3.5vw,2rem);font-weight:700;letter-spacing:-.02em}
+.preco small{display:block;font-size:.8rem;font-weight:500;color:#c3c7cf;letter-spacing:.04em;text-transform:uppercase;margin-bottom:.15rem}
+
+.factos{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--linha);border-bottom:1px solid var(--linha);background:var(--fundo-alt)}
+.facto{flex:1 1 8rem;padding:1.1rem 1.25rem;border-right:1px solid var(--linha)}
+.facto:last-child{border-right:0}
+.facto dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--tinta-suave);font-weight:600}
+.facto dd{margin:.2rem 0 0;font-size:1.15rem;font-weight:700;letter-spacing:-.01em}
+
+.seccao{padding:3rem 0}
+.destaques{display:grid;gap:.7rem;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr))}
+.destaques li{padding-left:1.65rem;position:relative;color:var(--tinta)}
+.destaques li::before{content:"";position:absolute;left:0;top:.62em;width:.6rem;height:.6rem;border-radius:50%;background:var(--marca)}
+
+.gate{background:var(--fundo-alt);border-top:1px solid var(--linha)}
+.gate .caixa{max-width:34rem;margin:0 auto;background:#fff;border:1px solid var(--linha);border-radius:14px;padding:1.9rem}
+.gate h2{font-size:1.4rem;letter-spacing:-.02em;line-height:1.25}
+.gate .nota{margin-top:.5rem;color:var(--tinta-suave);font-size:.93rem}
+.campo{margin-top:1.05rem}
+.campo label{display:block;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--tinta-suave);margin-bottom:.35rem}
+.campo input,.campo select{
+  width:100%;padding:.7rem .8rem;font:inherit;font-size:1rem;color:var(--tinta);
+  background:#fff;border:1px solid #cbd0d8;border-radius:9px;
+}
+.campo input:focus,.campo select:focus{outline:2px solid var(--marca);outline-offset:1px;border-color:var(--marca)}
+.mel{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+button{
+  margin-top:1.5rem;width:100%;padding:.9rem 1rem;font:inherit;font-size:1.02rem;font-weight:700;
+  color:#fff;background:var(--marca);border:0;border-radius:9px;cursor:pointer;
+}
+button:hover{background:var(--marca-escura)}
+button[disabled]{opacity:.6;cursor:progress}
+.erro{margin-top:.9rem;color:#a4161a;font-size:.92rem;font-weight:600}
+.rgpd{margin-top:1rem;font-size:.78rem;color:var(--tinta-suave);line-height:1.5}
+
+.rodape{border-top:1px solid var(--linha);padding:2rem 0;color:var(--tinta-suave);font-size:.85rem}
+@media (max-width:640px){.hero-conteudo{padding:3rem 0 2.5rem}.seccao{padding:2.25rem 0}}
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <div class="wrap">
+    <span class="marca">Figueirahome</span>
+    <span class="ref">Ref. {{ imovel.imovel_ref }}</span>
+  </div>
+</header>
+
+{% if not disponivel %}
+<div class="aviso" role="status">
+  <div class="wrap">
+    <span aria-hidden="true">●</span>
+    <span>Este imóvel já não está disponível. Diga-nos o que procura e enviamos alternativas.</span>
+  </div>
+</div>
+{% endif %}
+
+<section class="hero">
+  {% if foto_principal %}<img class="hero-img" src="{{ foto_principal }}" alt="" aria-hidden="true">{% endif %}
+  <div class="hero-conteudo">
+    <div class="wrap">
+      <h1>{{ c.headline or imovel.titulo or imovel.imovel_ref }}</h1>
+      {% if c.subheadline %}<p class="sub">{{ c.subheadline }}</p>{% endif %}
+      {% if lp.mostrar_preco and preco %}
+      {# Preço à vista = qualificador: quem não tem orçamento sai antes do formulário.
+         Escondê-lo faz do imóvel um chamariz. É o que o campo `mostrar_preco` decide. #}
+      <p class="preco"><small>{{ preco_rotulo }}</small>{{ preco }}</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<dl class="factos">
+  {% for rotulo, valor in factos %}
+  <div class="facto"><dt>{{ rotulo }}</dt><dd>{{ valor }}</dd></div>
+  {% endfor %}
+</dl>
+
+{% if c.destaques %}
+<section class="seccao">
+  <div class="wrap">
+    <ul class="destaques">
+      {% for d in c.destaques[:6] %}<li>{{ d }}</li>{% endfor %}
+    </ul>
+  </div>
+</section>
+{% endif %}
+
+{# O conteúdo completo — galeria, descrição, características, vídeo, mapa — não
+   está neste HTML. Chega no corpo da resposta ao POST abaixo. É isso que faz
+   deste gate um gate e não uma cortina que se remove no inspector. #}
+<section class="gate seccao" id="gate">
+  <div class="wrap">
+    <form class="caixa" id="form-gate" action="{{ acao_lead }}" method="post" novalidate>
+      <h2>{{ c.cta or 'Receba as fotos, a descrição e a localização' }}</h2>
+      <p class="nota">Preencha para ver o imóvel completo. Um consultor entra em contacto.</p>
+
+      <div class="campo">
+        <label for="nome">Nome</label>
+        <input id="nome" name="nome" type="text" autocomplete="name" required maxlength="120">
+      </div>
+      <div class="campo">
+        <label for="telefone">Telefone / WhatsApp</label>
+        <input id="telefone" name="telefone" type="tel" autocomplete="tel" required maxlength="30" inputmode="tel">
+      </div>
+      <div class="campo">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" required maxlength="160">
+      </div>
+      <div class="campo">
+        <label for="prazo_compra">Quando pretende {{ 'arrendar' if arrendamento else 'comprar' }}?</label>
+        <select id="prazo_compra" name="prazo_compra" required>
+          <option value="" selected disabled>Escolha uma opção</option>
+          {% for opcao in prazos %}<option value="{{ opcao }}">{{ opcao }}</option>{% endfor %}
+        </select>
+      </div>
+
+      {# Armadilha para bots: um humano nunca vê nem preenche este campo. #}
+      <div class="mel" aria-hidden="true">
+        <label for="empresa">Empresa</label>
+        <input id="empresa" name="empresa" type="text" tabindex="-1" autocomplete="off">
+      </div>
+
+      <button type="submit">Ver o imóvel completo</button>
+      <p class="erro" id="erro" hidden></p>
+      <p class="rgpd">Os dados são usados apenas para o contacto sobre este imóvel e
+        imóveis semelhantes. Pode pedir a remoção a qualquer momento.</p>
+    </form>
+  </div>
+</section>
+
+<div id="conteudo"></div>
+
+<footer class="rodape">
+  <div class="wrap">Figueirahome · Mediação imobiliária · Figueira da Foz</div>
+</footer>
+
+<script>
+(function () {
+  var form = document.getElementById('form-gate');
+  var erro = document.getElementById('erro');
+  var alvo = document.getElementById('conteudo');
+
+  form.addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    if (!form.reportValidity()) return;
+    var botao = form.querySelector('button');
+    botao.disabled = true;
+    erro.hidden = true;
+
+    try {
+      var resp = await fetch(form.action, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.fromEntries(new FormData(form)))
+      });
+      if (!resp.ok) throw new Error('falhou');
+      alvo.innerHTML = await resp.text();
+      document.getElementById('gate').remove();
+      alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      erro.textContent = 'Não foi possível enviar. Verifique os dados e tente de novo.';
+      erro.hidden = false;
+      botao.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>

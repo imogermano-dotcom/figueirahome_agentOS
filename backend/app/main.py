@@ -8,6 +8,8 @@ from app.api.broker import router as broker_chat_router
 from app.api.clientes import router as clientes_router
 from app.api.imoveis import router as imoveis_router
 from app.api.imoveis_sync import router as imoveis_sync_router
+from app.api.landing import painel as landing_painel_router
+from app.api.landing import publico as landing_publico_router
 from app.api.leads import router as leads_router
 from app.api.leads_meta import router as leads_meta_router
 from app.api.oportunidades_sync import router as oportunidades_sync_router
@@ -47,6 +49,8 @@ app.include_router(tarefas_router)
 app.include_router(config_router)
 app.include_router(dashboard_router)
 app.include_router(agentes_router)
+app.include_router(landing_publico_router)  # /lp/{slug} — público, sem auth
+app.include_router(landing_painel_router)
 
 
 @app.get("/health")

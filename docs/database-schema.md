@@ -21,6 +21,7 @@
 | `conversas` | Histórico de conversas do Agente 2, por canal. |
 | `config_agentes` | Persona e instruções configuráveis de cada agente. |
 | `agente_tarefas` | Tarefas genéricas (não exclusivas de imóveis) do corretor/agência. |
+| `landing_pages` | Página de destino gerada por IA, uma por imóvel (migration 0020). |
 | `leads` | Leads **não qualificadas**, de qualquer origem (migration 0021). Nasce a servir o Meta Lead Ads; é para aqui que `agente_leads` e `leads_angariacao` vão convergir. |
 
 ---
@@ -144,21 +145,21 @@ create unique index idx_imoveis_ego_id on imoveis(ego_id);  -- integridade (Post
 -- `disponibilidade` tem 2 fontes: Web API pública do eGO (só publicados, `imoveis_sync.py::sync_egorealestate_api`)
 -- e o backoffice autenticado (visibilidade total, incl. nunca-publicados; `imoveis_sync.py::validar_disponibilidade_crm`,
 -- via `egorealestate_crm.py` — scraping de sessão, credenciais EGOREALESTATE_CRM_*). O backoffice é autoritativo.
--- Colunas preenchidas pela Web API desde 2026-08-12 (`_map_property`): as 11 booleanas
+-- Colunas preenchidas pela Web API desde 2026-08-12 (`_map_property`): as 10 booleanas
 -- de features, `conservacao`, `certificacao_energetica`, `angariador`, `suites`,
 -- `exclusividade`, `data_criacao`, `data_alteracao`. As booleanas vêm de `FeatureTags`
 -- e a tag tem de ser a do imóvel, não a da zona envolvente — `SWIMMING_POOLS` e
 -- `PROPERTY_NEAR_GARDENS` são "há na zona"; ver comentário em `imoveis_sync.py`.
--- `arrecadacao`, `numero`, `proprietario`, `vendedor` e as 3 comissões não existem
--- na Web API pública (só Excel/CRM) — o mapeamento nunca lhes toca.
+-- `jardim`, `arrecadacao`, `numero`, `proprietario`, `vendedor` e as 3 comissões não
+-- existem na Web API pública (só Excel/CRM) — o mapeamento nunca lhes toca.
 -- Campos esparsos (`conservacao`, `certificacao_energetica`, `angariador`, `suites`,
 -- `piso`, `latitude`, `longitude`) saem por `_map_extras` e são aplicados com um
 -- UPDATE por linha, FORA do upsert. O upsert por lotes é um único INSERT ... ON
 -- CONFLICT sobre a UNIÃO das chaves do lote: uma chave presente num só registo vira
 -- coluna e escreve NULL em todos os outros. Omitir a chave não protege — custou 40
 -- coordenadas em 2026-08-12. `_map_property` devolve sempre as mesmas chaves.
--- `latitude`/`longitude` só se escrevem com `HasGPSLocation=true` (13/53): sem o flag
--- o eGO devolve o centróide da zona, não a morada — 40 imóveis em 11 coordenadas, 19
+-- `latitude`/`longitude` só se escrevem com `HasGPSLocation=true` (12/54): sem o flag
+-- o eGO devolve o centróide da zona, não a morada — 42 imóveis em 10 coordenadas, 19
 -- no mesmo ponto. As linhas já preenchidas com esse centróide vêm do import Excel.
 create index idx_imoveis_fonte on imoveis(fonte);
 create index idx_imoveis_disponibilidade on imoveis(disponibilidade);
@@ -283,6 +284,34 @@ create index idx_leads_estado on leads(estado);
 create index idx_leads_tipo on leads(tipo);
 
 -- ──────────────────────────────────────────────
+-- LANDING_PAGES — migration 0020
+-- Uma linha por imóvel. O conteúdo é escrito uma vez pela API da Anthropic e
+-- guardado; `fonte_hash` (sha256 do que o modelo viu) é o que decide se vale a
+-- pena voltar a pagar API. NÃO há coluna de estado: "já não disponível" é
+-- derivado de `imoveis.publicado` a cada visita — ver `docs/decisoes.md`.
+-- ──────────────────────────────────────────────
+create table landing_pages (
+  imovel_ref     text primary key references imoveis(imovel_ref) on delete cascade,
+  slug           text unique not null,                -- 'fh2450-moradia-t3-buarcos'
+  conteudo       jsonb not null default '{}'::jsonb,  -- headline, subheadline, destaques[], descricao_longa[], envolvente, cta
+  extras         jsonb not null default '{}'::jsonb,  -- video_url, mapa_url, notas (formulário do painel)
+  mostrar_preco  boolean not null default true,       -- false = imóvel como chamariz; true = qualificador
+  fonte_hash     text,
+  gerado_em      timestamptz,
+  modelo         text,
+  custo_usd      numeric(10, 6),
+  tokens_input   integer,
+  tokens_output  integer,
+  criado_em      timestamptz default now(),
+  atualizado_em  timestamptz default now()
+);
+create index idx_landing_pages_slug on landing_pages(slug);
+
+-- Ainda na migration 0020, para o gate de qualificação das landing pages:
+alter table agente_clientes add column prazo_compra text;  -- 'Até 3 meses' | '3 a 6 meses' | 'Mais de 6 meses' | 'Só a pesquisar'
+alter table agente_leads    add column imovel_ref   text;  -- `imovel_id` (uuid) está sempre null: a chave de `imoveis` é text
+
+-- ──────────────────────────────────────────────
 -- Índices úteis
 -- ──────────────────────────────────────────────
 create index idx_leads_cliente on leads(cliente_id);
@@ -309,6 +338,7 @@ create index idx_conversas_canal on conversas(canal);
 | `agente_conversas` | ✅ | `auth_full_access` — authenticated |
 | `agente_config` | ✅ | `auth_full_access` — authenticated |
 | `agente_tarefas` | ✅ | `auth_full_access` — authenticated (migration 0005) |
+| `landing_pages` | ✅ | `auth_full_access` — authenticated (migration 0020). `anon` bloqueado de propósito: as páginas públicas passam pelo backend, que filtra as colunas que podem sair (`gerador.CAMPOS_PUBLICOS`), nunca por PostgREST directo |
 
 ### Verificação
 

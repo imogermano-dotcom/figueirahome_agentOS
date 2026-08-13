@@ -57,5 +57,11 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:5173"
     environment: str = "development"
 
+    # Landing pages — domínio público sob o qual as páginas são servidas.
+    # O Worker da Cloudflare faz proxy de `site.pt/imovel/*` para este backend,
+    # por isso o `Host` que aqui chega é o do Fly.io e não serve para as OG tags
+    # nem para o canonical. Vazio = usa o URL do próprio pedido (dev).
+    landing_base_url: str = ""
+
 
 settings = Settings()

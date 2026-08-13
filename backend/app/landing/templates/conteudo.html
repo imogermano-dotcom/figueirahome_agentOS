@@ -1,0 +1,109 @@
+{# Fragmento devolvido pelo POST /lead. Nunca faz parte do HTML inicial — é o
+   que torna o gate um gate. Injectado com innerHTML: <style> aplica-se, <script>
+   não correria, por isso aqui não há nenhum. #}
+<style>
+.galeria{display:grid;gap:.6rem;grid-template-columns:repeat(auto-fill,minmax(15rem,1fr))}
+.galeria img{border-radius:10px;aspect-ratio:4/3;object-fit:cover;width:100%;background:var(--fundo-alt)}
+.galeria img:first-child{grid-column:1/-1;aspect-ratio:16/9}
+.texto p{margin-top:1rem;max-width:66ch}
+.texto h2,.bloco h2{font-size:1.35rem;letter-spacing:-.02em;margin-bottom:.35rem}
+.bloco{padding:2.5rem 0;border-top:1px solid var(--linha)}
+.caracteristicas{display:grid;gap:.5rem .9rem;grid-template-columns:repeat(auto-fill,minmax(12rem,1fr));margin-top:1rem}
+.caracteristicas li{padding-left:1.4rem;position:relative}
+.caracteristicas li::before{content:"✓";position:absolute;left:0;color:var(--marca);font-weight:700}
+.ficha{display:grid;gap:0;grid-template-columns:repeat(auto-fill,minmax(13rem,1fr));margin-top:1rem;border-top:1px solid var(--linha)}
+.ficha div{padding:.7rem .2rem;border-bottom:1px solid var(--linha);display:flex;justify-content:space-between;gap:1rem}
+.ficha dt{color:var(--tinta-suave);font-size:.9rem}
+.ficha dd{margin:0;font-weight:600;text-align:right}
+.acoes{display:flex;flex-wrap:wrap;gap:.7rem;margin-top:1.2rem}
+.acao{display:inline-block;padding:.7rem 1.1rem;border:1px solid var(--marca);border-radius:9px;
+      color:var(--marca);text-decoration:none;font-weight:600;font-size:.95rem}
+.acao:hover{background:var(--marca);color:#fff}
+.obrigado{background:#ecfdf3;border-top:1px solid #a7e3bf;padding:1.5rem 0;color:#04562f}
+.obrigado strong{display:block;font-size:1.1rem}
+.video{aspect-ratio:16/9;width:100%;border:0;border-radius:10px;margin-top:1rem}
+</style>
+
+<div class="obrigado">
+  <div class="wrap">
+    <strong>Obrigado, {{ nome }}.</strong>
+    Um consultor da Figueirahome entra em contacto consigo. Fica aqui o imóvel completo.
+  </div>
+</div>
+
+{% if fotos %}
+<section class="bloco">
+  <div class="wrap">
+    <div class="galeria">
+      {% for url in fotos[:12] %}
+      <img src="{{ url }}" alt="{{ imovel.natureza or 'Imóvel' }} {{ imovel.imovel_ref }} — foto {{ loop.index }}" loading="lazy">
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+<section class="bloco texto">
+  <div class="wrap">
+    <h2>O imóvel</h2>
+    {% for p in c.descricao_longa or [] %}<p>{{ p }}</p>{% endfor %}
+    {% if not c.descricao_longa and imovel.descricao %}<p>{{ imovel.descricao }}</p>{% endif %}
+  </div>
+</section>
+
+{% if caracteristicas %}
+<section class="bloco">
+  <div class="wrap">
+    <h2>Características</h2>
+    <ul class="caracteristicas">
+      {% for nome in caracteristicas %}<li>{{ nome }}</li>{% endfor %}
+    </ul>
+  </div>
+</section>
+{% endif %}
+
+<section class="bloco">
+  <div class="wrap">
+    <h2>Ficha</h2>
+    <dl class="ficha">
+      {% for rotulo, valor in ficha %}
+      <div><dt>{{ rotulo }}</dt><dd>{{ valor }}</dd></div>
+      {% endfor %}
+    </dl>
+  </div>
+</section>
+
+{% if c.envolvente or morada or mapa_url %}
+<section class="bloco texto">
+  <div class="wrap">
+    <h2>A envolvente</h2>
+    {% if morada %}<p><strong>{{ morada }}</strong></p>{% endif %}
+    {% if c.envolvente %}<p>{{ c.envolvente }}</p>{% endif %}
+    {% if mapa_url %}
+    <div class="acoes"><a class="acao" href="{{ mapa_url }}" target="_blank" rel="noopener">Ver no mapa</a></div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% if video_url or imovel.panoramic_url or plantas %}
+<section class="bloco">
+  <div class="wrap">
+    <h2>Ver mais</h2>
+    <div class="acoes">
+      {% if video_url %}<a class="acao" href="{{ video_url }}" target="_blank" rel="noopener">Vídeo do imóvel</a>{% endif %}
+      {% if imovel.panoramic_url %}<a class="acao" href="{{ imovel.panoramic_url }}" target="_blank" rel="noopener">Visita virtual 360°</a>{% endif %}
+      {% for url in plantas[:4] %}<a class="acao" href="{{ url }}" target="_blank" rel="noopener">Planta {{ loop.index }}</a>{% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% if notas %}
+<section class="bloco texto">
+  <div class="wrap">
+    <h2>Nota do consultor</h2>
+    <p>{{ notas }}</p>
+  </div>
+</section>
+{% endif %}

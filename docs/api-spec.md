@@ -93,6 +93,39 @@ GET  /api/dashboard
 
 ---
 
+## Landing pages (implementado 2026-08-08 — `api/landing.py`)
+
+Duas fronteiras diferentes no mesmo ficheiro: o router `publico` **não** tem
+`require_auth`; o router `painel` tem, como o resto de `/api/*`.
+
+### Público — servido em HTML, não JSON
+```
+GET  /lp/{slug}          → text/html: página com OG tags, factos e o gate.
+                           O conteúdo protegido NÃO vem nesta resposta.
+POST /lp/{slug}/lead     → text/html: fragmento com galeria, descrição, morada,
+                           vídeo e mapa. Grava cliente + lead + tarefa.
+     body {nome, telefone, email, prazo_compra, empresa}
+     `empresa` é honeypot: preenchido ⇒ devolve a página e não grava nada.
+     422 se o email/telefone/prazo não passarem `_validar`.
+```
+Em produção o Worker da Cloudflare serve isto em `site.pt/imovel/{slug}` e manda
+o caminho original em `X-Public-Path` — é o que o backend usa para o `action` do
+formulário e para a `og:url`.
+
+### Painel
+```
+GET    /api/landing-pages                        → lista (+ imóvel e nº de leads)
+POST   /api/landing-pages                        → criar e gerar (409 se já existir)
+       body {imovel_ref, mostrar_preco, extras{video_url,mapa_url,notas}}
+PUT    /api/landing-pages/{imovel_ref}           → guardar; regenera só se `fonte_hash` mudar
+POST   /api/landing-pages/{imovel_ref}/regenerar → ?forcar=true ignora o hash
+DELETE /api/landing-pages/{imovel_ref}           → 204
+```
+`502` quando a API da Anthropic falha — deliberado: melhor o botão dar erro do
+que gravar uma página meia feita.
+
+---
+
 ## FASE 2 — Endpoints do Agente de Voz (não implementar ainda)
 
 ```
