@@ -74,7 +74,9 @@ def lead_qualificada(cliente: dict | None) -> bool:
     return all(cliente.get(campo) not in (None, "") for campo in _CAMPOS_MQL)
 
 
-def _promover_lead(supabase, cliente: dict) -> None:
+def _promover_lead(
+    supabase, cliente: dict, estados: tuple[str, ...] = ("contactada",)
+) -> None:
     """Marca a lead como qualificada e cria a tarefa para o corretor.
 
     A passagem ao eGO é manual: `contactos` é espelho do eGO (upsert por
@@ -91,12 +93,13 @@ def _promover_lead(supabase, cliente: dict) -> None:
     if not telefone and not email:
         return
 
-    # Só leads que já receberam o template e responderam. Uma lead `nova` não é
-    # qualificada por muito completo que o formulário venha: a semeadura chama
-    # `find_or_create_cliente` com os campos do formulário e, sem este filtro,
-    # criava a tarefa antes de a pessoa dizer fosse o que fosse — e o estado
+    # `estados` é quem decide o que conta como "já respondeu". Por omissão só
+    # `contactada`, porque este caminho (escrita de cliente) inclui a semeadura,
+    # que chama `find_or_create_cliente` com os campos do formulário: sem o
+    # filtro criava a tarefa antes de a pessoa dizer fosse o que fosse — e o
     # `contactada` que o endpoint escreve a seguir apagava a promoção na mesma.
-    q = supabase.table("leads").select("id,estado,cliente_id").eq("estado", "contactada")
+    # `promover_se_qualificada` alarga a `nova` porque aí houve mesmo um turno.
+    q = supabase.table("leads").select("id,estado,cliente_id").in_("estado", list(estados))
     q = q.in_("telefone", variantes_telefone(telefone)) if telefone else q.eq("email", email)
     leads = q.limit(1).execute().data
     if not leads:
@@ -165,6 +168,45 @@ async def agente_de_lead(telefone: str | None) -> str | None:
     if resp.data and resp.data[0].get("tipo") in ("compra", "arrendamento"):
         return "a1_vendedor"
     return None
+
+
+async def promover_se_qualificada(telefone: str | None) -> None:
+    """Promove ao fim do turno a lead cujo perfil já veio completo do formulário.
+
+    `_promover_lead` só corre de dentro de `find_or_create_cliente`, que exige
+    que o assistente **escreva** dados do cliente. Quando o formulário da Meta
+    já trouxe os três campos do MQL — o caso normal, não a excepção — o A1 não
+    tem nada para escrever, nunca chama, e a lead ficava por qualificar para
+    sempre. A condição real é "respondeu" **e** "perfil completo"; o fim de um
+    turno de `engine.responder` é o único sítio que sabe as duas coisas.
+
+    Aceita `nova` além de `contactada`: aqui o turno é prova directa de que a
+    pessoa respondeu, ao contrário da semeadura, que corre antes disso. Apanha
+    assim a lead que escreve sem nunca ter recebido template.
+    """
+    numero = normalizar_telefone(telefone)
+    if not numero:
+        return
+
+    def _run():
+        supabase = get_supabase()
+        resp = (
+            supabase.table("agente_clientes")
+            .select("id,nome,telefone,email,tipo_interesse,orcamento,zona_preferida")
+            .in_("telefone", variantes_telefone(numero))
+            .limit(1)
+            .execute()
+        )
+        cliente = resp.data[0] if resp.data else None
+        if lead_qualificada(cliente):
+            _promover_lead(supabase, cliente, _ESTADOS_LEAD_ABERTA)
+
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _run)
+    except Exception:
+        # Corre depois de a resposta estar entregue ao cliente: falhar aqui não
+        # pode derrubar a conversa. Repete-se no turno seguinte na mesma.
+        logger.exception("Falha ao promover lead de %s", numero)
 
 
 def visita_permitida(orcamento: float | None, preco: float | None) -> bool:

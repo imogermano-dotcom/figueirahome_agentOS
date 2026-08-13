@@ -25,7 +25,11 @@ from app.agents.broker.assistants import (
 )
 from app.agents.broker.conversation import load_conversation, save_conversation
 from app.agents.broker.custos import calcular_custo, somar_usage
-from app.agents.broker.guards import normalizar_telefone, variantes_telefone
+from app.agents.broker.guards import (
+    normalizar_telefone,
+    promover_se_qualificada,
+    variantes_telefone,
+)
 from app.agents.broker.router import route
 from app.agents.broker.tools import execute_tool, tools_para
 from app.config import settings
@@ -269,5 +273,12 @@ async def responder(
         "tool_forcada": forcar_agora,
         "erro": erro,
     })
+
+    # A lead da Meta chega com o MQL já preenchido pelo formulário: o A1 não tem
+    # dados para escrever, `find_or_create_cliente` nunca corre e a promoção
+    # nunca dispara. Ao fim do turno sabem-se as duas metades da condição —
+    # respondeu (é este turno) e o perfil está completo.
+    if telefone:
+        await promover_se_qualificada(telefone)
 
     return resposta

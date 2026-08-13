@@ -7,6 +7,7 @@ cai no A2 sem ninguém dar por isso.
     pytest backend/tests/test_leads_meta.py      (a partir de `backend/`)
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -100,10 +101,18 @@ class _FakeQuery:
         self._dados = []
 
     def select(self, *a, **k):
+        # O cliente é procurado por variantes do telefone, não por `eq` — tanto
+        # no dedup como em `promover_se_qualificada`. Responde-se já aqui.
+        if self.tabela == "agente_clientes" and self.estado.get("cliente"):
+            self._dados = [self.estado["cliente"]]
         return self
 
     def update(self, dados):
         self.estado["updates"].append((self.tabela, dados))
+        # A promoção tem de ser visível na chamada seguinte, senão a
+        # idempotência não se consegue testar.
+        if self.tabela == "leads" and self.estado.get("lead"):
+            self.estado["lead"].update(dados)
         return self
 
     def insert(self, dados):
@@ -116,7 +125,10 @@ class _FakeQuery:
             self._dados = [self.estado["lead"]]
         return self
 
-    def in_(self, *a, **k):
+    def in_(self, campo=None, valores=None, *a, **k):
+        if self.tabela == "leads" and campo == "estado":
+            lead = self.estado.get("lead")
+            self._dados = [lead] if lead and lead.get("estado") in valores else []
         return self
 
     def neq(self, *a, **k):
@@ -254,6 +266,88 @@ def test_endpoint_exige_segredo():
         f"/api/leads/{LEAD['id']}/conversa-semeada", json={"template": "olá"}
     )
     assert r.status_code == 401
+
+
+# ── promoção ao fim do turno ────────────────────────────────────────────────
+
+CLIENTE = {
+    "id": "cliente-1",
+    "nome": "Isabel Braga",
+    "telefone": "912345678",
+    "email": "isabel@exemplo.pt",
+    "tipo_interesse": "compra",
+    "orcamento": 250000,
+    "zona_preferida": "Buarcos",
+}
+
+
+@pytest.fixture
+def promocao(monkeypatch):
+    """`guards` com Supabase falso. Devolve `(correr, estado)`."""
+    import app.agents.broker.guards as guards
+
+    estado = {"lead": dict(LEAD), "cliente": dict(CLIENTE), "inserts": [], "updates": []}
+    monkeypatch.setattr(guards, "get_supabase", lambda: _FakeSupabase(estado))
+
+    def correr():
+        asyncio.run(guards.promover_se_qualificada(CLIENTE["telefone"]))
+
+    return correr, estado
+
+
+def _tarefas(estado):
+    return [d for t, d in estado["inserts"] if t == "agente_tarefas"]
+
+
+def test_lead_com_perfil_completo_e_promovida_ao_fim_do_turno(promocao):
+    """O buraco que esta função fecha: com o MQL vindo do formulário o A1 não
+    tem dados para escrever, `find_or_create_cliente` nunca corre, e sem este
+    gatilho a lead ficava `contactada` para sempre — o corretor nunca sabia."""
+    correr, estado = promocao
+    estado["lead"]["estado"] = "contactada"
+
+    correr()
+
+    assert estado["lead"]["estado"] == "qualificada"
+    assert estado["lead"]["qualificada_em"]
+    assert len(_tarefas(estado)) == 1
+    assert "Buarcos" in _tarefas(estado)[0]["descricao"]
+
+
+def test_lead_nova_tambem_promove_no_fim_do_turno(promocao):
+    """`whatsapp_permissao` está a `True` em 3 de 79: a maioria não recebe
+    template, fica `nova` e o n8n nunca semeia. Se escrever na mesma, o turno é
+    prova de que respondeu — ao contrário da semeadura, que corre antes disso."""
+    correr, estado = promocao
+    assert estado["lead"]["estado"] == "nova"
+
+    correr()
+
+    assert estado["lead"]["estado"] == "qualificada"
+    assert len(_tarefas(estado)) == 1
+
+
+def test_perfil_incompleto_nao_promove(promocao):
+    """MQL = orçamento + zona + tipo. Faltando um, não se toca na lead."""
+    correr, estado = promocao
+    estado["cliente"].pop("orcamento")
+
+    correr()
+
+    assert not [d for t, d in estado["updates"] if t == "leads"]
+    assert not _tarefas(estado)
+
+
+def test_promocao_nao_repete(promocao):
+    """Corre a cada turno de WhatsApp: promovida uma vez, o estado deixa de bater
+    no filtro e não há segunda tarefa para o mesmo corretor."""
+    correr, estado = promocao
+    estado["lead"]["estado"] = "contactada"
+
+    correr()
+    correr()
+
+    assert len(_tarefas(estado)) == 1
 
 
 if __name__ == "__main__":
