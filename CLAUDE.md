@@ -78,7 +78,7 @@ Meta (semeadura da conversa, `0021`) e o fecho do buraco da qualificação
 (`guards.promover_se_qualificada`, ao fim de cada turno). Os dois últimos estão
 em `master` e **por deployar**.
 
-### Visitas do eGO — `0023` por correr
+### Visitas do eGO — `0023` aplicada 2026-08-14, scraper por deployar
 
 Uma oportunidade só guardava **1 visita** (colunas `visita_*` em `oportunidades`,
 chave `oportunidade_ref`); o eGO dá uma linha por visita e o `setdefault` em
@@ -138,7 +138,7 @@ do repo** — não gerir daqui; o portal do Miguel também as lê.
 
 ### Próximos passos
 
-1. **Correr `0023`** (visitas — aditiva, segura) e **deployar a qualificação** de worktree limpa, com `AUTOMACAO_SECRET` nos secrets.
+1. **Deployar o scraper** (`figueirahome-scraper`) — sem isso a `0023` só tem o backfill e as visitas continuam a colapsar. E **deployar a qualificação** de worktree limpa, com `AUTOMACAO_SECRET` nos secrets.
 2. **Chave do portal do Miguel** → desbloqueia a `0022` (RLS). E **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria estado "Disponível" — 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
 3. **Confirmar com o Make/n8n**: campos reais do formulário de venda (`_ALIAS_FICHA`) e quem marca `whatsapp_permissao`. **Decisão de alojamento das landing pages** bloqueia essa fase toda.
 4. **Reforma de `agente_leads` para `leads`** — 4 escritores (`tools.py:374`, `landing.py:223`, `save_call.py:75`, `api/leads.py`) + página Leads do painel.
