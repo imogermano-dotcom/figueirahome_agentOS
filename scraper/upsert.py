@@ -23,6 +23,11 @@ _CONFLICT_KEYS = {
     "oportunidades": ["oportunidade_ref"],
     "notas": ["oportunidade_ref", "nota_texto", "nota_data_raw"],
     "tarefas": ["oportunidade_ref", "tarefa_titulo", "tarefa_due_raw"],
+    # `visita_ref_ego` ('VF_2886') é o id da visita no eGO, estável e único.
+    # Sem tabela própria as visitas viviam em colunas de `oportunidades`, cuja
+    # chave é só `oportunidade_ref` — 5 visitas do mesmo cliente colapsavam
+    # numa. Ver migration 0023.
+    "visitas": ["visita_ref_ego"],
     "contactos": ["ego_link"],
 }
 
@@ -95,7 +100,7 @@ def _bulk_update_prefs(supabase, prefs: list[dict]) -> int:
 
 def run(supabase, batch: dict) -> dict:
     resumo = {}
-    for tabela in ("oportunidades", "notas", "tarefas"):
+    for tabela in ("oportunidades", "notas", "tarefas", "visitas"):
         try:
             resumo[tabela] = _upsert_tabela(supabase, tabela, batch[tabela])
         except Exception:

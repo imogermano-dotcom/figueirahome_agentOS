@@ -327,6 +327,29 @@ order by relname;
 - **`oportunidades`** (projecto unificado, ~90 colunas, ~25k linhas — confirmado 2026-07-27): alimentada activamente por um processo próprio do utilizador fora deste repo (não há nenhuma referência a esta tabela em código/migrations do Figueirahome). `id` é `int`, não `uuid` — reforça que o schema não foi desenhado por este projecto. Campos com prefixo `xlsx_`/`visita_`/`pref_`/`ego_` sugerem um ETL que junta várias fontes numa linha por oportunidade (`oportunidade_ref`, `imovel_ref`, `cliente_*`, `xlsx_*`, `visita_*`, `pref_*`...). **Não alterar nem gerir esta tabela a partir deste repo** — só ler para referência (ex: `teste_oportunidades`, migration 0011, clona os nomes de coluna).
 - **`panoramic_url`/`video_url`** em `imoveis`: idem, adicionadas directo em produção sem migration (documentadas em 2026-07-26, ver secção `imoveis` acima).
 
+## `visitas` (migration 0023, 2026-08-14)
+
+Visitas do eGO, uma linha por visita. PK `visita_ref_ego` (`VF_2886`, id do eGO).
+Escrita por `scraper/upsert.py`; backfill inicial de 1739 linhas a partir das
+colunas `visita_*` de `oportunidades`, que **continuam a existir e a ser
+escritas** (a primeira visita de cada oportunidade) por haver consumidores fora
+deste repo.
+
+```sql
+visita_ref_ego  text primary key   -- 'VF_2886'
+oportunidade_ref text not null
+visita_imovel_ref text             -- o imóvel VISITADO — não confundir com oportunidades.imovel_ref
+visita_data, visita_anulada, visita_interessado, visita_cliente,
+visita_imovel_proprietario, visita_pontos_positivos, visita_pontos_negativos,
+visita_sobre_negocio, visita_observacoes, visita_responsavel   -- todos text (ver 0011)
+criado_em, atualizado_em  timestamptz
+```
+
+**Contar visitas de um imóvel é por `visita_imovel_ref`.** Por `imovel_ref` (o
+imóvel da oportunidade) perdem-se as visitas de clientes que andavam a ver outra
+coisa — no FH2571 são 7 contra 4. Porquê a tabela existe: `docs/decisoes.md`,
+secção "Visitas do eGO".
+
 ## Notas para o Claude Code
 
 - Criar a migration em `supabase/migrations/0001_initial_schema.sql`.

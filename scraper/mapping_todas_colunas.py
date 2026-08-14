@@ -191,6 +191,16 @@ _KNOWN_VISITA = {
 }
 _VISITA_ANULADA_VALIDOS = {"Sim", "Não"}
 
+# Colunas da tabela `visitas` (migration 0023). Subconjunto de `_KNOWN_VISITA`:
+# os `imovel2_*` viajam no mesmo bloco do relatório mas são o "imóvel 2" da
+# oportunidade, não da visita — ficam onde sempre estiveram.
+_COLUNAS_VISITA = {
+    "visita_ref_ego", "visita_imovel_ref", "visita_data", "visita_anulada",
+    "visita_interessado", "visita_cliente", "visita_imovel_proprietario",
+    "visita_pontos_positivos", "visita_pontos_negativos", "visita_sobre_negocio",
+    "visita_observacoes", "visita_responsavel",
+}
+
 _ALL_ALIASES = {
     **_ALIASES_OPORTUNIDADE, **_ALIASES_CONTACTO, **_ALIASES_NOTA,
     **_ALIASES_TAREFA, **_ALIASES_PREF, **_ALIASES_VISITA,
@@ -369,6 +379,7 @@ def group(classified: list[dict]) -> dict:
     oportunidades: dict[str, dict] = {}
     notas: list[dict] = []
     tarefas: list[dict] = []
+    visitas: list[dict] = []
     prefs: dict[str, dict] = {}
     contactos: dict[str, dict] = {}
     ignoradas = 0
@@ -386,8 +397,20 @@ def group(classified: list[dict]) -> dict:
                 if v is not None:
                     oportunidades[ref].setdefault(k, v)
         if c["visita"]:
+            # As colunas `visita_*` de `oportunidades` continuam a ser escritas
+            # como sempre (primeira linha ganha) — há consumidores fora deste
+            # repo a lê-las e mudar isso partia-os. Mas o `setdefault` impõe um
+            # tecto de UMA visita por oportunidade, e o eGO dá uma linha por
+            # visita: um cliente com 5 visitas perdia 4, em silêncio. A lista
+            # abaixo é que passa a ser a fonte de verdade (tabela `visitas`,
+            # migration 0023), com a mesma forma que `notas`/`tarefas` já usam.
             for k, v in c["visita"].items():
                 oportunidades[ref].setdefault(k, v)
+            if c["visita"].get("visita_ref_ego"):
+                visitas.append({
+                    **{k: v for k, v in c["visita"].items() if k in _COLUNAS_VISITA},
+                    "oportunidade_ref": ref,
+                })
 
         if c["pref"]:
             if ref not in prefs:
@@ -425,6 +448,53 @@ def group(classified: list[dict]) -> dict:
         "oportunidades": list(oportunidades.values()),
         "notas": notas,
         "tarefas": tarefas,
+        "visitas": visitas,
         "prefs": [{**v, "oportunidade_ref": ref} for ref, v in prefs.items()],
         "contactos": list(contactos.values()),
     }
+
+
+def demo() -> None:
+    """Auto-verificação do agrupamento de visitas.
+
+        python mapping_todas_colunas.py     (a partir de `scraper/`)
+
+    O caso que motivou a migration 0023: um cliente com 5 visitas a imóveis
+    diferentes dá 5 linhas no relatório com a MESMA `oportunidade_ref`.
+    """
+    linhas = [
+        {
+            "oportunidade": {"oportunidade_ref": "VEN_1", "cliente_nome": "Ana"},
+            "visita": {"visita_ref_ego": f"VF_{i}", "visita_imovel_ref": f"FH250{i}",
+                       "visita_anulada": "Não"},
+            "nota": None, "tarefa": None, "pref": None, "contacto": None,
+        }
+        for i in range(1, 6)
+    ]
+    lote = group(linhas)
+
+    # O que estava partido: as 5 viravam 1.
+    assert len(lote["visitas"]) == 5, f"visitas colapsadas: {len(lote['visitas'])}"
+    assert {v["visita_ref_ego"] for v in lote["visitas"]} == {f"VF_{i}" for i in range(1, 6)}
+    assert all(v["oportunidade_ref"] == "VEN_1" for v in lote["visitas"])
+    assert {v["visita_imovel_ref"] for v in lote["visitas"]} == {f"FH250{i}" for i in range(1, 6)}
+
+    # A oportunidade continua a ser uma só, com os `visita_*` da primeira linha
+    # — comportamento antigo preservado para quem lê essas colunas.
+    assert len(lote["oportunidades"]) == 1
+    assert lote["oportunidades"][0]["visita_ref_ego"] == "VF_1"
+
+    # `imovel2_*` não migram para `visitas`: são o imóvel 2 da oportunidade.
+    assert all("imovel2_venda" not in v for v in lote["visitas"])
+
+    # Linha de visita sem id do eGO não pode inventar uma linha órfã.
+    sem_id = [{"oportunidade": {"oportunidade_ref": "VEN_2"},
+               "visita": {"visita_anulada": "Não"},
+               "nota": None, "tarefa": None, "pref": None, "contacto": None}]
+    assert group(sem_id)["visitas"] == []
+
+    print("mapping_todas_colunas OK")
+
+
+if __name__ == "__main__":
+    demo()
