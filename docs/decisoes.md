@@ -24,6 +24,13 @@
 - **`kb-a1-vendedor.md` fica fora do repo (`.gitignore`)**: o repositório é **público** e as secções 1.1 ("Como a Agência Trabalha"), 7.2 ("Preço e Negociação") e 8 ("Guia de Qualificação") são o método comercial da agência, com o cabeçalho a dizer "uso interno, confidencial". Commitar publicava-o, e o histórico do GitHub mantinha-o depois de um `git rm`. A fonte de verdade é `agente_config[a1_vendedor].instrucoes`; o ficheiro é a cópia de trabalho e tem de ter backup **fora** do repo.
 - **`agente_config[a1_vendedor].instrucoes` carregado a 2026-08-06** com o ficheiro que o Miguel entregou (`kb-a1-vendedor.md`, hoje fora do repo — ver acima). Até aqui tinha só o texto placeholder da seed da migration `0014` (112 caracteres) — o agente respondia no WhatsApp a partir do prompt base, nunca da base de conhecimento real. Valor anterior fez backup fora do repo antes de sobrescrever.
 
+## Notificações ao corretor (2026-08-15)
+
+- **A tarefa é o registo, a notificação é o toque no ombro**: `_promover_lead` e `_escalar_para_humano` acabavam ambos num `insert` em `agente_tarefas` e mais nada. Uma lead paga que qualifica às 23h ficava à espera de alguém abrir o painel, e no escalamento o assistente **acaba de prometer ao cliente** que entram em contacto. Passam a mandar email também. A tarefa não sai: é a rede de segurança do email, não o contrário.
+- **`smtplib` da biblioteca padrão, não um serviço transaccional**: zero dependências novas e zero contas para gerir. Resend/SendGrid entregam melhor (SPF/DKIM, retentativas) — se a entrega vier a ser problema, troca-se o corpo de `notificacoes.notificar` e nada mais, que é a razão de só existir uma função pública. O canal foi escolhido como "email por agora, outro a confirmar"; é essa função que muda nessa altura, não os sítios que a chamam.
+- **`notificar()` é síncrona e nunca levanta**: `smtplib` bloqueia e ambos os chamadores já correm dentro de executores — uma versão async obrigava a contorções nos dois. E corre depois de a resposta já ter ido para o cliente: falhar a enviar um aviso não pode derrubar uma conversa nem impedir a tarefa de ser criada.
+- **Configuração vazia = desligada, sem erro**: mesmo padrão do `automacao_secret`. Permite ter isto em produção antes de existirem credenciais SMTP e ligar depois sem novo deploy. O teste garante que com a config vazia não se tenta sequer abrir uma ligação.
+
 ## Regras de negócio em código
 
 - **Regras que não podem falhar vivem em `guards.py`, não no prompt**: dedup de clientes (única via de escrita — havia 4 upserts artesanais que duplicavam entre canais) e regra dos 80% dentro de `agendar_visita`, antes de qualquer escrita. Um LLM esquece uma regra; um `if` não.

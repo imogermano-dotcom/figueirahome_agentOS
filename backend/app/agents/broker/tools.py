@@ -12,6 +12,7 @@ from datetime import date
 
 from app.agents.broker.guards import find_or_create_cliente, normalizar_telefone, visita_permitida
 from app.db.supabase_client import get_supabase
+from app.notificacoes import notificar
 
 logger = logging.getLogger(__name__)
 
@@ -501,6 +502,26 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             "motivo": motivo,
         },
     )
+
+    # O assistente acabou de prometer ao cliente que alguém entra em contacto.
+    # Se isso ficar só numa linha do painel, a promessa depende de o corretor
+    # abrir o painel. `notificar` engole os próprios erros — ver notificacoes.py.
+    await _run(
+        notificar,
+        f"{prefixo}Escalado pelo assistente — {motivo}",
+        "\n".join(p for p in (
+            f"O {contexto.get('agente') or 'assistente'} escalou uma conversa em {contexto.get('canal', '?')}.",
+            "",
+            f"Contacto: {nome or '—'} — {telefone or '—'}",
+            f"Motivo:   {motivo}",
+            f"Imóvel:   {inputs.get('imovel_ref') or '—'}",
+            "",
+            inputs.get("resumo"),
+            "",
+            "Foi dito ao cliente que entram em contacto (próximo dia útil se fora de horas).",
+        ) if p is not None),
+    )
+
     return (
         "Registado para o consultor. Confirma ao cliente que entram em contacto, "
         "e no próximo dia útil se for fora de horas."

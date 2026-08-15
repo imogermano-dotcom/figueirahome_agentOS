@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     meta_verify_token: str = ""
     meta_api_version: str = "v19.0"
 
+    # Notificações ao corretor (lead qualificada, escalamento).
+    # Tudo vazio = notificações desligadas, sem erro — permite deployar antes de
+    # haver credenciais. `notificacoes_para` aceita vários, separados por vírgula.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    notificacoes_para: str = ""
+
     # App
     app_base_url: str = "http://localhost:8000"
     frontend_url: str = "http://localhost:5173"

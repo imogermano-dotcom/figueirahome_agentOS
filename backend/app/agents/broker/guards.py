@@ -20,6 +20,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from app.db.supabase_client import get_supabase
+from app.notificacoes import notificar
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +115,9 @@ def _promover_lead(
         "atualizado_em": agora,
     }).eq("id", lead["id"]).execute()
 
+    quem = cliente.get("nome") or telefone or email
     supabase.table("agente_tarefas").insert({
-        "titulo": f"{_TAREFA_QUALIFICADA} — {cliente.get('nome') or telefone or email}",
+        "titulo": f"{_TAREFA_QUALIFICADA} — {quem}",
         "descricao": (
             "Lead da Meta qualificada pelo assistente "
             f"(interesse: {cliente.get('tipo_interesse')}, "
@@ -125,6 +127,26 @@ def _promover_lead(
         ),
     }).execute()
     logger.info("Lead %s qualificada (cliente %s)", lead["id"], cliente.get("id"))
+
+    # A tarefa é o registo; isto é o toque no ombro. Uma lead imobiliária é
+    # perecível e ninguém tem o painel aberto às 23h. `notificar` engole os
+    # próprios erros de propósito — ver `app/notificacoes.py`.
+    notificar(
+        f"Lead qualificada — {quem}",
+        "\n".join((
+            "Uma lead da Meta acabou de qualificar na conversa com o A1.",
+            "",
+            f"Nome:      {cliente.get('nome') or '—'}",
+            f"Telefone:  {telefone or '—'}",
+            f"Email:     {email or '—'}",
+            f"Interesse: {cliente.get('tipo_interesse') or '—'}",
+            f"Orçamento: {cliente.get('orcamento') or '—'}",
+            f"Zona:      {cliente.get('zona_preferida') or '—'}",
+            "",
+            "Passo seguinte: criar o contacto no eGO e associar a oportunidade.",
+            "A tarefa também está no painel.",
+        )),
+    )
 
 
 # Uma lead da Meta responde ao template quando lhe apetece. A thread semeada

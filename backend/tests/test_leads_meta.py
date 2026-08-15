@@ -340,6 +340,25 @@ def test_perfil_incompleto_nao_promove(promocao):
     assert not _tarefas(estado)
 
 
+def test_promocao_avisa_o_corretor_com_o_que_ele_precisa(promocao, monkeypatch):
+    """A tarefa é o registo; o aviso é o toque no ombro. Tem de chegar com o
+    telefone e o MQL, senão o corretor abre o painel na mesma e não valeu."""
+    import app.agents.broker.guards as guards
+
+    avisos = []
+    monkeypatch.setattr(guards, "notificar", lambda a, c: avisos.append((a, c)))
+
+    correr, estado = promocao
+    estado["lead"]["estado"] = "contactada"
+    correr()
+
+    assert len(avisos) == 1
+    assunto, corpo = avisos[0]
+    assert "Isabel Braga" in assunto
+    for esperado in ("912345678", "250000", "Buarcos", "compra"):
+        assert esperado in corpo, f"falta {esperado} no aviso"
+
+
 def test_promocao_nao_repete(promocao):
     """Corre a cada turno de WhatsApp: promovida uma vez, o estado deixa de bater
     no filtro e não há segunda tarefa para o mesmo corretor."""
