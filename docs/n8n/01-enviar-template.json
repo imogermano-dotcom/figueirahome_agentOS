@@ -1,0 +1,163 @@
+{
+  "name": "FigueiraHome — enviar template à lead da Meta",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-nova",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-lead-nova",
+      "name": "Make: lead nova",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-460, 300],
+      "notes": "O Make chama isto depois de escrever a lead. Corpo esperado: {\"lead_id\": \"<uuid>\"}. Só o id — a linha é relida a seguir, para não depender do formato do Make."
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "id", "value": "=eq.{{ $json.body.lead_id }}" },
+            { "name": "select", "value": "id,tipo,estado,nome,telefone,email,ficha,template_enviado_em" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ler-lead",
+      "name": "Ler lead no Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-240, 300],
+      "notes": "Fonte de verdade é a base, não o corpo do webhook."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.tipo }}",
+              "rightValue": "compra,arrendamento",
+              "operator": { "type": "string", "operation": "contains" }
+            },
+            {
+              "leftValue": "={{ $json.telefone }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            },
+            {
+              "leftValue": "={{ $json.template_enviado_em }}",
+              "rightValue": "",
+              "operator": { "type": "object", "operation": "empty", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "guardas",
+      "name": "Guardas",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-20, 300],
+      "notes": "1) só compra/arrendamento — angariação segue o fluxo humano. 2) tem telefone. 3) template_enviado_em vazio: idempotência, o Make pode repetir o webhook."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "texto",
+              "name": "texto_renderizado",
+              "value": "=Olá {{ $json.nome || 'boa tarde' }}, é da FigueiraHome. Recebemos o seu pedido de informação sobre imóveis na Figueira da Foz. Posso ajudá-lo com algumas opções?",
+              "type": "string"
+            },
+            {
+              "id": "e164",
+              "name": "telefone_e164",
+              "value": "={{ $json.telefone.length === 9 ? '351' + $json.telefone : $json.telefone }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "preparar",
+      "name": "Preparar texto e número",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [200, 220],
+      "notes": "IMPORTANTE: `texto_renderizado` tem de ser IGUAL ao template aprovado na Meta, com as variáveis já substituídas. É este texto que fica em leads.template_enviado e que o A1 lê como algo que já disse. Se o template mudar na Meta, mudar aqui também. O número vai em E.164 para a Graph API; a coluna guarda 9 dígitos."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.META_PHONE_NUMBER_ID }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.telefone_e164 }}\",\n  \"type\": \"template\",\n  \"template\": {\n    \"name\": \"NOME_DO_TEMPLATE_APROVADO\",\n    \"language\": { \"code\": \"pt_PT\" },\n    \"components\": [\n      {\n        \"type\": \"body\",\n        \"parameters\": [\n          { \"type\": \"text\", \"text\": \"{{ $('Ler lead no Supabase').item.json.nome || 'boa tarde' }}\" }\n        ]\n      }\n    ]\n  }\n}",
+        "options": {}
+      },
+      "id": "enviar-template",
+      "name": "Meta: enviar template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [420, 220],
+      "notes": "Tem de sair do MESMO phone_number_id que o backend escuta, senão a resposta da lead nunca chega ao A1. Credencial: Header Auth com Authorization = Bearer <META_WHATSAPP_TOKEN>."
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "id", "value": "=eq.{{ $('Ler lead no Supabase').item.json.id }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"template_enviado\": {{ JSON.stringify($('Preparar texto e número').item.json.texto_renderizado) }},\n  \"template_enviado_em\": \"{{ $now.toISO() }}\",\n  \"estado\": \"contactada\",\n  \"atualizado_em\": \"{{ $now.toISO() }}\"\n}",
+        "options": {}
+      },
+      "id": "marcar-enviado",
+      "name": "Supabase: marcar enviado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 220],
+      "notes": "Só depois do envio ter corrido bem. Se a Meta falhar, o nó anterior aborta e a lead fica `nova` — a retentativa apanha-a. NUNCA escrever respondeu_em: essa é do backend."
+    }
+  ],
+  "connections": {
+    "Make: lead nova": {
+      "main": [[{ "node": "Ler lead no Supabase", "type": "main", "index": 0 }]]
+    },
+    "Ler lead no Supabase": {
+      "main": [[{ "node": "Guardas", "type": "main", "index": 0 }]]
+    },
+    "Guardas": {
+      "main": [
+        [{ "node": "Preparar texto e número", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Preparar texto e número": {
+      "main": [[{ "node": "Meta: enviar template", "type": "main", "index": 0 }]]
+    },
+    "Meta: enviar template": {
+      "main": [[{ "node": "Supabase: marcar enviado", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}
