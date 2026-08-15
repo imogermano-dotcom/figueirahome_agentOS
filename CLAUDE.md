@@ -66,7 +66,7 @@ Duas frentes, ambas paradas antes do fim:
 |---|---|
 | Backend `figueirahome-agentos.fly.dev` | ✅ deployado em `9838377`; **sem** leads da Meta nem landing pages. Dorme (`min_machines_running=0`, cold start ~9 s medido) |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
-| Scraper `figueirahome-scraper.fly.dev` | ✅ app Fly.io separada, scale-to-zero |
+| Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 com `d854dde` — visitas em tabela própria + espera pela barra lateral do eGO |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, com pesquisa de imóveis reais |
 | Cron sync eGO 06:00 UTC | ✅ chama o **Fly.io**, não o repo — sem deploy corre código antigo. Passa a incluir validação CRM dos despublicados (**por deployar**) |
 | `master` | ⚠️ leads da Meta + qualificação por deployar. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
@@ -78,7 +78,7 @@ Meta (semeadura da conversa, `0021`) e o fecho do buraco da qualificação
 (`guards.promover_se_qualificada`, ao fim de cada turno). Os dois últimos estão
 em `master` e **por deployar**.
 
-### Visitas do eGO — `0023` aplicada 2026-08-14, scraper por deployar
+### Visitas do eGO — `0023` aplicada, scraper deployado 2026-08-15
 
 Uma oportunidade só guardava **1 visita** (colunas `visita_*` em `oportunidades`,
 chave `oportunidade_ref`); o eGO dá uma linha por visita e o `setdefault` em
@@ -138,7 +138,7 @@ do repo** — não gerir daqui; o portal do Miguel também as lê.
 
 ### Próximos passos
 
-1. **Deployar o scraper** (`figueirahome-scraper`) — sem isso a `0023` só tem o backfill e as visitas continuam a colapsar. E **deployar a qualificação** de worktree limpa, com `AUTOMACAO_SECRET` nos secrets.
+1. **Deployar o backend** (qualificação + validação CRM dos despublicados) de worktree limpa, com `AUTOMACAO_SECRET` nos secrets. O scraper já foi.
 2. **Chave do portal do Miguel** → desbloqueia a `0022` (RLS). E **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria estado "Disponível" — 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
 3. **Confirmar com o Make/n8n**: campos reais do formulário de venda (`_ALIAS_FICHA`) e quem marca `whatsapp_permissao`. **Decisão de alojamento das landing pages** bloqueia essa fase toda.
 4. **Reforma de `agente_leads` para `leads`** — 4 escritores (`tools.py:374`, `landing.py:223`, `save_call.py:75`, `api/leads.py`) + página Leads do painel.
