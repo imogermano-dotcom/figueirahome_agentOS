@@ -17,8 +17,10 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.agents.broker.conversation import _participantes  # noqa: E402
-from app.agents.broker.guards import lead_qualificada  # noqa: E402
-from app.api.leads_meta import _campos_mql  # noqa: E402
+from app.agents.broker.guards import (  # noqa: E402
+    campos_mql_da_ficha as _campos_mql,
+    lead_qualificada,
+)
 
 
 # ── qualificação ────────────────────────────────────────────────────────────
@@ -348,6 +350,85 @@ def test_promocao_nao_repete(promocao):
     correr()
 
     assert len(_tarefas(estado)) == 1
+
+
+# ── contexto sem semeadura ──────────────────────────────────────────────────
+#
+# O fluxo real não passa por endpoint nenhum nosso: Make escreve a lead, n8n
+# manda o template, e o A1 só entra quando a pessoa responde. Nessa altura
+# `agente_clientes` ainda não tem linha — o que o formulário respondeu está em
+# `leads.ficha`, e o que já lhe foi dito em `leads.template_enviado`.
+
+import app.agents.broker.engine as engine  # noqa: E402
+
+FICHA = {"tipo_interesse": "compra", "orcamento": "250000", "zona_preferida": "Buarcos"}
+
+
+def _contexto(monkeypatch, *, cliente="", lead=None, thread_nova=True):
+    monkeypatch.setattr(engine, "_perfil_cliente", lambda tel: cliente)
+
+    async def _lead(_tel):
+        return lead
+
+    monkeypatch.setattr(engine, "lead_aberta", _lead)
+    return asyncio.run(engine._contexto_inicial("912345678", thread_nova=thread_nova))
+
+
+def test_perfil_vem_da_ficha_quando_nao_ha_cliente(monkeypatch):
+    """O caso central: sem semeadura, `agente_clientes` está vazio e o A1
+    perguntaria outra vez o que a pessoa acabou de escrever no formulário."""
+    perfil, _ = _contexto(
+        monkeypatch, lead={"nome": "Isabel Braga", "ficha": FICHA, "template_enviado": None}
+    )
+    assert "Isabel Braga" in perfil
+    assert "250000" in perfil and "Buarcos" in perfil
+    assert "não voltes a pedir dados que já temos" in perfil
+
+
+def test_cliente_ganha_a_ficha(monkeypatch):
+    """`agente_clientes` é escrita durante a conversa, logo é mais recente. Se a
+    ficha se sobrepusesse, um orçamento corrigido ao A1 seria ressuscitado pelo
+    valor inicial do formulário."""
+    perfil, _ = _contexto(
+        monkeypatch,
+        cliente="\n\nEste cliente já está registado: Orçamento: 400000",
+        lead={"nome": "Isabel", "ficha": FICHA, "template_enviado": None},
+    )
+    assert "400000" in perfil
+    assert "250000" not in perfil
+
+
+def test_template_entra_so_no_primeiro_turno(monkeypatch):
+    lead = {"nome": "Isabel", "ficha": FICHA, "template_enviado": "Olá Isabel, recebemos o seu pedido."}
+
+    _, msg = _contexto(monkeypatch, lead=lead, thread_nova=True)
+    assert msg["role"] == "assistant"
+    assert "recebemos o seu pedido" in msg["content"]
+
+    # No turno seguinte já está no histórico gravado — injectar outra vez
+    # duplicava a mensagem na conversa.
+    _, msg = _contexto(monkeypatch, lead=lead, thread_nova=False)
+    assert msg is None
+
+
+def test_sem_lead_aberta_nada_muda(monkeypatch):
+    """Quem escreve sem ser lead da Meta continua a ser tratado como sempre."""
+    perfil, msg = _contexto(monkeypatch, lead=None)
+    assert perfil == ""
+    assert msg is None
+
+
+def test_lead_sem_template_nao_injecta(monkeypatch):
+    """A lead pode existir sem o n8n ter chegado a enviar nada."""
+    _, msg = _contexto(monkeypatch, lead={"nome": "Isabel", "ficha": FICHA, "template_enviado": None})
+    assert msg is None
+
+
+def test_ficha_vazia_nao_inventa_perfil(monkeypatch):
+    """Se os alias de `_ALIAS_FICHA` não baterem com os campos reais do
+    formulário, o resultado é perfil vazio — não uma frase truncada."""
+    perfil, _ = _contexto(monkeypatch, lead={"nome": None, "ficha": {"campo_desconhecido": "x"}})
+    assert perfil == ""
 
 
 if __name__ == "__main__":

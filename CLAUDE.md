@@ -130,7 +130,7 @@ do repo** — não gerir daqui; o portal do Miguel também as lê.
 
 | Item | Estado |
 |---|---|
-| `AUTOMACAO_SECRET` | ❌ por gerar e pôr no Fly.io e no n8n; sem ele o endpoint recusa tudo |
+| `AUTOMACAO_SECRET` | ⬜ **já não bloqueia** — o fluxo não passa por endpoint nosso (`0024`). Só é preciso se se voltar a semear |
 | **Portal do Miguel** | ⚠️ ainda em vigor, lê o mesmo Supabase. **Bloqueia a `0022`**: se usar a chave `anon`, apertar o RLS de `contactos`/`imoveis`/`oportunidades` parte-o. Confirmar a chave antes de correr |
 | `whatsapp_permissao` a `True` em **3 de 79** | ⚠️ é o gate do template; se o Make não o marcar à entrada, não sai template e não há A1 |
 | Formulário de venda do Meta Lead Ads | ⚠️ não existe ainda; os alias em `_ALIAS_FICHA` são palpites tirados do de angariação |
@@ -138,8 +138,8 @@ do repo** — não gerir daqui; o portal do Miguel também as lê.
 
 ### Próximos passos
 
-1. **Deployar o backend** (qualificação + validação CRM dos despublicados) de worktree limpa, com `AUTOMACAO_SECRET` nos secrets. O scraper já foi.
-2. **Chave do portal do Miguel** → desbloqueia a `0022` (RLS). E **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria estado "Disponível" — 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
+1. **Correr a `0024`** e **deployar o backend** (qualificação + validação CRM dos despublicados + contexto da lead) de worktree limpa. O scraper já foi.
+2. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) e **chave do portal do Miguel** → desbloqueia a `0022` (RLS). E **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria estado "Disponível" — 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
 3. **Confirmar com o Make/n8n**: campos reais do formulário de venda (`_ALIAS_FICHA`) e quem marca `whatsapp_permissao`. **Decisão de alojamento das landing pages** bloqueia essa fase toda.
 4. **Reforma de `agente_leads` para `leads`** — 4 escritores (`tools.py:374`, `landing.py:223`, `save_call.py:75`, `api/leads.py`) + página Leads do painel.
 5. **Passagem automática ao eGO** (precisa da chave de integração) · **A3/A4 e sub-fluxos SC/FP** (adiados; `agente_clientes` sem coluna `agente`) · **lembretes 24h/48h** (precisam de scheduler).

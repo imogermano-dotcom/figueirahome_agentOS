@@ -135,11 +135,43 @@ _JANELA_LEAD_DIAS = 30
 _ESTADOS_LEAD_ABERTA = ("nova", "contactada")
 
 
-async def agente_de_lead(telefone: str | None) -> str | None:
-    """`a1_vendedor` se o número for de uma lead de compra ainda em aberto.
+# `ficha` (respostas do formulário da Meta) → colunas do MQL. Vive aqui, ao lado
+# de `_CAMPOS_MQL`, porque tem dois leitores: o endpoint de semeadura
+# (`api/leads_meta.py`, hoje inerte) e o contexto que o `engine` monta quando a
+# lead responde sem ter havido semeadura.
+#
+# Os alias vieram do que `leads_angariacao` já usava. **São palpites**: o
+# formulário de venda do Meta Lead Ads ainda não existe. Se os nomes reais não
+# baterem, o A1 fica sem contexto e a lead nunca é qualificada — confirmar os
+# campos antes de assumir que este mapa cobre alguma coisa.
+_ALIAS_FICHA = {
+    "tipo_interesse": ("tipo_interesse", "tipo_imovel", "interesse"),
+    "orcamento": ("orcamento", "expectativa_preco", "valor_expectativa"),
+    "zona_preferida": ("zona_preferida", "zona", "freguesia", "local"),
+}
 
-    Devolve `None` em qualquer outro caso — incluindo erro ou tabela ainda por
-    criar — para o router decidir como decidia antes.
+
+def campos_mql_da_ficha(ficha: dict | None) -> dict:
+    """Os três campos do MQL, tirados da ficha seja qual for o alias usado."""
+    if not isinstance(ficha, dict):
+        return {}
+    campos = {}
+    for coluna, chaves in _ALIAS_FICHA.items():
+        for chave in chaves:
+            valor = ficha.get(chave)
+            if valor not in (None, ""):
+                campos[coluna] = valor
+                break
+    return campos
+
+
+async def lead_aberta(telefone: str | None) -> dict | None:
+    """A lead ainda em aberto deste número, ou `None`.
+
+    Ponto único da consulta: serve o router (`agente_de_lead`) e o contexto que
+    o `engine` monta ao primeiro turno. Devolve `None` em qualquer falha —
+    incluindo a tabela ainda não existir — para tudo continuar a decidir como
+    decidia antes.
     """
     numero = normalizar_telefone(telefone)
     if not numero:
@@ -151,7 +183,7 @@ async def agente_de_lead(telefone: str | None) -> str | None:
         return (
             get_supabase()
             .table("leads")
-            .select("id,tipo")
+            .select("id,tipo,nome,ficha,template_enviado")
             .in_("telefone", variantes_telefone(numero))
             .in_("estado", list(_ESTADOS_LEAD_ABERTA))
             .gte("criado_em", limite)
@@ -165,7 +197,16 @@ async def agente_de_lead(telefone: str | None) -> str | None:
         logger.exception("Falha a procurar lead para %s", numero)
         return None
 
-    if resp.data and resp.data[0].get("tipo") in ("compra", "arrendamento"):
+    return resp.data[0] if resp.data else None
+
+
+async def agente_de_lead(telefone: str | None) -> str | None:
+    """`a1_vendedor` se o número for de uma lead de compra ainda em aberto.
+
+    Devolve `None` em qualquer outro caso, para o router decidir como decidia.
+    """
+    lead = await lead_aberta(telefone)
+    if lead and lead.get("tipo") in ("compra", "arrendamento"):
         return "a1_vendedor"
     return None
 

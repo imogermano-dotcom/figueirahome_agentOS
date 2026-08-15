@@ -26,6 +26,8 @@ from app.agents.broker.assistants import (
 from app.agents.broker.conversation import load_conversation, save_conversation
 from app.agents.broker.custos import calcular_custo, somar_usage
 from app.agents.broker.guards import (
+    campos_mql_da_ficha,
+    lead_aberta,
     normalizar_telefone,
     promover_se_qualificada,
     variantes_telefone,
@@ -67,7 +69,11 @@ def _perfil_cliente(telefone: str) -> str:
     if not resp.data:
         return ""
 
-    c = resp.data[0]
+    return _texto_perfil(resp.data[0])
+
+
+def _texto_perfil(c: dict) -> str:
+    """A mesma frase, venha o perfil de `agente_clientes` ou de `leads.ficha`."""
     campos = [
         f"{rotulo}: {c[campo]}"
         for rotulo, campo in (
@@ -82,6 +88,39 @@ def _perfil_cliente(telefone: str) -> str:
         "\n\nEste cliente já está registado: " + " | ".join(campos) +
         "\nCumprimenta-o pelo nome e não voltes a pedir dados que já temos."
     )
+
+
+async def _contexto_inicial(telefone: str, thread_nova: bool) -> tuple[str, dict | None]:
+    """Perfil para o prompt e, se for caso disso, o template já enviado.
+
+    O fluxo real das leads da Meta não passa por endpoint nenhum nosso: o Make
+    escreve a lead, o n8n manda o template, e o A1 só entra quando a pessoa
+    responde. Nessa altura `agente_clientes` ainda não tem linha — quem tem as
+    respostas do formulário é `leads.ficha`.
+
+    Precedência: `agente_clientes` ganha sempre. É escrita durante a conversa e
+    portanto mais recente do que o formulário; deixar a ficha sobrepor-se seria
+    ressuscitar o orçamento inicial depois de o cliente o ter corrigido ao A1.
+
+    O template entra como mensagem do assistente **só no primeiro turno**, para
+    o A1 o ler como algo que já disse e não voltar a cumprimentar. Nos turnos
+    seguintes já está no histórico gravado.
+    """
+    perfil = await asyncio.get_event_loop().run_in_executor(None, _perfil_cliente, telefone)
+
+    lead = await lead_aberta(telefone)
+    if not lead:
+        return perfil, None
+
+    if not perfil:
+        campos = campos_mql_da_ficha(lead.get("ficha"))
+        perfil = _texto_perfil({"nome": lead.get("nome"), **campos})
+
+    template = lead.get("template_enviado")
+    if thread_nova and template:
+        now = datetime.now(timezone.utc).isoformat()
+        return perfil, {"role": "assistant", "content": template, "timestamp": now}
+    return perfil, None
 
 
 # Tools cujos argumentos são critérios de pesquisa e nada mais. Só destas se
@@ -149,9 +188,10 @@ async def responder(
     telefone = normalizar_telefone(participante) if canal == "whatsapp" else None
     perfil = ""
     if telefone:
-        perfil = await asyncio.get_event_loop().run_in_executor(
-            None, _perfil_cliente, telefone
-        )
+        perfil, template = await _contexto_inicial(telefone, thread_nova=not mensagens)
+        if template:
+            # Antes da mensagem do utilizador: o template foi o que veio primeiro.
+            mensagens.append(template)
 
     system_prompt = spec["prompt"] + perfil + extra
     contexto = {

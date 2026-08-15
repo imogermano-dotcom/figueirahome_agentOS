@@ -19,7 +19,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.agents.broker.conversation import save_conversation
-from app.agents.broker.guards import find_or_create_cliente, normalizar_telefone
+from app.agents.broker.guards import (
+    campos_mql_da_ficha,
+    find_or_create_cliente,
+    normalizar_telefone,
+)
 from app.api.deps import require_automacao_access
 from app.db.supabase_client import get_supabase
 
@@ -32,35 +36,8 @@ router = APIRouter(prefix="/api", dependencies=[Depends(require_automacao_access
 # A2 (ver `router._ADIADO_RE`).
 _TIPOS_A1 = frozenset({"compra", "arrendamento"})
 
-# `ficha` → colunas do MQL em `agente_clientes`. É daqui que
-# `engine._perfil_cliente` tira o contexto que injecta no prompt, por isso o que
-# o formulário perguntar tem de aterrar nestes três nomes.
-#
-# Os alias abaixo vieram do que `leads_angariacao` já usa. O formulário de venda
-# ainda não existe: quando existir, confirmar os nomes reais dos campos antes de
-# assumir que este mapa cobre alguma coisa.
-_ALIAS_FICHA = {
-    "tipo_interesse": ("tipo_interesse", "tipo_imovel", "interesse"),
-    "orcamento": ("orcamento", "expectativa_preco", "valor_expectativa"),
-    "zona_preferida": ("zona_preferida", "zona", "freguesia", "local"),
-}
-
-
 class ConversaSemeada(BaseModel):
     template: str
-
-
-def _campos_mql(ficha: dict) -> dict:
-    if not isinstance(ficha, dict):
-        return {}
-    campos = {}
-    for coluna, chaves in _ALIAS_FICHA.items():
-        for chave in chaves:
-            valor = ficha.get(chave)
-            if valor not in (None, ""):
-                campos[coluna] = valor
-                break
-    return campos
 
 
 async def _run(fn):
@@ -104,7 +81,7 @@ async def semear_conversa(lead_id: str, corpo: ConversaSemeada):
         telefone=telefone,
         email=lead.get("email"),
         origem="meta_ads",
-        **_campos_mql(lead.get("ficha") or {}),
+        **campos_mql_da_ficha(lead.get("ficha")),
     )
 
     # O template é uma mensagem nossa: entra como `assistant` para o A1 o ler
