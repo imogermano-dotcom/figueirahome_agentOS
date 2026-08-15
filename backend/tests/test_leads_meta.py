@@ -390,7 +390,10 @@ def _contexto(monkeypatch, *, cliente="", lead=None, thread_nova=True):
         return lead
 
     monkeypatch.setattr(engine, "lead_aberta", _lead)
-    return asyncio.run(engine._contexto_inicial("912345678", thread_nova=thread_nova))
+    perfil, template, _lead_devolvida = asyncio.run(
+        engine._contexto_inicial("912345678", thread_nova=thread_nova)
+    )
+    return perfil, template
 
 
 def test_perfil_vem_da_ficha_quando_nao_ha_cliente(monkeypatch):
@@ -441,6 +444,55 @@ def test_lead_sem_template_nao_injecta(monkeypatch):
     """A lead pode existir sem o n8n ter chegado a enviar nada."""
     _, msg = _contexto(monkeypatch, lead={"nome": "Isabel", "ficha": FICHA, "template_enviado": None})
     assert msg is None
+
+
+def test_contexto_devolve_a_lead_para_o_motor_a_marcar(monkeypatch):
+    """O motor precisa da lead no fim do turno para registar que ela respondeu.
+    Vem daqui, que já a leu — sem consulta extra."""
+    lead = {"id": "lead-1", "nome": "Isabel", "ficha": FICHA, "template_enviado": None}
+    monkeypatch.setattr(engine, "_perfil_cliente", lambda tel: "")
+
+    async def _lead(_tel):
+        return lead
+
+    monkeypatch.setattr(engine, "lead_aberta", _lead)
+    _, _, devolvida = asyncio.run(engine._contexto_inicial("912345678", thread_nova=True))
+    assert devolvida["id"] == "lead-1"
+
+
+def test_marcar_resposta_so_escreve_na_primeira_vez(monkeypatch):
+    """`respondeu_em` guarda o PRIMEIRO turno. O filtro `is null` faz isso e
+    poupa a leitura — se desaparecer, cada mensagem reescreve a data e o
+    follow-up perde a noção de há quanto tempo a lead fala connosco."""
+    import app.agents.broker.guards as guards
+
+    chamadas = {}
+
+    class _Q:
+        def update(self, dados):
+            chamadas["dados"] = dados
+            return self
+
+        def eq(self, campo, valor):
+            chamadas[campo] = valor
+            return self
+
+        def is_(self, campo, valor):
+            chamadas["filtro_is"] = (campo, valor)
+            return self
+
+        def execute(self):
+            return None
+
+    monkeypatch.setattr(guards, "get_supabase",
+                        lambda: type("S", (), {"table": lambda s, n: _Q()})())
+
+    asyncio.run(guards.marcar_lead_respondeu("lead-1", "conversa-9"))
+
+    assert chamadas["id"] == "lead-1"
+    assert chamadas["filtro_is"] == ("respondeu_em", "null"), "sem isto reescreve a cada turno"
+    assert chamadas["dados"]["conversa_id"] == "conversa-9"
+    assert chamadas["dados"]["respondeu_em"]
 
 
 def test_ficha_vazia_nao_inventa_perfil(monkeypatch):

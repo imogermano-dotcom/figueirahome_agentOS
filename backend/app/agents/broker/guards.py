@@ -233,6 +233,39 @@ async def agente_de_lead(telefone: str | None) -> str | None:
     return None
 
 
+async def marcar_lead_respondeu(lead_id: str, conversa_id: str | None) -> None:
+    """Regista a **primeira** resposta da lead (migration 0027).
+
+    Sem isto, uma lead que responde mas não qualifica fica `contactada` —
+    indistinguível de uma que nunca respondeu — e o follow-up às 48h mandava
+    segunda mensagem a quem já está a falar com o A1.
+
+    O filtro `respondeu_em is null` faz duas coisas de uma vez: guarda o
+    primeiro turno em vez do último, e evita ter de ler antes de escrever.
+    """
+    agora = datetime.now(timezone.utc).isoformat()
+    dados = {"respondeu_em": agora, "atualizado_em": agora}
+    if conversa_id:
+        dados["conversa_id"] = conversa_id
+
+    def _marcar():
+        return (
+            get_supabase()
+            .table("leads")
+            .update(dados)
+            .eq("id", lead_id)
+            .is_("respondeu_em", "null")
+            .execute()
+        )
+
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _marcar)
+    except Exception:
+        # Corre depois de a resposta já ter ido para o cliente. Falhar aqui
+        # custa um follow-up a mais, não uma conversa.
+        logger.exception("Falha a marcar resposta da lead %s", lead_id)
+
+
 async def promover_se_qualificada(telefone: str | None) -> None:
     """Promove ao fim do turno a lead cujo perfil já veio completo do formulário.
 

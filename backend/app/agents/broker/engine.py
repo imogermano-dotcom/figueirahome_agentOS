@@ -28,6 +28,7 @@ from app.agents.broker.custos import calcular_custo, somar_usage
 from app.agents.broker.guards import (
     campos_mql_da_ficha,
     lead_aberta,
+    marcar_lead_respondeu,
     normalizar_telefone,
     promover_se_qualificada,
     variantes_telefone,
@@ -90,7 +91,9 @@ def _texto_perfil(c: dict) -> str:
     )
 
 
-async def _contexto_inicial(telefone: str, thread_nova: bool) -> tuple[str, dict | None]:
+async def _contexto_inicial(
+    telefone: str, thread_nova: bool
+) -> tuple[str, dict | None, dict | None]:
     """Perfil para o prompt e, se for caso disso, o template já enviado.
 
     O fluxo real das leads da Meta não passa por endpoint nenhum nosso: o Make
@@ -110,7 +113,7 @@ async def _contexto_inicial(telefone: str, thread_nova: bool) -> tuple[str, dict
 
     lead = await lead_aberta(telefone)
     if not lead:
-        return perfil, None
+        return perfil, None, None
 
     if not perfil:
         campos = campos_mql_da_ficha(lead.get("ficha"))
@@ -119,8 +122,8 @@ async def _contexto_inicial(telefone: str, thread_nova: bool) -> tuple[str, dict
     template = lead.get("template_enviado")
     if thread_nova and template:
         now = datetime.now(timezone.utc).isoformat()
-        return perfil, {"role": "assistant", "content": template, "timestamp": now}
-    return perfil, None
+        return perfil, {"role": "assistant", "content": template, "timestamp": now}, lead
+    return perfil, None, lead
 
 
 # Tools cujos argumentos são critérios de pesquisa e nada mais. Só destas se
@@ -187,8 +190,9 @@ async def responder(
 
     telefone = normalizar_telefone(participante) if canal == "whatsapp" else None
     perfil = ""
+    lead = None
     if telefone:
-        perfil, template = await _contexto_inicial(telefone, thread_nova=not mensagens)
+        perfil, template, lead = await _contexto_inicial(telefone, thread_nova=not mensagens)
         if template:
             # Antes da mensagem do utilizador: o template foi o que veio primeiro.
             mensagens.append(template)
@@ -313,6 +317,13 @@ async def responder(
         "tool_forcada": forcar_agora,
         "erro": erro,
     })
+
+    # Este turno é a prova de que a lead respondeu — e é a única. Sem o registar,
+    # uma lead que fala mas não qualifica fica indistinguível de uma que nunca
+    # respondeu, e o follow-up às 48h escreveria a quem já está em conversa.
+    # A lead vem de `_contexto_inicial`, que já a leu: não há consulta extra.
+    if lead:
+        await marcar_lead_respondeu(lead["id"], conversa_id)
 
     # A lead da Meta chega com o MQL já preenchido pelo formulário: o A1 não tem
     # dados para escrever, `find_or_create_cliente` nunca corre e a promoção
