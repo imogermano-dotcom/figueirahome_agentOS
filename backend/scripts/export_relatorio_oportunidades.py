@@ -34,6 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import openpyxl
+from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright.async_api import async_playwright
 
 from app.config import settings
@@ -241,6 +242,52 @@ async def _click_sidetag(page, texto: str) -> bool:
     )
 
 
+_MINHAS = "Minhas oportunidades"
+
+# A tag aparece DUAS vezes quando está aplicada (a opção e o chip de filtro
+# activo) e é na segunda que se clica.
+_JS_CONTA = (
+    "() => Array.from(document.querySelectorAll('span.sideTag a'))"
+    f".filter(e => e.textContent.trim() === '{_MINHAS}').length"
+)
+
+
+async def _desseleccionar_minhas(page) -> None:
+    """Igual ao de `scraper/oportunidades_completo.py` — ver lá o porquê.
+
+    Duplicado de propósito: o `scraper/` é uma app Fly.io à parte, com o seu
+    próprio Dockerfile e requirements, e não importa nada de `backend/`.
+    Partilhar isto exigiria um pacote comum por 40 linhas.
+    """
+    try:
+        await page.wait_for_function(f"({_JS_CONTA})() >= 2", timeout=15000)
+    except PlaywrightTimeout:
+        diag = await page.evaluate(
+            """() => {
+                const ancoras = Array.from(document.querySelectorAll('span.sideTag a'));
+                return {
+                    sideTags: document.querySelectorAll('span.sideTag').length,
+                    rotulos: ancoras.slice(0, 10).map(e => e.textContent.trim()),
+                };
+            }"""
+        )
+        encontrados = await page.evaluate(f"({_JS_CONTA})()")
+        raise RuntimeError(
+            f'"{_MINHAS}" não encontrado para desseleccionar após 15s '
+            f"(encontrados {encontrados}, precisos 2). "
+            f"span.sideTag na página: {diag['sideTags']}. "
+            f"Primeiros rótulos: {diag['rotulos']}"
+        )
+
+    await page.evaluate(
+        """() => {
+            const els = Array.from(document.querySelectorAll('span.sideTag a'))
+                .filter(e => e.textContent.trim() === 'Minhas oportunidades');
+            els[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        }"""
+    )
+
+
 async def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
     print("A obter sessão autenticada (httpx)...")
@@ -280,17 +327,7 @@ async def main() -> None:
         # "Minhas oportunidades" clicando na própria tag já seleccionada,
         # mesmo padrão do script antigo (JMWAIweb export-oportunidades.js).
         print('A desseleccionar "Minhas oportunidades"...')
-        removeu = await page.evaluate(
-            """() => {
-                const els = Array.from(document.querySelectorAll('span.sideTag a'))
-                    .filter(e => e.textContent.trim() === 'Minhas oportunidades');
-                if (!els[1]) return false;
-                els[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                return true;
-            }"""
-        )
-        if not removeu:
-            raise RuntimeError('"Minhas oportunidades" não encontrado para desseleccionar.')
+        await _desseleccionar_minhas(page)
         await page.wait_for_timeout(2000)
 
         print('A aplicar filtro "Editado em > Últimas 48 horas"...')

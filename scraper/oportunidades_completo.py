@@ -30,6 +30,7 @@ from pathlib import Path
 
 import httpx
 import openpyxl
+from playwright.async_api import TimeoutError as PlaywrightTimeout
 from playwright.async_api import async_playwright
 
 import config
@@ -87,6 +88,61 @@ def _parse_rows(path: Path) -> tuple[list[str], list[dict]]:
     raise ValueError(f"Formato não suportado: {path.suffix}")
 
 
+_MINHAS = "Minhas oportunidades"
+
+# Contagem das âncoras com esse rótulo. A tag aparece DUAS vezes quando está
+# aplicada (a opção e o chip de filtro activo) e clica-se na segunda — ver
+# `_desseleccionar_minhas`.
+_JS_CONTA = (
+    "() => Array.from(document.querySelectorAll('span.sideTag a'))"
+    f".filter(e => e.textContent.trim() === '{_MINHAS}').length"
+)
+
+
+async def _desseleccionar_minhas(page) -> None:
+    """Desselecciona "Minhas oportunidades", esperando que a barra lateral exista.
+
+    Clicar em "Todas as oportunidades" não resolve (testado ao vivo, dá 0
+    resultados) — tem de se clicar na própria tag já seleccionada.
+
+    Espera pela condição em vez de dormir um tempo fixo: `networkidle` dá-se por
+    satisfeito com 500 ms de rede calma, e a barra lateral do eGO chega num XHR
+    posterior. Numa máquina rápida já lá está; no Fly.io (scale-to-zero, CPU
+    partilhado) falhou a 2026-08-15 com uma tentativa única depois de 2 s.
+
+    A mensagem de erro traz o que a página tinha, para a próxima falha se
+    explicar sozinha: 0 `span.sideTag` = a barra não carregou (timing ou
+    layout); muitos, com rótulos diferentes = o eGO mudou a UI.
+    """
+    try:
+        await page.wait_for_function(f"({_JS_CONTA})() >= 2", timeout=15000)
+    except PlaywrightTimeout:
+        diag = await page.evaluate(
+            """() => {
+                const ancoras = Array.from(document.querySelectorAll('span.sideTag a'));
+                return {
+                    sideTags: document.querySelectorAll('span.sideTag').length,
+                    rotulos: ancoras.slice(0, 10).map(e => e.textContent.trim()),
+                };
+            }"""
+        )
+        encontrados = await page.evaluate(f"({_JS_CONTA})()")
+        raise RuntimeError(
+            f'"{_MINHAS}" não encontrado para desseleccionar após 15s '
+            f"(encontrados {encontrados}, precisos 2). "
+            f"span.sideTag na página: {diag['sideTags']}. "
+            f"Primeiros rótulos: {diag['rotulos']}"
+        )
+
+    await page.evaluate(
+        """() => {
+            const els = Array.from(document.querySelectorAll('span.sideTag a'))
+                .filter(e => e.textContent.trim() === 'Minhas oportunidades');
+            els[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+        }"""
+    )
+
+
 async def _trigger_and_download(headless: bool = True) -> Path:
     """Dispara o relatório e descarrega o .xlsx via httpx a partir da URL
     devolvida pelo próprio POST /egocore/report/export.
@@ -142,17 +198,7 @@ async def _trigger_and_download(headless: bool = True) -> Path:
         # "Minhas oportunidades" (clicar na tag já seleccionada, "Todas as
         # oportunidades" não resolve).
         print('A desseleccionar "Minhas oportunidades"...')
-        removeu = await page.evaluate(
-            """() => {
-                const els = Array.from(document.querySelectorAll('span.sideTag a'))
-                    .filter(e => e.textContent.trim() === 'Minhas oportunidades');
-                if (!els[1]) return false;
-                els[1].dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                return true;
-            }"""
-        )
-        if not removeu:
-            raise RuntimeError('"Minhas oportunidades" não encontrado para desseleccionar.')
+        await _desseleccionar_minhas(page)
         await page.wait_for_timeout(2000)
 
         print('A aplicar filtro "Editado em > Últimas 48 horas"...')
