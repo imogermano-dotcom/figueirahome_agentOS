@@ -174,6 +174,175 @@ def test_angariador_so_do_role_certo():
     assert "angariador" not in _map_property(outro)
 
 
+# ── validação CRM restrita aos despublicados ────────────────────────────────
+#
+# A Web API só devolve publicados: quando um imóvel sai dela, nada automático
+# volta a dizer o que lhe aconteceu — se for vendido a seguir, o Supabase fica
+# a dizer "Disponível" para sempre. `sync_egorealestate_api` passou a correr a
+# validação CRM restrita a esses refs.
+#
+# O que estes testes protegem é a razão pela qual a validação CRM completa saiu
+# do cron (`docs/decisoes.md`): sobrepunha, com dados desactualizados do
+# backoffice, estados que a API pública já tinha confirmado — caso FH2483_A.
+# Restrita, não pode tocar em nada que a API tenha devolvido.
+
+import asyncio  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+import app.integrations.imoveis_sync as sync  # noqa: E402
+
+
+class _Q:
+    def __init__(self, tabela, estado):
+        self.tabela, self.estado, self._dados = tabela, estado, []
+        self._filtro_in = None
+
+    def select(self, *a, **k):
+        if self.tabela == "imoveis":
+            self._dados = list(self.estado["imoveis"])
+        return self
+
+    def update(self, dados):
+        self.estado["updates"].append((self.tabela, dados))
+        return self
+
+    def insert(self, dados):
+        self.estado["inserts"].append((self.tabela, dados))
+        return self
+
+    def eq(self, campo, valor):
+        if self.tabela == "imoveis" and campo == "disponibilidade":
+            self._dados = [r for r in self._dados if r.get("disponibilidade") == valor]
+        if self.tabela == "imoveis" and campo == "imovel_ref":
+            self.estado["updates_refs"].append(valor)
+        return self
+
+    def in_(self, campo, valores):
+        if self.tabela == "imoveis" and campo == "imovel_ref":
+            self.estado["escopo_consultado"] = set(valores)
+            self._dados = [r for r in self._dados if r["imovel_ref"] in set(valores)]
+        if self.tabela == "agente_tarefas":
+            self.estado["tarefas_fechadas"] = set(valores)
+        return self
+
+    def like(self, *a, **k):
+        return self
+
+    def not_(self, *a, **k):
+        return self
+
+    def is_(self, *a, **k):
+        return self
+
+    def limit(self, *a, **k):
+        return self
+
+    def execute(self):
+        return SimpleNamespace(data=self._dados)
+
+
+def _montar(monkeypatch, crm_items, detalhe):
+    """Supabase e backoffice falsos. Devolve o `estado` observável."""
+    estado = {
+        # FH2571 saiu da API (é o escopo); FH2483_C continua publicado e nunca
+        # pode ser tocado por esta chamada.
+        "imoveis": [
+            {"imovel_ref": "FH2571", "disponibilidade": "Disponível", "ego_id": 111, "fonte": "egorealestate"},
+            {"imovel_ref": "FH2483_C", "disponibilidade": "Disponível", "ego_id": 222, "fonte": "egorealestate"},
+        ],
+        "updates": [], "updates_refs": [], "inserts": [],
+        "escopo_consultado": None, "tarefas_fechadas": None,
+    }
+    fake_sb = SimpleNamespace(table=lambda nome: _Q(nome, estado))
+    monkeypatch.setattr(sync, "get_supabase", lambda: fake_sb)
+    monkeypatch.setattr(sync.settings, "egorealestate_crm_username", "u")
+    monkeypatch.setattr(sync.settings, "egorealestate_crm_password", "p")
+
+    class _Cliente:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+    async def _detalhe(client, ego_id):
+        return detalhe
+
+    monkeypatch.setattr(sync.egorealestate_crm, "authenticated_client", lambda: _Cliente())
+    monkeypatch.setattr(sync.egorealestate_crm, "_login", lambda c: asyncio.sleep(0))
+    monkeypatch.setattr(sync.egorealestate_crm, "fetch_all", lambda c: _async(crm_items))
+    monkeypatch.setattr(sync.egorealestate_crm, "fetch_detail", _detalhe)
+    return estado
+
+
+async def _async(valor):
+    return valor
+
+
+def test_validacao_restrita_nao_toca_no_que_a_api_confirmou(monkeypatch):
+    """A regressão do FH2483_A: com escopo, um imóvel que a API devolveu não
+    pode ser lido nem corrigido — é a única razão pela qual isto pode voltar ao
+    cron sem repetir o erro que o tirou de lá."""
+    estado = _montar(monkeypatch, crm_items=[], detalhe={"disponibilidade": "Vendido"})
+
+    corrigidos, detalhes = asyncio.run(sync.validar_disponibilidade_crm({"FH2571"}))
+
+    assert estado["escopo_consultado"] == {"FH2571"}, "a consulta local não foi restringida"
+    assert "FH2483_C" not in estado["updates_refs"], "tocou num imóvel ainda publicado"
+    assert estado["updates_refs"] == ["FH2571"]
+    assert corrigidos == 1
+    assert detalhes[0]["alteracoes"]["disponibilidade"]["para"] == "Vendido"
+
+
+def test_validacao_restrita_nao_cria_imoveis(monkeypatch):
+    """O Caso 1 fica desligado com escopo: esta chamada corrige o que existe,
+    não importa imóveis novos pela porta das traseiras."""
+    estado = _montar(
+        monkeypatch,
+        crm_items=[{"imovel_ref": "NOVO_1", "crm_disponibilidade": "Disponível", "ego_id": 999}],
+        detalhe={"disponibilidade": "Vendido"},
+    )
+
+    asyncio.run(sync.validar_disponibilidade_crm({"FH2571"}))
+
+    assert not [d for t, d in estado["inserts"] if t == "imoveis"]
+
+
+def test_crm_diz_disponivel_nao_altera_nada(monkeypatch):
+    """Retirado da publicação mas ainda à venda: o backoffice lista-o como
+    Disponível, e o estado local está certo. Não mexer."""
+    estado = _montar(
+        monkeypatch,
+        crm_items=[{"imovel_ref": "FH2571", "crm_disponibilidade": "Disponível", "ego_id": 111}],
+        detalhe={"disponibilidade": "Disponível"},
+    )
+
+    corrigidos, _ = asyncio.run(sync.validar_disponibilidade_crm({"FH2571"}))
+
+    assert corrigidos == 0
+    assert estado["updates_refs"] == []
+
+
+def test_lista_vazia_do_crm_aborta_so_quando_nao_ha_escopo(monkeypatch):
+    """Sem escopo, `fetch_all` vazio é sinal de o backoffice ter falhado e o
+    Caso 3 marcaria tudo. Com escopo é normal — um imóvel vendido não aparece
+    em `fetch_all` (`_STATUS_CODES` não inclui Vendido) e é precisamente esse o
+    caso que temos de apanhar."""
+    estado = _montar(monkeypatch, crm_items=[], detalhe={"disponibilidade": "Vendido"})
+    assert asyncio.run(sync.validar_disponibilidade_crm()) == (0, [])
+    assert estado["updates_refs"] == []
+
+    estado = _montar(monkeypatch, crm_items=[], detalhe={"disponibilidade": "Vendido"})
+    corrigidos, _ = asyncio.run(sync.validar_disponibilidade_crm({"FH2571"}))
+    assert corrigidos == 1
+
+
+def test_tarefas_de_despublicacao_sao_fechadas(monkeypatch):
+    """Havia 20 pendentes e nenhuma fechada: a tarefa nascia automática e só se
+    fechava à mão."""
+    estado = _montar(monkeypatch, crm_items=[], detalhe={"disponibilidade": "Vendido"})
+    asyncio.run(sync._fechar_tarefas_despublicado(["FH2571"]))
+    assert estado["tarefas_fechadas"] == {"FH2571"}
+    assert ("agente_tarefas", {"estado": "concluida"}) in estado["updates"]
+
+
 if __name__ == "__main__":
     for nome, fn in sorted(globals().items()):
         if nome.startswith("test_"):

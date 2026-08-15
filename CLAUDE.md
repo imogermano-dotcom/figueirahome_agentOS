@@ -68,7 +68,7 @@ Duas frentes, ambas paradas antes do fim:
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ app Fly.io separada, scale-to-zero |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, com pesquisa de imóveis reais |
-| Cron sync eGO 06:00 UTC | ✅ chama o **Fly.io**, não o repo — sem deploy corre código antigo |
+| Cron sync eGO 06:00 UTC | ✅ chama o **Fly.io**, não o repo — sem deploy corre código antigo. Passa a incluir validação CRM dos despublicados (**por deployar**) |
 | `master` | ⚠️ leads da Meta + qualificação por deployar. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
 ### Fase de hoje — detalhe em `docs/fases/leads-meta-resumo.md`
@@ -163,7 +163,7 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Segredo próprio para automações** (`X-Automacao-Secret`) — Make e n8n não têm de poder disparar syncs do eGO; segredo vazio nunca autentica.
 - **Refs duplicadas do eGO desempatam por data de alteração**, não pela ordem da lista — a ordem escolhia a cópia por preencher (FH2460 4D gravava piso 0 num 4.º andar).
 - **Landing pages em HTML servido pelo backend**, não rota do SPA — as OG tags têm de existir no HTML (WhatsApp). **`fonte_hash` decide se se regenera.** **`publicado` é coluna GENERATED**; `disponivel_na_api` é a excepção escrita pela app.
-- **Sync eGO sempre full** (`?Since=` avariado), **CRM só manual** (no cron sobrepunha estados desactualizados), **Playwright nunca na app principal** (RAM; `scraper/` tem app própria).
+- **Sync eGO sempre full** (`?Since=` avariado). **Validação CRM completa só manual** (no cron sobrepunha estados que a API já confirmava) — **excepto restrita aos refs que saíram da API**, que corre no fim do sync: sobre esses a API não tem opinião. **Playwright nunca na app principal** (RAM; `scraper/` tem app própria).
 
 ## Bugs conhecidos
 

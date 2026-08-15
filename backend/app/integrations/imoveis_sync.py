@@ -245,7 +245,32 @@ async def _existing_ego_ids(disponibilidades: set[str]) -> set[int]:
 _TAREFA_TITULO_PREFIX = "eGO deixou de publicar"
 
 
-async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict]]:
+async def _fechar_tarefas_despublicado(refs: list[str]) -> None:
+    """Fecha as tarefas "eGO deixou de publicar" cujos imóveis já foram
+    resolvidos pela validação CRM. Sem isto acumulam-se — havia 20 pendentes a
+    2026-08-14, nenhuma fechada, porque a tarefa é criada automaticamente e só
+    se fechava à mão."""
+    if not refs:
+        return
+
+    def _fechar():
+        return (
+            get_supabase()
+            .table("agente_tarefas")
+            .update({"estado": "concluida"})
+            .eq("estado", "pendente")
+            .like("titulo", f"{_TAREFA_TITULO_PREFIX}%")
+            .in_("imovel_ref", refs)
+            .execute()
+        )
+
+    try:
+        await _run(_fechar)
+    except Exception:
+        logger.exception("Falha a fechar tarefas de despublicação (%s refs)", len(refs))
+
+
+async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict], list[str]]:
     """`/v1/Properties/Latest` reporta o ID como alterado, mas `/v1/Properties`
     já não o devolve — a API só devolve imóveis publicados. Não sabemos qual o
     estado real (Por validar / Retirado / Em Prospecção), por isso não
@@ -255,7 +280,7 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict]]
     a coluna `publicado` (generated) depende dele para não ficar `true`
     indevidamente enquanto `disponibilidade` ainda não foi corrigida pelo CRM."""
     if not missing_ego_ids:
-        return 0, []
+        return 0, [], []
 
     def _fetch_rows():
         return (
@@ -269,7 +294,7 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict]]
     resp = await _run(_fetch_rows)
     refs = [r["imovel_ref"] for r in resp.data if r["imovel_ref"]]
     if not refs:
-        return 0, []
+        return 0, [], []
 
     def _marcar_nao_visto():
         return get_supabase().table("imoveis").update({"disponivel_na_api": False}).in_("imovel_ref", refs).execute()
@@ -291,7 +316,9 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict]]
     ja_sinalizados = {r["imovel_ref"] for r in resp2.data}
     novos = [ref for ref in refs if ref not in ja_sinalizados]
     if not novos:
-        return 0, []
+        # Sem tarefa nova, mas os refs interessam ao chamador na mesma: e sobre
+        # eles que a validacao CRM tem de correr.
+        return 0, [], refs
 
     tarefas = [
         {
@@ -307,7 +334,7 @@ async def _flag_unpublished(missing_ego_ids: set[int]) -> tuple[int, list[dict]]
 
     await _run(_insert)
     detalhes = [{"imovel_ref": ref, "tipo": "nao_publicado", "descricao": "deixou de estar publicado no eGO, tarefa criada"} for ref in novos]
-    return len(novos), detalhes
+    return len(novos), detalhes, refs
 
 
 _TAREFA_DIVERGENCIA_PREFIX = "eGO disponibilidade divergente"
@@ -353,7 +380,9 @@ async def _flag_divergencia(refs: list[str], motivo: str, tipo: str) -> list[dic
     return [{"imovel_ref": ref, "tipo": tipo, "descricao": "tarefa criada"} for ref in novos]
 
 
-async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
+async def validar_disponibilidade_crm(
+    apenas_refs: set[str] | None = None,
+) -> tuple[int, list[dict]]:
     """Cruza o backoffice autenticado do eGO (visibilidade total, incl.
     imóveis nunca publicados) com a tabela `imoveis`. Ao contrário da Web API
     pública, aqui o valor de `disponibilidade` é conhecido com certeza, por
@@ -361,7 +390,20 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
     1) CRM diz Disponível, sem linha local → cria linha nova (fetch_detail).
     2) CRM diz X, linha local diz outra coisa → corrige directamente.
     3) Linha local diz Disponível, CRM não a lista como Disponível → relê o
-       estado real via fetch_detail (se soubermos o ego_id) e corrige."""
+       estado real via fetch_detail (se soubermos o ego_id) e corrige.
+
+    `apenas_refs` restringe **tudo** a esse conjunto e desliga o Caso 1. É o
+    modo que o sync da Web API usa para os imóveis que a API deixou de devolver:
+    sobre esses a API não tem opinião nenhuma, por isso o CRM pode corrigir sem
+    contrariar nada — que era exactamente a razão de a validação completa ter
+    saído do cron (sobrepunha estados que a API pública já confirmava, caso
+    `FH2483_A`; ver `docs/decisoes.md`).
+
+    Restringir tem de valer para as consultas locais também: o Caso 3 considera
+    "stale" tudo o que diga Disponível e não esteja na lista CRM-Disponível, e
+    com `crm_items` filtrado sem filtrar o lado local marcaria os 53 publicados
+    como stale de uma vez.
+    """
     if not settings.egorealestate_crm_username or not settings.egorealestate_crm_password:
         return 0, []
 
@@ -370,7 +412,14 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
     async with egorealestate_crm.authenticated_client() as client:
         await egorealestate_crm._login(client)
         crm_items = await egorealestate_crm.fetch_all(client)
-        if not crm_items:
+        if apenas_refs is not None:
+            crm_items = [i for i in crm_items if i.get("imovel_ref") in apenas_refs]
+        elif not crm_items:
+            # Sem escopo, lista vazia é sinal de o backoffice ter falhado, não
+            # de não haver imóveis — abortar antes de o Caso 3 marcar tudo.
+            # Com escopo, vazio é normal: um imóvel vendido não aparece em
+            # `fetch_all` (`_STATUS_CODES` não inclui Vendido) e é precisamente
+            # o Caso 3, via `fetch_detail`, que descobre o estado real.
             return 0, []
 
         # Calculado ANTES do dedup abaixo: se uma referência duplicada tem uma
@@ -437,8 +486,10 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
             await _run(_apply_updates)
 
         # Caso 1: CRM diz Disponível, sem linha local — criar.
+        # Desligado quando há escopo: essa chamada existe para corrigir o que já
+        # existe, não para importar imóveis novos pela porta das traseiras.
         criados = []
-        for item in crm_items:
+        for item in crm_items if apenas_refs is None else []:
             if item["imovel_ref"] not in crm_disponiveis_refs or existentes.get(item["imovel_ref"]) or not item["ego_id"]:
                 continue
             detail = await egorealestate_crm.fetch_detail(client, item["ego_id"])
@@ -455,13 +506,15 @@ async def validar_disponibilidade_crm() -> tuple[int, list[dict]]:
 
         # Caso 3: linha local diz Disponível mas não está na lista CRM-Disponível.
         def _fetch_disponiveis_locais():
-            return (
+            q = (
                 get_supabase()
                 .table("imoveis")
                 .select("imovel_ref,ego_id")
                 .eq("disponibilidade", "Disponível")
-                .execute()
             )
+            if apenas_refs is not None:
+                q = q.in_("imovel_ref", list(apenas_refs))
+            return q.execute()
 
         resp_disp = await _run(_fetch_disponiveis_locais)
         stale = [r for r in resp_disp.data if r["imovel_ref"] not in crm_disponiveis_refs]
@@ -583,11 +636,35 @@ async def sync_egorealestate_api() -> dict:
     seen_disponibilidades = {p.get("Availability") for p in properties if p.get("Availability")}
     existing_ego_ids = await _existing_ego_ids(seen_disponibilidades)
     missing = existing_ego_ids - seen_ids
-    nao_publicados, det_nao_publicados = await _flag_unpublished(missing)
+    nao_publicados, det_nao_publicados, refs_despublicados = await _flag_unpublished(missing)
     detalhes.extend(det_nao_publicados)
 
+    # A Web API só devolve publicados: a partir do momento em que um imóvel sai
+    # dela, deixa de haver fonte automática sobre o que lhe aconteceu — se for
+    # vendido a seguir, nada o traz ao Supabase. Só o backoffice o sabe.
+    #
+    # Correr a validação CRM **restrita a estes refs** fecha isso sem repetir o
+    # erro que a tirou do cron: ela sobrepunha estados que a API pública já
+    # tinha confirmado (caso FH2483_A), e aqui a API não tem opinião nenhuma
+    # sobre estes imóveis, por definição.
+    corrigidos = 0
+    if refs_despublicados:
+        try:
+            corrigidos, det_crm = await validar_disponibilidade_crm(set(refs_despublicados))
+            detalhes.extend(det_crm)
+            resolvidos = [d["imovel_ref"] for d in det_crm if d.get("tipo") == "corrigido_crm"]
+            await _fechar_tarefas_despublicado(resolvidos)
+        except Exception:
+            # O sync da Web API é a parte que funciona; uma falha de login ou de
+            # scraping do backoffice não a pode derrubar. Fica o aviso e a
+            # tarefa que `_flag_unpublished` já criou.
+            logger.exception(
+                "Validação CRM dos despublicados falhou (%s refs) — sync da API segue.",
+                len(refs_despublicados),
+            )
+
     if not properties:
-        resumo = {"criados": 0, "atualizados": 0, "erros": 0, "nao_publicados": nao_publicados, "corrigidos": 0}
+        resumo = {"criados": 0, "atualizados": 0, "erros": 0, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
         await _log_execucao("egorealestate_api", resumo, detalhes)
         return resumo
 
@@ -639,6 +716,6 @@ async def sync_egorealestate_api() -> dict:
         {"imovel_ref": r["imovel_ref"], "tipo": "criado" if r["imovel_ref"] not in existentes else "atualizado"}
         for r in records
     )
-    resumo = {"criados": criados, "atualizados": atualizados, "erros": erros, "nao_publicados": nao_publicados, "corrigidos": 0}
+    resumo = {"criados": criados, "atualizados": atualizados, "erros": erros, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
     await _log_execucao("egorealestate_api", resumo, detalhes)
     return resumo
