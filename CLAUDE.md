@@ -64,12 +64,12 @@ Duas frentes, ambas paradas antes do fim:
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ deployado em `9838377`; **sem** leads da Meta nem landing pages. Dorme (`min_machines_running=0`, cold start ~9 s medido) |
+| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-15 em `30fe77e` — leads da Meta, qualificação, validação CRM dos despublicados e contexto da lead. **Sem** landing pages. Dorme (cold start ~9 s medido) |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 com `d854dde` — visitas em tabela própria + espera pela barra lateral do eGO |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, com pesquisa de imóveis reais |
-| Cron sync eGO 06:00 UTC | ✅ chama o **Fly.io**, não o repo — sem deploy corre código antigo. Passa a incluir validação CRM dos despublicados (**por deployar**) |
-| `master` | ⚠️ leads da Meta + qualificação por deployar. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
+| Cron sync eGO 06:00 UTC | ✅ chama o **Fly.io**, não o repo — sem deploy corre código antigo. Inclui a validação CRM dos despublicados |
+| `master` | ⚠️ **nada pushed** (10 commits locais). Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
 ### Fase de hoje — detalhe em `docs/fases/leads-meta-resumo.md`
 
@@ -138,7 +138,7 @@ do repo** — não gerir daqui; o portal do Miguel também as lê.
 
 ### Próximos passos
 
-1. **Correr a `0024`** e **deployar o backend** (qualificação + validação CRM dos despublicados + contexto da lead) de worktree limpa. O scraper já foi.
+1. **Validar em produção**: correr "Validar CRM" no painel (resolve os 12 imóveis em limbo) e uma lead de teste ponta a ponta. Backend e scraper já deployados.
 2. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) e **chave do portal do Miguel** → desbloqueia a `0022` (RLS). E **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria estado "Disponível" — 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
 3. **Confirmar com o Make/n8n**: campos reais do formulário de venda (`_ALIAS_FICHA`) e quem marca `whatsapp_permissao`. **Decisão de alojamento das landing pages** bloqueia essa fase toda.
 4. **Reforma de `agente_leads` para `leads`** — 4 escritores (`tools.py:374`, `landing.py:223`, `save_call.py:75`, `api/leads.py`) + página Leads do painel.
