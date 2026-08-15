@@ -66,7 +66,7 @@ Duas frentes, ambas paradas antes do fim:
 |---|---|
 | Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-15 em `30fe77e` — leads da Meta, qualificação, validação CRM dos despublicados e contexto da lead. **Sem** landing pages. Dorme (cold start ~9 s medido) |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
-| Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 com `d854dde` — visitas em tabela própria + espera pela barra lateral do eGO |
+| Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, com pesquisa de imóveis reais |
 | Cron sync eGO 06:00 UTC | ✅ chama o **Fly.io**, não o repo — sem deploy corre código antigo. Inclui a validação CRM dos despublicados |
 | `master` | ⚠️ **nada pushed** (10 commits locais). Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
