@@ -28,6 +28,27 @@ dele entra no nó *Meta: enviar template*, em `NOME_DO_TEMPLATE_APROVADO`.
 
 **3. Variáveis de ambiente** no n8n: `SUPABASE_URL` e `META_PHONE_NUMBER_ID`.
 
+### Identificadores da conta WhatsApp (confirmados 2026-08-16)
+
+| | |
+|---|---|
+| Phone number ID | `925368620661613` |
+| Número | +351 928 318 953 — nome verificado "Imogermano" |
+| Webhook configurado na Meta | `https://figueirahome-agentos.fly.dev/webhook/whatsapp` |
+| Token | system user `fighome_agent`, **não expira** (`expires_at: 0`) |
+
+**O WhatsApp Business Account ID (WABA) não está guardado no projecto** — o
+backend não precisa dele, só o nó do n8n (para listar os templates). Encontra-se
+em developers.facebook.com → a app → **WhatsApp → API Setup**, mesmo por cima do
+Phone number ID; ou em Business Settings → Contas → Contas do WhatsApp.
+
+Não dá para o tirar do token: o system user tem os scopes mas o WABA está
+atribuído pelo negócio, e `assigned_whatsapp_business_accounts` vem vazio.
+
+O webhook apontar para o nosso backend é a confirmação de que este é o número
+que o A1 escuta — enviar o template por outro faz a resposta da lead nunca
+chegar.
+
 **4. O `phone_number_id` tem de ser o mesmo** que o backend escuta. Se o template
 sair de outro número, a resposta da lead nunca chega ao A1 e a conversa morre
 sem dar sinal.
