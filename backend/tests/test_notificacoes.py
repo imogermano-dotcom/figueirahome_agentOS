@@ -143,22 +143,24 @@ def test_consultor_do_imovel_entra_nos_destinatarios(monkeypatch):
     assert _para(chamadas) == ["director@figueirahome.pt", "alexandra.santos@figueirahome.pt"]
 
 
-def test_sem_mapeamento_vai_so_ao_director_e_diz_porque(monkeypatch):
-    """4 dos 25 angariadores tinham perfil a 2026-08-16. O aviso não se perde —
-    e o corpo explica que falta o mapeamento, em vez de parecer que o sistema
-    ignorou alguém."""
+def test_sem_consultora_vai_so_ao_director_e_diz_porque(monkeypatch):
+    """39% dos imóveis publicados estavam atribuídos a quem já saiu da agência
+    (2026-08-16). O aviso não se perde — vai ao director — e o corpo diz que o
+    imóvel precisa de reatribuição, não que falte configurar alguma coisa."""
     _configurar(monkeypatch, para="director@figueirahome.pt")
     chamadas = _capturar(monkeypatch)
-    monkeypatch.setattr(
-        notificacoes, "_consultor_do_imovel",
-        lambda ref: (None, "Lina Galvão não tem perfil com email"),
-    )
+    motivo = ("o imóvel FH2450 está atribuído a Lina Galvão, que não tem "
+              "consultora activa associada — reatribuir no eGO")
+    monkeypatch.setattr(notificacoes, "_consultor_do_imovel", lambda ref: (None, motivo))
 
     notificacoes.notificar("Lead qualificada", "corpo", imovel_ref="FH2450")
 
     assert _para(chamadas) == ["director@figueirahome.pt"]
     _, k = [c for c in chamadas if "sendMail" in c[0]][0]
-    assert "Lina Galvão não tem perfil" in k["json"]["message"]["body"]["content"]
+    corpo = k["json"]["message"]["body"]["content"]
+    assert "reatribuir no eGO" in corpo
+    # Nunca sugerir criar perfil: levaria alguém a criar contas a quem já saiu.
+    assert "profiles" not in corpo
 
 
 def test_consultor_que_e_o_director_nao_duplica(monkeypatch):
