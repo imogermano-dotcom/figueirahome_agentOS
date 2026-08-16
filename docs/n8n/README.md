@@ -53,10 +53,29 @@ chegar.
 sair de outro número, a resposta da lead nunca chega ao A1 e a conversa morre
 sem dar sinal.
 
+## Do lado do Make
+
+Módulo **HTTP → Make a request**, a seguir ao que escreve em `leads`:
+
+| Campo | Valor |
+|---|---|
+| URL | `https://<n8n>/webhook/lead-nova` — **produção**, não `/webhook-test/` |
+| Method | `POST` · Body type Raw · Content type JSON |
+| Request content | `{"meta_lead_id": "{{id do lead vindo da Meta}}"}` |
+
+**`meta_lead_id` e não o `id` da linha**: o PostgREST só devolve o registo criado
+se a inserção mandar `Prefer: return=representation`; sem isso responde `204` sem
+corpo e o Make fica sem id para passar adiante. O `meta_lead_id` o Make já o tem
+do webhook da Meta, antes sequer de escrever, e a coluna é `UNIQUE`.
+
+**Autenticar o webhook.** Sem isso, quem descobrir o URL dispara envios de
+template do vosso número — custa dinheiro e estraga a *quality rating*. O nó
+Webhook aceita Header Auth; o Make manda o header.
+
 ## O que o fluxo faz
 
-1. **Webhook** — o Make chama com `{"lead_id": "<uuid>"}`. Só o id: a linha é
-   relida a seguir, para não depender do formato do Make.
+1. **Webhook** — o Make chama com `{"meta_lead_id": "…"}`. A linha é lida a
+   seguir na base, para não depender do formato do Make.
 2. **Lê a lead** no Supabase.
 3. **Guardas** — três, e todas importam:
    - `tipo` em `compra`/`arrendamento`. Angariação segue o fluxo humano.

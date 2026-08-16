@@ -13,7 +13,7 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [-460, 300],
-      "notes": "O Make chama isto depois de escrever a lead. Corpo esperado: {\"lead_id\": \"<uuid>\"}. Só o id — a linha é relida a seguir, para não depender do formato do Make."
+      "notes": "Módulo do Make: HTTP → Make a request, POST, JSON, depois do módulo que escreve em `leads`. Corpo: {\"meta_lead_id\": \"<id da Meta>\"}.\n\nPorquê `meta_lead_id` e não o `id` da linha: o PostgREST só devolve o registo criado se a inserção mandar `Prefer: return=representation` — sem isso responde 204 sem corpo e o Make fica sem id. O `meta_lead_id` o Make já o tem antes de escrever, e a coluna é UNIQUE.\n\nUsar o URL de PRODUÇÃO (/webhook/, não /webhook-test/) e activar o workflow. E pôr Header Auth: sem isso, quem descobrir o URL dispara envios de template do vosso número."
     },
     {
       "parameters": {
@@ -23,7 +23,7 @@
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "id", "value": "=eq.{{ $json.body.lead_id }}" },
+            { "name": "meta_lead_id", "value": "=eq.{{ $json.body.meta_lead_id }}" },
             { "name": "select", "value": "id,tipo,estado,nome,telefone,email,ficha,template_enviado_em" }
           ]
         },
