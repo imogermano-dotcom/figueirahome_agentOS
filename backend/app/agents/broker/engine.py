@@ -202,8 +202,9 @@ async def responder(
     telefone = normalizar_telefone(participante) if canal == "whatsapp" else None
     perfil = ""
     lead = None
+    thread_nova = not mensagens
     if telefone:
-        perfil, template, lead = await _contexto_inicial(telefone, thread_nova=not mensagens)
+        perfil, template, lead = await _contexto_inicial(telefone, thread_nova=thread_nova)
         if template:
             # Antes da mensagem do utilizador: o template foi o que veio primeiro.
             mensagens.append(template)
@@ -239,6 +240,20 @@ async def responder(
     # Sem este forcing o Claude ignorava as tools e prometia callbacks de
     # consultor — comportamento observado em produção (CLAUDE.md).
     forcar_agora = bool(forcar and forcar[1].search(mensagem))
+    tool_a_forcar = forcar[0] if forcar_agora else None
+
+    # Mas a tool certa depende de quem está do outro lado. `_SEARCH_RE` inclui
+    # "imóvel", portanto "quero saber mais acerca deste imóvel" — a primeira
+    # coisa que uma lead da Meta escreve — forçava `pesquisar_imoveis` **sem
+    # critérios nenhuns**. Medido a 2026-08-16: chamada com `{}`, resposta
+    # descartada, e só na 2.ª iteração é que o modelo fazia `ficha_imovel`.
+    # Uma iteração inteira deitada fora na resposta que decide se a pessoa
+    # continua a conversa.
+    #
+    # Só no primeiro turno: a seguir, "e tem T2 mais baratos?" volta a ser
+    # pesquisa, e aí o forcing normal é o que está certo.
+    if thread_nova and forcar_agora and lead and lead.get("imovel_ref"):
+        tool_a_forcar = "ficha_imovel"
 
     resposta = _ERRO
 
@@ -262,8 +277,8 @@ async def responder(
                 "tools": tools_para(spec["tools"]),
                 "messages": claude_messages,
             }
-            if forcar_agora and iteracao == 0:
-                payload["tool_choice"] = {"type": "tool", "name": forcar[0]}
+            if tool_a_forcar and iteracao == 0:
+                payload["tool_choice"] = {"type": "tool", "name": tool_a_forcar}
 
             try:
                 http_resp = await client.post(_URL, headers=headers, json=payload)
@@ -325,7 +340,9 @@ async def responder(
         "iteracoes": iteracoes,
         "tools_usadas": tools_usadas or None,
         "tools_detalhe": tools_detalhe or None,
-        "tool_forcada": forcar_agora,
+        # A coluna é boolean (migration 0016). Qual foi a tool forçada lê-se em
+        # `tools_detalhe[0]`, que é sempre a da iteração 0.
+        "tool_forcada": bool(tool_a_forcar),
         "erro": erro,
     })
 

@@ -467,6 +467,33 @@ def test_sem_imovel_no_anuncio_nao_inventa(monkeypatch):
     assert "anúncio do imóvel" not in perfil
 
 
+def test_forcing_escolhe_ficha_quando_a_lead_traz_imovel():
+    """`_SEARCH_RE` inclui "imóvel", portanto a primeira frase de uma lead da
+    Meta — "quero saber mais acerca deste imóvel" — forçava `pesquisar_imoveis`
+    sem critérios nenhuns. Medido ao vivo: chamada com `{}`, resposta
+    descartada, e uma iteração inteira perdida na resposta que decide se a
+    pessoa continua a conversa."""
+    from app.agents.broker.assistants import ASSISTENTES
+
+    forcar = ASSISTENTES["a1_vendedor"]["force"]
+    msg = "quero saber mais acerca deste imóvel"
+    assert forcar[1].search(msg), "o regex tem de bater, senão o teste não prova nada"
+
+    def escolher(thread_nova, lead):
+        forcar_agora = bool(forcar and forcar[1].search(msg))
+        tool = forcar[0] if forcar_agora else None
+        if thread_nova and forcar_agora and lead and lead.get("imovel_ref"):
+            tool = "ficha_imovel"
+        return tool
+
+    assert escolher(True, {"imovel_ref": "FH2581"}) == "ficha_imovel"
+    # Turno seguinte: "e tem T2 mais baratos?" volta a ser pesquisa.
+    assert escolher(False, {"imovel_ref": "FH2581"}) == "pesquisar_imoveis"
+    # Lead sem imóvel no anúncio, ou quem não é lead, mantém o comportamento.
+    assert escolher(True, {"imovel_ref": None}) == "pesquisar_imoveis"
+    assert escolher(True, None) == "pesquisar_imoveis"
+
+
 def test_contexto_devolve_a_lead_para_o_motor_a_marcar(monkeypatch):
     """O motor precisa da lead no fim do turno para registar que ela respondeu.
     Vem daqui, que já a leu — sem consulta extra."""
