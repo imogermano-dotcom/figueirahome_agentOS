@@ -19,12 +19,34 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 template pré-aprovado no Business Manager. Sem isso a Graph API recusa. O nome
 dele entra no nó *Meta: enviar template*, em `NOME_DO_TEMPLATE_APROVADO`.
 
-**2. Credenciais no n8n, nunca no corpo dos nós.** Duas *Header Auth*:
+**2. Credenciais no cofre do n8n, nunca no corpo dos nós.** Assim não aparecem
+em exports do workflow nem nos logs de execução.
 
-| Credencial | Header | Valor |
-|---|---|---|
-| Supabase | `apikey` **e** `Authorization` | a chave · `Bearer <chave>` |
-| Meta | `Authorization` | `Bearer <META_WHATSAPP_TOKEN>` |
+**Supabase → credencial *Custom Auth*** (não *Header Auth*: essa só aceita um
+par nome/valor, e o PostgREST quer dois):
+
+```json
+{
+  "headers": {
+    "apikey": "<SERVICE_ROLE_KEY>",
+    "Authorization": "Bearer <SERVICE_ROLE_KEY>"
+  }
+}
+```
+
+Nos nós HTTP: *Authentication* → Generic Credential Type → Custom Auth.
+
+Tem de ser a **`service_role`**: `leads` tem RLS com política `to authenticated`
+apenas, e a `anon` não lê nem escreve lá. Consequência a ter presente — é mais um
+sítio com a chave que ignora o RLS em toda a base, além do Make.
+
+Alternativa: o nó nativo **Supabase** (credencial *Host* + *Service Role
+Secret*), trocando os dois nós HTTP por *Get a row* e *Update a row*. Trata dos
+headers sozinho; é menos explícito sobre o que vai no pedido.
+
+**Meta → *Header Auth*** com `Authorization` = `Bearer <META_WHATSAPP_TOKEN>`.
+Se usares o nó nativo do WhatsApp, é a credencial dele (token + Business Account
+ID) e este ponto não se aplica.
 
 **3. Variáveis de ambiente** no n8n: `SUPABASE_URL` e `META_PHONE_NUMBER_ID`.
 
