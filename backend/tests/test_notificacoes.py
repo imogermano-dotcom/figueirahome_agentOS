@@ -3,7 +3,7 @@
 Um aviso que falha não pode derrubar uma conversa nem impedir que a tarefa seja
 criada: a tarefa é a rede de segurança do email, não o contrário. E com a
 configuração vazia isto tem de ficar quieto, para poder estar em produção antes
-de haver credenciais SMTP.
+de existirem credenciais.
 
     pytest backend/tests/test_notificacoes.py      (a partir de `backend/`)
 """
@@ -11,34 +11,36 @@ de haver credenciais SMTP.
 import sys
 from pathlib import Path
 
+import httpx
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import notificacoes  # noqa: E402
 from app.config import settings  # noqa: E402
 
 
-def _configurar(monkeypatch, host="smtp.exemplo.pt", para="corretor@exemplo.pt"):
-    monkeypatch.setattr(settings, "smtp_host", host)
+def _configurar(monkeypatch, tenant="t1", para="corretor@exemplo.pt"):
+    monkeypatch.setattr(settings, "graph_tenant_id", tenant)
+    monkeypatch.setattr(settings, "graph_client_id", "c1")
+    monkeypatch.setattr(settings, "graph_client_secret", "s1")
+    monkeypatch.setattr(settings, "graph_remetente", "avisos@exemplo.pt")
     monkeypatch.setattr(settings, "notificacoes_para", para)
-    monkeypatch.setattr(settings, "smtp_user", "u")
-    monkeypatch.setattr(settings, "smtp_password", "p")
+    monkeypatch.setattr(notificacoes, "_token", {"valor": None, "expira_em": 0.0})
 
 
-def test_sem_configuracao_nao_tenta_ligar_se(monkeypatch):
-    """Estado normal até haver credenciais — não é erro, e não pode rebentar
-    nem gerar tráfego."""
-    _configurar(monkeypatch, host="", para="")
+def test_sem_configuracao_nao_gera_trafego(monkeypatch):
+    """Estado normal até haver credenciais — não é erro, e não pode rebentar."""
+    _configurar(monkeypatch, tenant="", para="")
 
     def _explode(*a, **k):
-        raise AssertionError("tentou ligar-se ao SMTP com a config vazia")
+        raise AssertionError("tentou chamar a Graph com a config vazia")
 
-    monkeypatch.setattr(notificacoes.smtplib, "SMTP", _explode)
-
+    monkeypatch.setattr(notificacoes.httpx, "post", _explode)
     assert notificacoes.configurado() is False
-    notificacoes.notificar("assunto", "corpo")  # não levanta
+    notificacoes.notificar("assunto", "corpo")
 
 
-def test_host_sem_destinatario_continua_desligado(monkeypatch):
+def test_sem_destinatario_continua_desligado(monkeypatch):
     _configurar(monkeypatch, para="")
     assert notificacoes.configurado() is False
 
@@ -48,48 +50,62 @@ def test_destinatarios_aceita_lista(monkeypatch):
     assert notificacoes.destinatarios() == ["a@b.pt", "c@d.pt"]
 
 
-def test_falha_de_smtp_e_engolida(monkeypatch):
+def test_falha_da_graph_e_engolida(monkeypatch):
     """Corre depois de a resposta já ter ido para o cliente."""
     _configurar(monkeypatch)
 
     def _explode(*a, **k):
-        raise OSError("servidor em baixo")
+        raise httpx.ConnectError("rede em baixo")
 
-    monkeypatch.setattr(notificacoes.smtplib, "SMTP", _explode)
+    monkeypatch.setattr(notificacoes.httpx, "post", _explode)
     notificacoes.notificar("assunto", "corpo")  # não levanta
 
 
-def test_mensagem_leva_assunto_corpo_e_destinatarios(monkeypatch):
+def test_erro_http_nao_levanta_e_invalida_o_token(monkeypatch):
+    """403 por falta de consentimento é o erro mais provável na estreia. Tem de
+    ficar no log, não derrubar a conversa — e o token cai, porque pode ser ele."""
+    _configurar(monkeypatch)
+    notificacoes._token["valor"] = "token-velho"
+    notificacoes._token["expira_em"] = 9e12
+
+    def _post(url, **k):
+        pedido = httpx.Request("POST", url)
+        return httpx.Response(403, text="Insufficient privileges", request=pedido)
+
+    monkeypatch.setattr(notificacoes.httpx, "post", _post)
+    notificacoes.notificar("assunto", "corpo")
+    assert notificacoes._token["valor"] is None
+
+
+def test_mensagem_bem_formada_e_token_reutilizado(monkeypatch):
     _configurar(monkeypatch, para="a@b.pt, c@d.pt")
-    enviadas = []
+    chamadas = []
 
-    class _SMTP:
-        def __init__(self, *a, **k):
-            pass
+    def _post(url, **k):
+        chamadas.append((url, k))
+        pedido = httpx.Request("POST", url)
+        if "oauth2" in url:
+            return httpx.Response(
+                200, json={"access_token": "tok", "expires_in": 3600}, request=pedido
+            )
+        return httpx.Response(202, request=pedido)
 
-        def __enter__(self):
-            return self
+    monkeypatch.setattr(notificacoes.httpx, "post", _post)
 
-        def __exit__(self, *a):
-            return False
-
-        def starttls(self):
-            pass
-
-        def login(self, *a):
-            pass
-
-        def send_message(self, msg):
-            enviadas.append(msg)
-
-    monkeypatch.setattr(notificacoes.smtplib, "SMTP", _SMTP)
     notificacoes.notificar("Lead qualificada — Isabel", "Telefone: 912345678")
+    notificacoes.notificar("Segundo aviso", "corpo")
 
-    assert len(enviadas) == 1
-    msg = enviadas[0]
-    assert msg["Subject"] == "Lead qualificada — Isabel"
-    assert msg["To"] == "a@b.pt, c@d.pt"
-    assert "912345678" in msg.get_content()
+    urls = [u for u, _ in chamadas]
+    assert sum("oauth2" in u for u in urls) == 1, "pediu token duas vezes — cache partida"
+    assert sum("sendMail" in u for u in urls) == 2
+
+    _, kwargs = chamadas[1]
+    msg = kwargs["json"]["message"]
+    assert msg["subject"] == "Lead qualificada — Isabel"
+    assert "912345678" in msg["body"]["content"]
+    assert [d["emailAddress"]["address"] for d in msg["toRecipients"]] == ["a@b.pt", "c@d.pt"]
+    assert kwargs["json"]["saveToSentItems"] is False
+    assert kwargs["headers"]["Authorization"] == "Bearer tok"
 
 
 if __name__ == "__main__":

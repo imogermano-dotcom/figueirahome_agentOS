@@ -52,13 +52,16 @@ class Settings(BaseSettings):
     meta_verify_token: str = ""
     meta_api_version: str = "v19.0"
 
-    # Notificações ao corretor (lead qualificada, escalamento).
-    # Tudo vazio = notificações desligadas, sem erro — permite deployar antes de
+    # Notificações ao corretor (lead qualificada, escalamento), via Microsoft
+    # Graph — o correio da agência é M365 e o SMTP AUTH está a ser extinto no
+    # Exchange Online. Registo de aplicação no Entra ID com permissão de
+    # aplicação `Mail.Send` e consentimento de administrador.
+    # Tudo vazio = notificações desligadas, sem erro: permite deployar antes de
     # haver credenciais. `notificacoes_para` aceita vários, separados por vírgula.
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_user: str = ""
-    smtp_password: str = ""
+    graph_tenant_id: str = ""
+    graph_client_id: str = ""
+    graph_client_secret: str = ""
+    graph_remetente: str = ""        # mailbox com licença que aparece como remetente
     notificacoes_para: str = ""
 
     # App
