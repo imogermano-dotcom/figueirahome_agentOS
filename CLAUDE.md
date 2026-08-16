@@ -124,7 +124,7 @@ do repo** — não gerir daqui; o portal do Miguel também as lê.
 
 - Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>`
 - `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌
-- Testes: `pytest backend/tests/` de `backend/` — **83**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Testes: `pytest backend/tests/` de `backend/` — **85**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 

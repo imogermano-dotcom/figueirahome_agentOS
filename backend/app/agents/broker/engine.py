@@ -119,6 +119,17 @@ async def _contexto_inicial(
         campos = campos_mql_da_ficha(lead.get("ficha"))
         perfil = _texto_perfil({"nome": lead.get("nome"), **campos})
 
+    # A lead da Meta vem do anúncio de UM imóvel, e `leads.imovel_ref` diz qual.
+    # Sem isto o A1 ouve "quero saber mais sobre este imóvel" e pede a
+    # referência — a quem acabou de clicar no anúncio desse imóvel. Visto ao
+    # vivo a 2026-08-16 com a FH2581.
+    if lead.get("imovel_ref"):
+        perfil += (
+            f"\n\nEsta pessoa veio do anúncio do imóvel {lead['imovel_ref']} — é a esse "
+            'que se refere quando diz "este imóvel" ou "o imóvel do anúncio". '
+            "Não lhe peças a referência: usa `ficha_imovel` e dá-lhe os detalhes."
+        )
+
     template = lead.get("template_enviado")
     if thread_nova and template:
         now = datetime.now(timezone.utc).isoformat()

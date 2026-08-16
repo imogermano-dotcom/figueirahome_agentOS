@@ -446,6 +446,27 @@ def test_lead_sem_template_nao_injecta(monkeypatch):
     assert msg is None
 
 
+def test_imovel_do_anuncio_entra_no_contexto(monkeypatch):
+    """Visto ao vivo (2026-08-16, FH2581): a pessoa escreveu "quero saber mais
+    acerca deste imóvel" e o A1 pediu-lhe a referência — a quem tinha acabado de
+    clicar no anúncio desse imóvel. O `leads.imovel_ref` diz qual é."""
+    perfil, _ = _contexto(
+        monkeypatch,
+        lead={"nome": "Isabel", "ficha": {}, "template_enviado": None, "imovel_ref": "FH2581"},
+    )
+    assert "FH2581" in perfil
+    assert "Não lhe peças a referência" in perfil
+
+
+def test_sem_imovel_no_anuncio_nao_inventa(monkeypatch):
+    """Nem toda a lead vem de um anúncio de imóvel específico."""
+    perfil, _ = _contexto(
+        monkeypatch,
+        lead={"nome": "Isabel", "ficha": FICHA, "template_enviado": None, "imovel_ref": None},
+    )
+    assert "anúncio do imóvel" not in perfil
+
+
 def test_contexto_devolve_a_lead_para_o_motor_a_marcar(monkeypatch):
     """O motor precisa da lead no fim do turno para registar que ela respondeu.
     Vem daqui, que já a leu — sem consulta extra."""
