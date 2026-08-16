@@ -108,6 +108,85 @@ def test_mensagem_bem_formada_e_token_reutilizado(monkeypatch):
     assert kwargs["headers"]["Authorization"] == "Bearer tok"
 
 
+def _capturar(monkeypatch):
+    """Devolve a lista de chamadas httpx.post, com o token já resolvido."""
+    chamadas = []
+
+    def _post(url, **k):
+        chamadas.append((url, k))
+        pedido = httpx.Request("POST", url)
+        if "oauth2" in url:
+            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600},
+                                  request=pedido)
+        return httpx.Response(202, request=pedido)
+
+    monkeypatch.setattr(notificacoes.httpx, "post", _post)
+    return chamadas
+
+
+def _para(chamadas):
+    _, k = [c for c in chamadas if "sendMail" in c[0]][0]
+    return [d["emailAddress"]["address"] for d in k["json"]["message"]["toRecipients"]]
+
+
+def test_consultor_do_imovel_entra_nos_destinatarios(monkeypatch):
+    """A lead vem do anúncio de um imóvel; quem o angariou tem de saber."""
+    _configurar(monkeypatch, para="director@figueirahome.pt")
+    chamadas = _capturar(monkeypatch)
+    monkeypatch.setattr(
+        notificacoes, "_consultor_do_imovel",
+        lambda ref: ("alexandra.santos@figueirahome.pt", "Alexandra Santos"),
+    )
+
+    notificacoes.notificar("Lead qualificada", "corpo", imovel_ref="FH2581")
+
+    assert _para(chamadas) == ["director@figueirahome.pt", "alexandra.santos@figueirahome.pt"]
+
+
+def test_sem_mapeamento_vai_so_ao_director_e_diz_porque(monkeypatch):
+    """4 dos 25 angariadores tinham perfil a 2026-08-16. O aviso não se perde —
+    e o corpo explica que falta o mapeamento, em vez de parecer que o sistema
+    ignorou alguém."""
+    _configurar(monkeypatch, para="director@figueirahome.pt")
+    chamadas = _capturar(monkeypatch)
+    monkeypatch.setattr(
+        notificacoes, "_consultor_do_imovel",
+        lambda ref: (None, "Lina Galvão não tem perfil com email"),
+    )
+
+    notificacoes.notificar("Lead qualificada", "corpo", imovel_ref="FH2450")
+
+    assert _para(chamadas) == ["director@figueirahome.pt"]
+    _, k = [c for c in chamadas if "sendMail" in c[0]][0]
+    assert "Lina Galvão não tem perfil" in k["json"]["message"]["body"]["content"]
+
+
+def test_consultor_que_e_o_director_nao_duplica(monkeypatch):
+    _configurar(monkeypatch, para="miguel.germano@figueirahome.pt")
+    chamadas = _capturar(monkeypatch)
+    monkeypatch.setattr(
+        notificacoes, "_consultor_do_imovel",
+        lambda ref: ("miguel.germano@figueirahome.pt", "Miguel Germano"),
+    )
+
+    notificacoes.notificar("Lead qualificada", "corpo", imovel_ref="FH2400")
+
+    assert _para(chamadas) == ["miguel.germano@figueirahome.pt"]
+
+
+def test_sem_imovel_nao_procura_consultor(monkeypatch):
+    """Escalamentos sem imóvel associado não podem gastar duas consultas."""
+    _configurar(monkeypatch, para="director@figueirahome.pt")
+    chamadas = _capturar(monkeypatch)
+
+    def _nao_chamar(ref):
+        raise AssertionError("procurou consultor sem imovel_ref")
+
+    monkeypatch.setattr(notificacoes, "_consultor_do_imovel", _nao_chamar)
+    notificacoes.notificar("Escalado", "corpo")
+    assert _para(chamadas) == ["director@figueirahome.pt"]
+
+
 if __name__ == "__main__":
     import pytest
 

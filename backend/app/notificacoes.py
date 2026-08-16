@@ -39,7 +39,46 @@ _MARGEM = 60  # renovar antes de expirar, para não apanhar a fronteira
 
 
 def destinatarios() -> list[str]:
+    """Quem recebe sempre — o director comercial. A consultora do imóvel entra
+    por cima, resolvida a cada aviso (`_consultor_do_imovel`)."""
     return [e.strip() for e in settings.notificacoes_para.split(",") if e.strip()]
+
+
+def _consultor_do_imovel(imovel_ref: str) -> tuple[str | None, str]:
+    """Email de quem angariou o imóvel, e o motivo quando não há.
+
+    Duas consultas em **bases diferentes**, por isso não há join: `imoveis` vive
+    no projecto de dados e `profiles` no de autenticação. A ponte é
+    `profiles.ego_responsavel`, que guarda o nome tal como o eGO o escreve.
+
+    A cobertura é parcial de propósito — a 2026-08-16 eram 4 dos 25 angariadores,
+    e a Lina Galvão, que tem mais imóveis do que ninguém, não estava lá. Por isso
+    isto devolve sempre um motivo em vez de falhar em silêncio: o corpo do aviso
+    diz que falta o mapeamento, e alguém preenche o `profiles`.
+    """
+    from app.db.supabase_client import get_supabase, get_supabase_auth
+
+    try:
+        im = (
+            get_supabase().table("imoveis").select("angariador")
+            .eq("imovel_ref", imovel_ref).limit(1).execute().data
+        )
+        if not im:
+            return None, f"imóvel {imovel_ref} não existe na base"
+        nome = (im[0].get("angariador") or "").strip()
+        if not nome:
+            return None, f"o imóvel {imovel_ref} não tem angariador no eGO"
+
+        perfil = (
+            get_supabase_auth().table("profiles").select("email")
+            .eq("ego_responsavel", nome).limit(1).execute().data
+        )
+        if not perfil or not perfil[0].get("email"):
+            return None, f"{nome} não tem perfil com email (preencher `profiles.ego_responsavel`)"
+        return perfil[0]["email"], nome
+    except Exception:
+        logger.exception("Falha a resolver o consultor de %s", imovel_ref)
+        return None, "erro a resolver o consultor (ver logs)"
 
 
 def configurado() -> bool:
@@ -78,11 +117,27 @@ def _obter_token() -> str:
     return _token["valor"]
 
 
-def notificar(assunto: str, corpo: str) -> None:
-    """Manda o aviso. Engole tudo o que corra mal — ver docstring do módulo."""
+def notificar(assunto: str, corpo: str, imovel_ref: str | None = None) -> None:
+    """Manda o aviso. Engole tudo o que corra mal — ver docstring do módulo.
+
+    Com `imovel_ref`, acrescenta a consultora que angariou esse imóvel aos
+    destinatários. Sem ele, ou sem mapeamento, vai só ao director comercial — e
+    o corpo diz porquê, para se ver que falta um dado em vez de parecer que o
+    sistema ignorou alguém.
+    """
     if not configurado():
         logger.debug("Notificações desligadas (sem app Graph ou destinatário).")
         return
+
+    para = list(destinatarios())
+    if imovel_ref:
+        email, motivo = _consultor_do_imovel(imovel_ref)
+        if email:
+            corpo += f"\n\nConsultor do imóvel {imovel_ref}: {motivo} <{email}>"
+            if email not in para:  # o director pode ser o angariador
+                para.append(email)
+        else:
+            corpo += f"\n\nSem consultor atribuído — {motivo}."
 
     try:
         resp = httpx.post(
@@ -92,9 +147,7 @@ def notificar(assunto: str, corpo: str) -> None:
                 "message": {
                     "subject": assunto,
                     "body": {"contentType": "Text", "content": corpo},
-                    "toRecipients": [
-                        {"emailAddress": {"address": e}} for e in destinatarios()
-                    ],
+                    "toRecipients": [{"emailAddress": {"address": e}} for e in para],
                 },
                 # Não guardar em Enviados: são avisos de máquina, e enchiam a
                 # caixa de quem envia sem acrescentar nada.

@@ -100,7 +100,7 @@ def _promover_lead(
     # filtro criava a tarefa antes de a pessoa dizer fosse o que fosse — e o
     # `contactada` que o endpoint escreve a seguir apagava a promoção na mesma.
     # `promover_se_qualificada` alarga a `nova` porque aí houve mesmo um turno.
-    q = supabase.table("leads").select("id,estado,cliente_id").in_("estado", list(estados))
+    q = supabase.table("leads").select("id,estado,cliente_id,imovel_ref").in_("estado", list(estados))
     q = q.in_("telefone", variantes_telefone(telefone)) if telefone else q.eq("email", email)
     leads = q.limit(1).execute().data
     if not leads:
@@ -143,9 +143,12 @@ def _promover_lead(
             f"Orçamento: {cliente.get('orcamento') or '—'}",
             f"Zona:      {cliente.get('zona_preferida') or '—'}",
             "",
+            f"Imóvel do anúncio: {lead.get('imovel_ref') or '—'}",
+            "",
             "Passo seguinte: criar o contacto no eGO e associar a oportunidade.",
             "A tarefa também está no painel.",
         )),
+        imovel_ref=lead.get("imovel_ref"),
     )
 
 

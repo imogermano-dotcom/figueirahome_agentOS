@@ -520,6 +520,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             "",
             "Foi dito ao cliente que entram em contacto (próximo dia útil se fora de horas).",
         ) if p is not None),
+        inputs.get("imovel_ref"),
     )
 
     return (
