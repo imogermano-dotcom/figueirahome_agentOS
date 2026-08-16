@@ -42,9 +42,9 @@
           "options": { "caseSensitive": true, "version": 2 },
           "conditions": [
             {
-              "leftValue": "={{ $json.tipo }}",
-              "rightValue": "compra,arrendamento",
-              "operator": { "type": "string", "operation": "contains" }
+              "leftValue": "={{ ['compra','arrendamento'].includes($json.tipo) }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
             },
             {
               "leftValue": "={{ $json.telefone }}",
@@ -66,7 +66,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [-20, 300],
-      "notes": "1) só compra/arrendamento — angariação segue o fluxo humano. 2) tem telefone. 3) template_enviado_em vazio: idempotência, o Make pode repetir o webhook."
+      "notes": "1) só compra/arrendamento — angariação segue o fluxo humano. 2) tem telefone. 3) template_enviado_em vazio: idempotência, o Make pode repetir o webhook.\n\nA primeira usa `includes()` e Boolean/is true, e NÃO `contains` com \"compra,arrendamento\" do lado direito: o `contains` pergunta se o lado ESQUERDO contém o direito, ou seja se \"compra\" contém \"compra,arrendamento\" — nunca. Falhou assim ao vivo a 2026-08-16."
     },
     {
       "parameters": {
