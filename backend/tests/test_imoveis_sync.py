@@ -189,6 +189,8 @@ def test_angariador_so_do_role_certo():
 import asyncio  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 
+import httpx  # noqa: E402
+
 import app.integrations.imoveis_sync as sync  # noqa: E402
 
 
@@ -392,6 +394,58 @@ def test_validacao_crm_corre_depois_do_upsert(monkeypatch):
     asyncio.run(sync.sync_egorealestate_api())
 
     assert estado["sequencia"] == ["upsert", "crm", "log"], estado["sequencia"]
+
+
+# ── ligação ao Supabase caída por inactividade ──────────────────────────────
+#
+# A validação CRM raspa o backoffice ~2,5 min sem tocar no Supabase. O outro
+# lado fecha a conexão do pool, e a chamada seguinte reutiliza um socket morto.
+# Visto em produção a 2026-08-17: `RemoteProtocolError: Server disconnected` no
+# insert do log, com o upsert e a validação CRM já feitos, e um 502 devolvido ao
+# cron por um sync que correu bem.
+
+
+def test_run_repete_uma_vez_em_ligacao_caida():
+    tentativas = []
+
+    def _fn():
+        tentativas.append(1)
+        if len(tentativas) == 1:
+            raise httpx.RemoteProtocolError("Server disconnected")
+        return "ok"
+
+    assert asyncio.run(sync._run(_fn)) == "ok"
+    assert len(tentativas) == 2
+
+
+def test_run_nao_repete_outros_erros():
+    """A repetição só é segura porque um socket fechado falha antes de o pedido
+    ser processado. Qualquer outro erro pode ter deixado a escrita aplicada —
+    repetir duplicaria tarefas e linhas de log."""
+    tentativas = []
+
+    def _fn():
+        tentativas.append(1)
+        raise ValueError("erro de dados")
+
+    try:
+        asyncio.run(sync._run(_fn))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("engoliu um erro que não é de ligação")
+
+    assert len(tentativas) == 1, "repetiu uma escrita que pode ter sido aplicada"
+
+
+def test_log_falhado_nao_derruba_o_sync(monkeypatch):
+    """O log é o registo, não o trabalho. Falhar a escrevê-lo não pode
+    transformar um sync bem sucedido num 502."""
+    async def _explode(fn):
+        raise httpx.RemoteProtocolError("Server disconnected")
+
+    monkeypatch.setattr(sync, "_run", _explode)
+    asyncio.run(sync._log_execucao("egorealestate_api", {}, []))  # não levanta
 
 
 if __name__ == "__main__":

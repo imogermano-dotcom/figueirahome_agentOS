@@ -7,6 +7,8 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
+import httpx
+
 from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.integrations import egorealestate, egorealestate_crm
@@ -204,8 +206,28 @@ def _dedup_por_ref(records: list[dict]) -> dict[str, dict]:
     return by_ref
 
 
+# Só erros em que o pedido **não chegou a ser processado**: um socket que o outro
+# lado já fechou falha na escrita. Um timeout de leitura fica sem saber se o
+# servidor aplicou a escrita, por isso não entra aqui — repeti-lo duplicaria.
+_ERROS_DE_LIGACAO = (httpx.RemoteProtocolError, httpx.ConnectError)
+
+
 async def _run(fn):
-    return await asyncio.get_event_loop().run_in_executor(None, fn)
+    """Corre uma chamada síncrona do PostgREST fora do event loop, com **uma**
+    repetição em erro de ligação.
+
+    O cliente Supabase guarda a conexão no pool, e este sync tem trechos longos
+    sem lhe tocar: a validação CRM raspa o backoffice inteiro durante ~2,5 min.
+    Nesse intervalo o outro lado fecha a conexão, e a chamada seguinte reutiliza
+    um socket morto — `RemoteProtocolError: Server disconnected`, visto em
+    produção a 2026-08-17 no insert do log, com o sync todo já feito.
+    """
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, fn)
+    except _ERROS_DE_LIGACAO as e:
+        logger.warning("Ligação ao Supabase caída (%s); a repetir uma vez.", type(e).__name__)
+        return await loop.run_in_executor(None, fn)
 
 
 async def _existing_refs(refs: list[str]) -> set[str]:
@@ -585,12 +607,24 @@ async def validar_disponibilidade_crm(
 
 
 async def _log_execucao(tipo: str, resumo: dict, detalhes: list[dict]) -> None:
+    """O log é o registo, não o trabalho — se falhar, o sync não passa a ter
+    falhado.
+
+    A 2026-08-17 um `Server disconnected` aqui devolveu **502** ao cron com o
+    upsert e a validação CRM já feitos: a Action ficou vermelha por um sync que
+    correu bem. O preço de engolir é o painel poder ficar sem a linha de uma
+    execução que aconteceu — mas isso lê-se nos logs do Fly, enquanto um 502
+    manda investigar uma avaria que não existe.
+    """
     def _insert():
         return get_supabase().table("agente_sync_log").insert({
             "tipo": tipo, "resumo": resumo, "detalhes": detalhes,
         }).execute()
 
-    await _run(_insert)
+    try:
+        await _run(_insert)
+    except Exception:
+        logger.exception("Falha a gravar o log de %s — o sync em si correu.", tipo)
 
 
 async def sync_egorealestate_crm() -> dict:
