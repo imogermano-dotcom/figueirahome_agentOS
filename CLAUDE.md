@@ -64,11 +64,11 @@ Duas frentes, ambas paradas antes do fim:
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ⚠️ deployado 2026-08-16 em `f278a93` (`v41`) — leads da Meta, qualificação, contexto da lead, `respondeu_em`. **Sem** landing pages. **Por deployar**: notificações Graph (3 commits, inertes sem credenciais) e a correcção da ordem do sync |
+| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-17 em `cef3386` (`v43`) — leads da Meta, qualificação, contexto da lead, `respondeu_em`, ordem do sync corrigida, notificações Graph (inertes sem credenciais). **Sem** landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, com pesquisa de imóveis reais |
-| Cron sync eGO 06:00 UTC | ⚠️ GitHub Action `sync-imoveis.yml` → chama o **Fly.io**, não o repo (sem deploy corre código antigo). **Falhou 08-16 e 08-17** com `exit 28`: a validação CRM à frente do upsert estourou o `--max-time`. Corrigido no código, **por deployar** — e os dois dias por recuperar à mão |
+| Cron sync eGO 06:00 UTC | ✅ GitHub Action `sync-imoveis.yml` → chama o **Fly.io**, não o repo (sem deploy corre código antigo). Falhou 08-16/17 (ordem + `--max-time`); corrigido e validado a 08-17 com disparo manual. Corre em 70–180 s, `--max-time 600` |
 | `master` | ✅ pushed. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
 ### Fase de hoje — detalhe em `docs/fases/leads-meta-resumo.md`
