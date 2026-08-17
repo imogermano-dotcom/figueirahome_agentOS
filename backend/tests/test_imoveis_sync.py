@@ -210,6 +210,11 @@ class _Q:
         self.estado["inserts"].append((self.tabela, dados))
         return self
 
+    def upsert(self, dados, **k):
+        self.estado.setdefault("sequencia", []).append("upsert")
+        self.estado["inserts"].append((self.tabela, dados))
+        return self
+
     def eq(self, campo, valor):
         if self.tabela == "imoveis" and campo == "disponibilidade":
             self._dados = [r for r in self._dados if r.get("disponibilidade") == valor]
@@ -341,6 +346,52 @@ def test_tarefas_de_despublicacao_sao_fechadas(monkeypatch):
     asyncio.run(sync._fechar_tarefas_despublicado(["FH2571"]))
     assert estado["tarefas_fechadas"] == {"FH2571"}
     assert ("agente_tarefas", {"estado": "concluida"}) in estado["updates"]
+
+
+def test_validacao_crm_corre_depois_do_upsert(monkeypatch):
+    """O cron morreu dois dias por causa da ordem, não da lógica.
+
+    A validação CRM raspa o backoffice inteiro e estourou o `--max-time 120` do
+    workflow a 2026-08-16/17. Estando **antes** do upsert, o curl desligava, o
+    handler era cancelado a meio e os imóveis nunca eram gravados: `agente_sync_log`
+    ficou sem uma linha `egorealestate_api` de 08-15 08:08 a 08-17.
+
+    O `try/except` à volta da validação não apanha isto — um cliente que desiste
+    não levanta excepção do lado de cá. Só a ordem protege, e é ela que este
+    teste tranca: primeiro gravar o que a API deu, depois o que é lento e
+    opcional."""
+    estado = {"imoveis": [], "updates": [], "updates_refs": [], "inserts": [], "sequencia": []}
+    fake_sb = SimpleNamespace(table=lambda nome: _Q(nome, estado))
+    monkeypatch.setattr(sync, "get_supabase", lambda: fake_sb)
+    monkeypatch.setattr(sync.settings, "egorealestate_api_key", "k")
+
+    async def _pagina(page, size):
+        return ([{"ID": 111, "Reference": "FH2571"}], 1) if page == 1 else ([], 1)
+
+    async def _flag(missing):
+        return 0, [], ["FH2571"]
+
+    async def _crm(refs):
+        estado["sequencia"].append("crm")
+        return 0, []
+
+    async def _log(tipo, resumo, detalhes):
+        estado["sequencia"].append("log")
+
+    monkeypatch.setattr(sync.egorealestate, "get_properties_page", _pagina)
+    monkeypatch.setattr(sync, "_map_property", lambda p: {
+        "imovel_ref": "FH2571", "ego_id": 111, "ego_atualizado_em": None,
+    })
+    monkeypatch.setattr(sync, "_map_extras", lambda p: {})
+    monkeypatch.setattr(sync, "_existing_ego_ids", lambda d: _async({111}))
+    monkeypatch.setattr(sync, "_flag_unpublished", _flag)
+    monkeypatch.setattr(sync, "_existing_refs", lambda r: _async(set()))
+    monkeypatch.setattr(sync, "validar_disponibilidade_crm", _crm)
+    monkeypatch.setattr(sync, "_log_execucao", _log)
+
+    asyncio.run(sync.sync_egorealestate_api())
+
+    assert estado["sequencia"] == ["upsert", "crm", "log"], estado["sequencia"]
 
 
 if __name__ == "__main__":

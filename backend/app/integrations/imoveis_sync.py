@@ -639,29 +639,9 @@ async def sync_egorealestate_api() -> dict:
     nao_publicados, det_nao_publicados, refs_despublicados = await _flag_unpublished(missing)
     detalhes.extend(det_nao_publicados)
 
-    # A Web API só devolve publicados: a partir do momento em que um imóvel sai
-    # dela, deixa de haver fonte automática sobre o que lhe aconteceu — se for
-    # vendido a seguir, nada o traz ao Supabase. Só o backoffice o sabe.
-    #
-    # Correr a validação CRM **restrita a estes refs** fecha isso sem repetir o
-    # erro que a tirou do cron: ela sobrepunha estados que a API pública já
-    # tinha confirmado (caso FH2483_A), e aqui a API não tem opinião nenhuma
-    # sobre estes imóveis, por definição.
+    # A validação CRM destes refs corre no FIM, depois do upsert — ver o bloco
+    # no fecho desta função. Aqui só se sabe quais são.
     corrigidos = 0
-    if refs_despublicados:
-        try:
-            corrigidos, det_crm = await validar_disponibilidade_crm(set(refs_despublicados))
-            detalhes.extend(det_crm)
-            resolvidos = [d["imovel_ref"] for d in det_crm if d.get("tipo") == "corrigido_crm"]
-            await _fechar_tarefas_despublicado(resolvidos)
-        except Exception:
-            # O sync da Web API é a parte que funciona; uma falha de login ou de
-            # scraping do backoffice não a pode derrubar. Fica o aviso e a
-            # tarefa que `_flag_unpublished` já criou.
-            logger.exception(
-                "Validação CRM dos despublicados falhou (%s refs) — sync da API segue.",
-                len(refs_despublicados),
-            )
 
     if not properties:
         resumo = {"criados": 0, "atualizados": 0, "erros": 0, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
@@ -709,6 +689,36 @@ async def sync_egorealestate_api() -> dict:
                 sb.table("imoveis").update(extras).eq("imovel_ref", ref).execute()
 
     await _run(_aplicar_extras)
+
+    # A Web API só devolve publicados: a partir do momento em que um imóvel sai
+    # dela, deixa de haver fonte automática sobre o que lhe aconteceu — se for
+    # vendido a seguir, nada o traz ao Supabase. Só o backoffice o sabe.
+    #
+    # Correr a validação CRM **restrita a estes refs** fecha isso sem repetir o
+    # erro que a tirou do cron: ela sobrepunha estados que a API pública já
+    # tinha confirmado (caso FH2483_A), e aqui a API não tem opinião nenhuma
+    # sobre estes imóveis, por definição.
+    #
+    # ⚠️ **Depois do upsert, nunca antes.** É lenta — `fetch_all` raspa o
+    # backoffice inteiro antes de o escopo filtrar o que quer que seja — e com
+    # ela à frente estourou o `--max-time` do cron a 2026-08-16/17: o curl
+    # desligava, o handler era cancelado, e o upsert dos imóveis nunca chegava a
+    # correr. Dois dias sem sync e sem log. O `try/except` protege de
+    # excepções; não protegia de o cliente desistir. A ordem é que protege.
+    if refs_despublicados:
+        try:
+            corrigidos, det_crm = await validar_disponibilidade_crm(set(refs_despublicados))
+            detalhes.extend(det_crm)
+            resolvidos = [d["imovel_ref"] for d in det_crm if d.get("tipo") == "corrigido_crm"]
+            await _fechar_tarefas_despublicado(resolvidos)
+        except Exception:
+            # O sync da Web API é a parte que funciona; uma falha de login ou de
+            # scraping do backoffice não a pode derrubar. Fica o aviso e a
+            # tarefa que `_flag_unpublished` já criou.
+            logger.exception(
+                "Validação CRM dos despublicados falhou (%s refs) — sync da API segue.",
+                len(refs_despublicados),
+            )
 
     criados = sum(1 for r in records if r["imovel_ref"] not in existentes)
     atualizados = len(records) - criados

@@ -9,11 +9,18 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+      # `--max-time 600`: era 120 e passou a estourar em 2026-08-16, no primeiro
+      # cron depois de a validação CRM dos despublicados entrar no sync (`f735998`).
+      # Ela raspa o backoffice inteiro e não cabe no orçamento antigo. O curl
+      # desistia com exit 28 e o sync ficava a meio — dois dias sem dados nem log.
+      # `-w` para o tempo real ficar no log da Action: é com ele que se decide se
+      # vale a pena saltar o `fetch_all` quando a validação vem com escopo.
       - name: Sincronizar Web API pública
         run: |
           curl -sf -X POST "https://figueirahome-agentos.fly.dev/api/imoveis/sync/egorealestate/api" \
             -H "X-Sync-Secret: ${{ secrets.EGOREALESTATE_SYNC_SECRET }}" \
-            --max-time 120
+            -w "\ntempo total: %{time_total}s\n" \
+            --max-time 600
       # Validação CRM retirada do cron por agora — corre só manual (botão "Validar CRM" no painel).
       # Ver conversa 2026-07-26: CRM autoritativo estava a sobrepor "Disponível" confirmado pela API
       # pública (FH2483_A) com um estado "Por validar" desactualizado do lado do CRM.

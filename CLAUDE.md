@@ -64,12 +64,12 @@ Duas frentes, ambas paradas antes do fim:
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-16 em `26ec28d` — leads da Meta, qualificação, validação CRM dos despublicados, contexto da lead, `respondeu_em` e aviso ao corretor (inerte sem SMTP). **Sem** landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ⚠️ deployado 2026-08-16 em `f278a93` (`v41`) — leads da Meta, qualificação, contexto da lead, `respondeu_em`. **Sem** landing pages. **Por deployar**: notificações Graph (3 commits, inertes sem credenciais) e a correcção da ordem do sync |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, com pesquisa de imóveis reais |
-| Cron sync eGO 06:00 UTC | ✅ chama o **Fly.io**, não o repo — sem deploy corre código antigo. Inclui a validação CRM dos despublicados |
-| `master` | ⚠️ **nada pushed** (10 commits locais). Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
+| Cron sync eGO 06:00 UTC | ⚠️ GitHub Action `sync-imoveis.yml` → chama o **Fly.io**, não o repo (sem deploy corre código antigo). **Falhou 08-16 e 08-17** com `exit 28`: a validação CRM à frente do upsert estourou o `--max-time`. Corrigido no código, **por deployar** — e os dois dias por recuperar à mão |
+| `master` | ✅ pushed. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
 ### Fase de hoje — detalhe em `docs/fases/leads-meta-resumo.md`
 
@@ -163,7 +163,7 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Segredo próprio para automações** (`X-Automacao-Secret`) — Make e n8n não têm de poder disparar syncs do eGO; segredo vazio nunca autentica.
 - **Refs duplicadas do eGO desempatam por data de alteração**, não pela ordem da lista — a ordem escolhia a cópia por preencher (FH2460 4D gravava piso 0 num 4.º andar).
 - **Landing pages em HTML servido pelo backend**, não rota do SPA — as OG tags têm de existir no HTML (WhatsApp). **`fonte_hash` decide se se regenera.** **`publicado` é coluna GENERATED**; `disponivel_na_api` é a excepção escrita pela app.
-- **Sync eGO sempre full** (`?Since=` avariado). **Validação CRM completa só manual** (no cron sobrepunha estados que a API já confirmava) — **excepto restrita aos refs que saíram da API**, que corre no fim do sync: sobre esses a API não tem opinião. **Playwright nunca na app principal** (RAM; `scraper/` tem app própria).
+- **Sync eGO sempre full** (`?Since=` avariado). **Validação CRM completa só manual** (no cron sobrepunha estados que a API já confirmava) — **excepto restrita aos refs que saíram da API**, e essa corre **depois do upsert, nunca antes**: raspa o backoffice inteiro, e à frente do upsert estourou o `--max-time` do cron e matou o sync dois dias seguidos. **Playwright nunca na app principal** (RAM; `scraper/` tem app própria).
 
 ## Bugs conhecidos
 
