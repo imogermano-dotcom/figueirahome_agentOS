@@ -55,3 +55,32 @@ async def get_properties_page(page: int, per_page: int = 100) -> tuple[list[dict
         resp.raise_for_status()
         data = resp.json()
         return data.get("Properties", []), data.get("TotalRecords", 0)
+
+
+async def get_property_detail(ego_id: int) -> dict:
+    """Ficha completa de um imóvel — os 104 campos, contra os 82 da listagem.
+
+    É a única via para `ExternalVirtualTours` (visitas virtuais), `Brochures`,
+    `PDF` e os campos de SEO. Medido a 2026-08-18: **0,05 s por chamada**, 2,6 s
+    para os 56 publicados — barato o suficiente para se chamar a todos em cada
+    sync, sem cache nem comparação de `LastModified`.
+
+    Levanta em caso de erro: o chamador (`sync_egorealestate_api`) já trata cada
+    imóvel dentro de um `try`, e saltar um imóvel com erro contado é melhor do
+    que gravá-lo sem os campos do detalhe — o `visita_virtual_url` iria a NULL e
+    apagaria um link bom por causa de uma falha passageira.
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"{settings.egorealestate_base_url}/v1/Properties/{ego_id}",
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    # A API devolve o objecto directo nuns casos e embrulhado em `Properties`
+    # noutros — normalizar aqui para o chamador não ter de saber.
+    if isinstance(data, dict) and "Properties" in data:
+        propriedades = data.get("Properties") or []
+        return propriedades[0] if propriedades else {}
+    return data

@@ -134,6 +134,13 @@ def _map_property(p: dict) -> dict:
         "plantas": [bp["Thumbnail"] for bp in (p.get("BluePrints") or []) if bp.get("Thumbnail")],
         "video_url": next((v["VideoUrl"] for v in (p.get("Videos") or []) if v.get("VideoUrl")), None),
         "panoramic_url": p.get("MainPanoramicUrl") or None,
+        # `ExternalVirtualTours` só existe no endpoint de **detalhe** (104 campos)
+        # — a listagem tem 82 e não o traz. O chamador funde o detalhe em `p`
+        # antes de mapear. Sempre presente na chave (mesmo a None) para que tirar
+        # a visita virtual no eGO apague o link cá: é por isto que isto vive no
+        # `_map_property` e não no `_map_extras`, que filtra os nulos.
+        "visita_virtual_url": next(
+            (t["Url"] for t in (p.get("ExternalVirtualTours") or []) if t.get("Url")), None),
         "destaque": any(t.get("Name") == "Destaque" for t in (p.get("Tags") or [])),
         "ego_atualizado_em": _utc_iso(p.get("LastModified")),
         "data_criacao": _data(p.get("CreatedDate")),
@@ -688,6 +695,18 @@ async def sync_egorealestate_api() -> dict:
     erros = 0
     for p in properties:
         try:
+            # A listagem tem 82 campos, o detalhe 104 e é superset. Vamos lá
+            # buscar o que só existe no detalhe — hoje `ExternalVirtualTours`.
+            # 0,05 s por chamada (2,6 s para os 56 publicados), medido 2026-08-18:
+            # não compensa gatilho por `LastModified` nem cache.
+            #
+            # Dentro deste `try` de propósito: se o detalhe falhar, o imóvel é
+            # saltado e conta em `erros`, mantendo o que já lá está. Gravá-lo sem
+            # o detalhe punha `visita_virtual_url` a NULL e apagava um link bom
+            # por causa de uma falha passageira da API.
+            if p.get("ID"):
+                p = {**p, **await egorealestate.get_property_detail(p["ID"])}
+
             record = _map_property(p)
             if not record["imovel_ref"]:
                 raise ValueError("propriedade eGO sem Reference")

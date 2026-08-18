@@ -121,8 +121,9 @@ create table imoveis (
   foto_principal        text,
   fotos                 jsonb default '[]'::jsonb,   -- array de URLs (eGO CDN)
   plantas               jsonb default '[]'::jsonb,   -- array de URLs de plantas (eGO CDN). Migration 0012 — vem de `BluePrints` na Web API, confirmado ao vivo 2026-07-30 (2/55 imóveis tinham na altura)
-  panoramic_url         text,        -- URL de visita virtual/360°. Adicionada directo em produção, sem migration — documentada agora (2026-07-26)
-  video_url             text,        -- URL de vídeo (ex: YouTube). Adicionada directo em produção, sem migration — documentada agora (2026-07-26)
+  panoramic_url         text,        -- panorâmica NATIVA do eGO (`MainPanoramicUrl`). **Não** é a visita virtual — ver `visita_virtual_url`. Vazia em 0/54 publicados a 2026-08-18: a agência não usa esta funcionalidade. Adicionada directo em produção, sem migration — documentada em 2026-07-26
+  video_url             text,        -- URL de vídeo (ex: YouTube). 26/54 publicados. Adicionada directo em produção, sem migration — documentada em 2026-07-26
+  visita_virtual_url    text,        -- Migration 0028 — visita virtual externa (`ExternalVirtualTours[0].Url`), 7/56 publicados a 2026-08-18, todas Matterport. **Só vem do endpoint de detalhe** `/v1/Properties/{ID}` (104 campos); a listagem tem 82 e não o traz
   destaque              boolean default false,  -- Migration 0013 — vem da tag de sistema {"ID":1,"Name":"Destaque"} em `Tags` na Web API, confirmado ao vivo 2026-07-30 (1/55 imóveis tinha na altura)
   ego_id                bigint,      -- ID da propriedade no eGO Real Estate (null = nunca sincronizado)
   ego_atualizado_em     timestamptz,

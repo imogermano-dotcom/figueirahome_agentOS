@@ -381,6 +381,7 @@ def test_validacao_crm_corre_depois_do_upsert(monkeypatch):
         estado["sequencia"].append("log")
 
     monkeypatch.setattr(sync.egorealestate, "get_properties_page", _pagina)
+    monkeypatch.setattr(sync.egorealestate, "get_property_detail", lambda eid: _async({}))
     monkeypatch.setattr(sync, "_map_property", lambda p: {
         "imovel_ref": "FH2571", "ego_id": 111, "ego_atualizado_em": None,
     })
@@ -394,6 +395,67 @@ def test_validacao_crm_corre_depois_do_upsert(monkeypatch):
     asyncio.run(sync.sync_egorealestate_api())
 
     assert estado["sequencia"] == ["upsert", "crm", "log"], estado["sequencia"]
+
+
+# ── visitas virtuais: só existem no endpoint de detalhe ─────────────────────
+#
+# `GET /v1/Properties` devolve 82 campos, `GET /v1/Properties/{ID}` devolve 104.
+# `ExternalVirtualTours` está só no segundo, e foi por se olhar apenas para a
+# listagem que se concluiu (mal) que o eGO não expunha visitas virtuais.
+# A 2026-08-18: 7 dos 56 publicados, todas Matterport, uma por imóvel.
+
+
+def test_visita_virtual_extraida_do_detalhe():
+    p = {
+        "ID": 26167109, "Reference": "FH2572",
+        "ExternalVirtualTours": [
+            {"Url": "https://my.matterport.com/show/?m=hHEhT5f4Wxw", "Description": "Visita Virtual"},
+        ],
+    }
+    assert sync._map_property(p)["visita_virtual_url"] == "https://my.matterport.com/show/?m=hHEhT5f4Wxw"
+
+
+def test_sem_visita_virtual_escreve_none():
+    """A chave tem de existir mesmo vazia: é o que faz tirar a visita virtual no
+    eGO apagar o link cá. Se isto fosse pelo `_map_extras`, que filtra os nulos,
+    o link velho ficava para sempre."""
+    record = sync._map_property({"ID": 1, "Reference": "FH0001"})
+    assert "visita_virtual_url" in record
+    assert record["visita_virtual_url"] is None
+
+
+def test_falha_do_detalhe_salta_o_imovel(monkeypatch):
+    """Melhor perder um imóvel numa corrida do que gravá-lo sem os campos do
+    detalhe — `visita_virtual_url` iria a NULL e apagaria um link bom por causa
+    de uma falha passageira da API."""
+    estado = {"imoveis": [], "updates": [], "updates_refs": [], "inserts": [], "sequencia": []}
+    fake_sb = SimpleNamespace(table=lambda nome: _Q(nome, estado))
+    monkeypatch.setattr(sync, "get_supabase", lambda: fake_sb)
+    monkeypatch.setattr(sync.settings, "egorealestate_api_key", "k")
+
+    async def _pagina(page, size):
+        return ([{"ID": 111, "Reference": "FH2571"}], 1) if page == 1 else ([], 1)
+
+    async def _detalhe_rebenta(ego_id):
+        raise httpx.ConnectError("eGO em baixo")
+
+    monkeypatch.setattr(sync.egorealestate, "get_properties_page", _pagina)
+    monkeypatch.setattr(sync.egorealestate, "get_property_detail", _detalhe_rebenta)
+    monkeypatch.setattr(sync, "_existing_ego_ids", lambda d: _async(set()))
+    monkeypatch.setattr(sync, "_flag_unpublished", lambda m: _async((0, [], [])))
+    monkeypatch.setattr(sync, "_existing_refs", lambda r: _async(set()))
+    monkeypatch.setattr(sync, "_log_execucao", lambda t, r, d: _async(None))
+
+    resumo = asyncio.run(sync.sync_egorealestate_api())
+
+    assert resumo["erros"] == 1
+    assert resumo["criados"] == 0 and resumo["atualizados"] == 0
+
+    # O upsert chega a sair, mas com a lista vazia — é isso que tem de ser
+    # verdade: nenhuma linha escrita. (Um upsert vazio é um no-op; não vale um
+    # guarda no código só para o evitar.)
+    gravados = [d for t, d in estado["inserts"] if t == "imoveis"]
+    assert all(not d for d in gravados), f"gravou um imóvel sem o detalhe: {gravados}"
 
 
 # ── ligação ao Supabase caída por inactividade ──────────────────────────────
