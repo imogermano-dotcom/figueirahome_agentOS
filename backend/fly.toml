@@ -23,6 +23,11 @@ primary_region = "ams"
     timeout = "5s"
 
 [[vm]]
-  memory = "256mb"
+  # 512mb desde 2026-08-18. Em 256mb o uvicorn era morto por OOM a meio do sync
+  # de imóveis (149 MB de anon-rss no momento da morte): a pull da Web API e a
+  # validação CRM — que raspa 515 fichas do backoffice com BeautifulSoup —
+  # passaram a correr no mesmo pedido, e o sync de oportunidades ainda pode
+  # sobrepor-se. Cabia em 256 antes de a validação CRM entrar no sync (`f735998`).
+  memory = "512mb"
   cpu_kind = "shared"
   cpus = 1
