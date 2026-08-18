@@ -12,6 +12,7 @@ from datetime import date
 
 from app.agents.broker.guards import find_or_create_cliente, normalizar_telefone, visita_permitida
 from app.db.supabase_client import get_supabase
+from app.models.lead import ESTADOS_FECHADOS
 from app.notificacoes import notificar
 
 logger = logging.getLogger(__name__)
@@ -370,18 +371,20 @@ async def _guardar_dados_cliente(inputs: dict, contexto: dict) -> str:
 
 
 def _criar_lead_se_preciso(cliente_id: str, resumo: str | None) -> None:
+    """Uma lead aberta por cliente. Escreve em `leads` desde 2026-08-18 —
+    `agente_leads` deixou de ser usada (ver `api/leads.py`)."""
     supabase = get_supabase()
     aberto = (
-        supabase.table("agente_leads")
+        supabase.table("leads")
         .select("id")
         .eq("cliente_id", cliente_id)
-        .not_.in_("estado", ["fechado", "perdido"])
+        .not_.in_("estado", list(ESTADOS_FECHADOS))
         .limit(1)
         .execute()
     )
     if not aberto.data:
-        supabase.table("agente_leads").insert(
-            {"cliente_id": cliente_id, "estado": "novo", "notas": resumo}
+        supabase.table("leads").insert(
+            {"cliente_id": cliente_id, "estado": "nova", "origem": "assistente", "notas": resumo}
         ).execute()
 
 

@@ -70,12 +70,16 @@ def _supabase_insert_chamada(supabase, session: CallSession, cliente_id: str | N
 
 
 def _supabase_insert_lead(supabase, cliente_id: str, dados: dict) -> None:
+    """Escreve em `leads` desde 2026-08-18 — `agente_leads` deixou de ser usada
+    (ver `api/leads.py`). `origem='voz'` distingue estas das do WhatsApp e das da
+    Meta na página de Leads."""
     if not cliente_id:
         return
-    supabase.table("agente_leads").insert(
+    supabase.table("leads").insert(
         {
             "cliente_id": cliente_id,
-            "estado": "novo",
+            "estado": "nova",
+            "origem": "voz",
             "notas": dados.get("resumo"),
         }
     ).execute()

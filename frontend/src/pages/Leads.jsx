@@ -1,16 +1,31 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 
-const ESTADOS = ['novo', 'contactado', 'visita', 'proposta', 'fechado', 'perdido']
+// Vocabulário de `leads` (migration 0021), alargado com as etapas comerciais que
+// vinham do painel antigo. `guards._ESTADOS_LEAD_ABERTA` depende dos três
+// primeiros — não renomear sem olhar para lá.
+const ESTADOS = ['nova', 'contactada', 'qualificada', 'visita', 'proposta', 'fechada', 'perdida', 'sem_interesse']
 
 const estadoBadge = {
-  novo: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',
-  contactado: 'bg-amber-500/15 text-amber-400 border border-amber-500/20',
+  nova: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',
+  contactada: 'bg-amber-500/15 text-amber-400 border border-amber-500/20',
+  qualificada: 'bg-teal-500/15 text-teal-400 border border-teal-500/20',
   visita: 'bg-violet-500/15 text-violet-400 border border-violet-500/20',
   proposta: 'bg-orange-500/15 text-orange-400 border border-orange-500/20',
-  fechado: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20',
-  perdido: 'bg-zinc-700 text-zinc-500',
+  fechada: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20',
+  perdida: 'bg-zinc-700 text-zinc-500',
+  sem_interesse: 'bg-zinc-700 text-zinc-500',
 }
+
+const ORIGENS = ['meta', 'assistente', 'voz', 'landing', 'manual']
+
+// Consentimento de canal, do formulário da Meta. A recusa é só do WhatsApp:
+// quem preencheu o formulário continua contactável por telefone até dizer o
+// contrário. Sem este distintivo, estas leads não têm caminho nenhum — o
+// automático está fechado (filtro no n8n) e ninguém sabe que existem.
+const ACEITA_WHATSAPP = 'sim,_aceito_receber_informações_pelo_whatsapp'
+const recusaWhatsapp = lead => (lead.ficha?.aceita_whatsapp ?? null) !== null
+  && lead.ficha.aceita_whatsapp !== ACEITA_WHATSAPP
 
 const inputCls = "w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition-colors"
 const selectCls = "w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-500 transition-colors"
@@ -33,8 +48,9 @@ export default function Leads() {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [estadoFiltro, setEstadoFiltro] = useState('')
+  const [origemFiltro, setOrigemFiltro] = useState('')
   const [modal, setModal] = useState(null)
-  const [form, setForm] = useState({ estado: 'novo', notas: '' })
+  const [form, setForm] = useState({ estado: 'nova', notas: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -42,14 +58,15 @@ export default function Leads() {
     setLoading(true)
     const params = new URLSearchParams()
     if (estadoFiltro) params.set('estado', estadoFiltro)
+    if (origemFiltro) params.set('origem', origemFiltro)
     try { setLeads(await api.get(`/api/leads?${params}`)) }
     catch { setError('Erro ao carregar leads.') }
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [estadoFiltro])
+  useEffect(() => { load() }, [estadoFiltro, origemFiltro])
 
-  function openEdit(lead) { setForm({ estado: lead.estado||'novo', notas: lead.notas||'' }); setModal(lead) }
+  function openEdit(lead) { setForm({ estado: lead.estado||'nova', notas: lead.notas||'' }); setModal(lead) }
 
   async function handleSave(e) {
     e.preventDefault(); setSaving(true)
@@ -84,7 +101,12 @@ export default function Leads() {
         <select value={estadoFiltro} onChange={e => setEstadoFiltro(e.target.value)}
           className="bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors">
           <option value="">Todos os estados</option>
-          {ESTADOS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+          {ESTADOS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1).replace('_', ' ')}</option>)}
+        </select>
+        <select value={origemFiltro} onChange={e => setOrigemFiltro(e.target.value)}
+          className="bg-zinc-900 border border-zinc-800 text-zinc-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors">
+          <option value="">Todas as origens</option>
+          {ORIGENS.map(o => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
         </select>
       </div>
 
@@ -94,6 +116,8 @@ export default function Leads() {
             <tr className="border-b border-white/5 text-left text-zinc-500 text-xs uppercase tracking-widest">
               <th className="px-4 py-3">Cliente</th>
               <th className="px-4 py-3">Telefone</th>
+              <th className="px-4 py-3">Origem</th>
+              <th className="px-4 py-3">Imóvel</th>
               <th className="px-4 py-3">Estado</th>
               <th className="px-4 py-3">Notas</th>
               <th className="px-4 py-3">Data</th>
@@ -101,12 +125,22 @@ export default function Leads() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={6} className="px-4 py-8 text-center text-zinc-600">A carregar…</td></tr>}
-            {!loading && leads.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-zinc-600">Sem leads.</td></tr>}
+            {loading && <tr><td colSpan={8} className="px-4 py-8 text-center text-zinc-600">A carregar…</td></tr>}
+            {!loading && leads.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-zinc-600">Sem leads.</td></tr>}
             {leads.map(lead => (
               <tr key={lead.id} className="border-b border-white/5 hover:bg-white/3 transition-colors">
-                <td className="px-4 py-3 font-medium text-zinc-100">{lead.agente_clientes?.nome || '—'}</td>
-                <td className="px-4 py-3 text-zinc-400">{lead.agente_clientes?.telefone || '—'}</td>
+                <td className="px-4 py-3 font-medium text-zinc-100">
+                  {lead.nome_display || '—'}
+                  {recusaWhatsapp(lead) && (
+                    <span title="Recusou contacto por WhatsApp no formulário. Contacto telefónico continua autorizado."
+                      className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/15 text-red-400 border border-red-500/20">
+                      só telefone
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-zinc-400">{lead.telefone_display || '—'}</td>
+                <td className="px-4 py-3 text-zinc-500 text-xs">{lead.origem || '—'}</td>
+                <td className="px-4 py-3 text-zinc-400 text-xs">{lead.imovel_ref || '—'}</td>
                 <td className="px-4 py-3">
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${estadoBadge[lead.estado] || 'bg-zinc-700 text-zinc-400'}`}>{lead.estado}</span>
                 </td>

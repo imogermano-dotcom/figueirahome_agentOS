@@ -21,7 +21,7 @@
 | `conversas` | Histórico de conversas do Agente 2, por canal. |
 | `config_agentes` | Persona e instruções configuráveis de cada agente. |
 | `agente_tarefas` | Tarefas genéricas (não exclusivas de imóveis) do corretor/agência. |
-| `leads` | Leads **não qualificadas**, de qualquer origem (migration 0021). Nasce a servir o Meta Lead Ads; é para aqui que `agente_leads` e `leads_angariacao` vão convergir. |
+| `leads` | Leads **não qualificadas**, de qualquer origem (migration 0021). **Tabela única desde 2026-08-18**: o painel, o assistente e a voz escrevem aqui, distinguidos por `origem` (migration 0029 — `meta` \| `assistente` \| `voz` \| `landing` \| `manual`). `agente_leads` ficou sem escritores nem leitores; falta `leads_angariacao`, que é fluxo com outro dono. |
 
 ---
 

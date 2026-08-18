@@ -116,7 +116,8 @@ Tudo no projecto Supabase `zphasvfopnbzwnaidsnw` (settings `supabase_imoveis_*`)
 o original é **só Auth**. `get_supabase()` = dados, `get_supabase_auth()` = login.
 **Migrations corridas à mão pelo utilizador** no editor SQL — explicar antes.
 Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — é para aqui
-que as outras convergem), `agente_leads` (2 linhas, legado) e `leads_angariacao`
+que as outras convergiram, `0029` deu-lhe `origem`), `agente_leads` (morta desde
+2026-08-18 — sem escritores nem leitores, por apagar) e `leads_angariacao`
 (79, fluxo humano Make + consultora). **`oportunidades`/`contactos` são de fora
 do repo** — não gerir daqui; o portal do Miguel também as lê.
 
@@ -141,7 +142,7 @@ do repo** — não gerir daqui; o portal do Miguel também as lê.
 1. **Validar em produção**: correr "Validar CRM" no painel (resolve os 12 imóveis em limbo) e uma lead de teste ponta a ponta. Backend e scraper já deployados.
 2. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) e **chave do portal do Miguel** → desbloqueia a `0022` (RLS). E **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria estado "Disponível" — 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
 3. **Confirmar com o Make/n8n**: campos reais do formulário de venda (`_ALIAS_FICHA`) e quem marca `whatsapp_permissao`. **Decisão de alojamento das landing pages** bloqueia essa fase toda.
-4. **Reforma de `agente_leads` para `leads`** — 4 escritores (`tools.py:374`, `landing.py:223`, `save_call.py:75`, `api/leads.py`) + página Leads do painel.
+4. **Apagar `agente_leads`** (migration própria, depois de a reforma correr uns dias) e **actualizar `landing.py:223` no ramo `feat/landing-pages`** — é o único escritor que sobrou, e sem isso o merge ressuscita a tabela morta.
 5. **Passagem automática ao eGO** (precisa da chave de integração) · **A3/A4 e sub-fluxos SC/FP** (adiados; `agente_clientes` sem coluna `agente`) · **lembretes 24h/48h** (precisam de scheduler).
 6. **Dados a montante**: `responsavel` com "Internet" (892), 8432 sem `data_criacao_iso`, `valor_negocio` quase vazio. Recuperação do histórico de visitas (export com período largo).
 
@@ -167,7 +168,7 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 
 ## Bugs conhecidos
 
-- **`agente_leads` e `leads` coexistem** com nomes quase iguais e significados diferentes, até à reforma (Próximos passos 5).
+- **`agente_leads` ainda existe**, agora vazia de uso — nada lhe escreve nem lê desde 2026-08-18. Só desaparece a confusão quando for apagada (Próximos passos 4).
 - **Dedup de clientes sob carga**: teste falhou e voltou a passar com o mesmo código. Se aparecerem duplicados em produção, é por aqui.
 - **Landing pages nunca correram contra dados reais** — zero gerações, `0020` por aplicar, custo estimado; **`POST /lp/{slug}/lead` sem rate-limit** (só honeypot).
 - **Agente de voz** (bloqueado por Telnyx, não se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2 s sem VAD.
