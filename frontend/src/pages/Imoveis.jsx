@@ -541,7 +541,7 @@ function OportunidadesSyncCard() {
         Relatório "jmarques_todas_as_colunas", filtro "Últimas 48 horas" — grava directo em oportunidades/notas/tarefas/contactos.
       </p>
       <button onClick={handleSync} disabled={syncing}
-        className="bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-purple-500/20 disabled:opacity-50">
+        className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-lg shadow-blue-500/20 disabled:opacity-50">
         {syncing ? 'A sincronizar…' : 'Sincronizar Oportunidades'}
       </button>
 
