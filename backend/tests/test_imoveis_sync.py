@@ -424,6 +424,35 @@ def test_sem_visita_virtual_escreve_none():
     assert record["visita_virtual_url"] is None
 
 
+def test_resumo_conta_as_visitas_virtuais(monkeypatch):
+    """Testemunha de que os campos do detalhe continuam a chegar: se o eGO
+    renomear `ExternalVirtualTours`, o sync fica verde com `erros: 0` e os links
+    vão a NULL em silêncio — e o site novo mostra-os."""
+    estado = {"imoveis": [], "updates": [], "updates_refs": [], "inserts": [], "sequencia": []}
+    monkeypatch.setattr(sync, "get_supabase", lambda: SimpleNamespace(table=lambda n: _Q(n, estado)))
+    monkeypatch.setattr(sync.settings, "egorealestate_api_key", "k")
+
+    async def _pagina(page, size):
+        if page != 1:
+            return [], 2
+        return [{"ID": 1, "Reference": "COM_TOUR"}, {"ID": 2, "Reference": "SEM_TOUR"}], 2
+
+    async def _detalhe(ego_id):
+        return {"ExternalVirtualTours": [{"Url": "https://my.matterport.com/show/?m=X"}]} if ego_id == 1 else {}
+
+    monkeypatch.setattr(sync.egorealestate, "get_properties_page", _pagina)
+    monkeypatch.setattr(sync.egorealestate, "get_property_detail", _detalhe)
+    monkeypatch.setattr(sync, "_existing_ego_ids", lambda d: _async(set()))
+    monkeypatch.setattr(sync, "_flag_unpublished", lambda m: _async((0, [], [])))
+    monkeypatch.setattr(sync, "_existing_refs", lambda r: _async(set()))
+    monkeypatch.setattr(sync, "_log_execucao", lambda t, r, d: _async(None))
+
+    resumo = asyncio.run(sync.sync_egorealestate_api())
+
+    assert resumo["com_visita_virtual"] == 1
+    assert resumo["erros"] == 0
+
+
 def test_falha_do_detalhe_salta_o_imovel(monkeypatch):
     """Melhor perder um imóvel numa corrida do que gravá-lo sem os campos do
     detalhe — `visita_virtual_url` iria a NULL e apagaria um link bom por causa

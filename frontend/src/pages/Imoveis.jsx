@@ -477,6 +477,15 @@ function SincronizacaoTab() {
             </div>
           </div>
 
+          {/* Testemunha de que os campos do endpoint de detalhe continuam a
+              chegar. O site novo mostra as visitas virtuais; se este número cair
+              a zero de repente, é aí que se vê — o sync fica verde na mesma. */}
+          {ultima.resumo.com_visita_virtual != null && (
+            <p className="text-xs text-zinc-500 mt-3">
+              Com visita virtual: <span className="text-zinc-300">{ultima.resumo.com_visita_virtual}</span>
+            </p>
+          )}
+
           {ultima.detalhes?.length > 0 && (
             <div className="mt-4 max-h-64 overflow-y-auto bg-zinc-950/50 rounded-lg p-3 space-y-1">
               {ultima.detalhes.map((item, i) => (
@@ -492,6 +501,7 @@ function SincronizacaoTab() {
                 {log.slice(1).map(exec => (
                   <p key={exec.id} className="text-xs text-zinc-500">
                     {formatDataHora(exec.executado_em)} — {exec.resumo.criados} criados, {exec.resumo.atualizados} actualizados, {exec.resumo.corrigidos} corrigidos, {exec.resumo.nao_publicados} não publicados, {exec.resumo.erros} erros
+                    {exec.resumo.com_visita_virtual != null && `, ${exec.resumo.com_visita_virtual} com visita virtual`}
                   </p>
                 ))}
               </div>

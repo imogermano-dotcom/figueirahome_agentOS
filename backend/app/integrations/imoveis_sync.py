@@ -779,6 +779,16 @@ async def sync_egorealestate_api() -> dict:
         {"imovel_ref": r["imovel_ref"], "tipo": "criado" if r["imovel_ref"] not in existentes else "atualizado"}
         for r in records
     )
-    resumo = {"criados": criados, "atualizados": atualizados, "erros": erros, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
+    # Testemunha de que os campos do endpoint de **detalhe** continuam a chegar.
+    # Uma falha sistemática — o eGO renomear `ExternalVirtualTours`, a chave
+    # perder acesso ao detalhe — escreveria NULL nos 7 de uma vez, com o sync
+    # verde e `erros: 0`. Era invisível enquanto isto era dado interno; deixou de
+    # o ser quando o site novo passou a mostrar as visitas virtuais. Uma queda de
+    # 7 para 0 no painel é barata e chega: sem alertas nem limiares.
+    com_visita_virtual = sum(1 for r in records if r.get("visita_virtual_url"))
+
+    resumo = {"criados": criados, "atualizados": atualizados, "erros": erros,
+              "nao_publicados": nao_publicados, "corrigidos": corrigidos,
+              "com_visita_virtual": com_visita_virtual}
     await _log_execucao("egorealestate_api", resumo, detalhes)
     return resumo
