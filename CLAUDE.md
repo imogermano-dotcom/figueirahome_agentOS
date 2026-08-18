@@ -64,7 +64,7 @@ Duas frentes, ambas paradas antes do fim:
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-17 em `cef3386` (`v43`) — leads da Meta, qualificação, contexto da lead, `respondeu_em`, ordem do sync corrigida, notificações Graph (inertes sem credenciais). **Sem** landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-18 em `8acc3b9` (`v47`, 512mb) — leads da Meta, qualificação, contexto da lead, visitas virtuais (`0028`), apresentação da Matilde, notificações Graph (inertes sem credenciais). **Sem** landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, com pesquisa de imóveis reais |
