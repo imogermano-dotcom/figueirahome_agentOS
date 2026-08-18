@@ -134,6 +134,11 @@ def _map_property(p: dict) -> dict:
         "plantas": [bp["Thumbnail"] for bp in (p.get("BluePrints") or []) if bp.get("Thumbnail")],
         "video_url": next((v["VideoUrl"] for v in (p.get("Videos") or []) if v.get("VideoUrl")), None),
         "panoramic_url": p.get("MainPanoramicUrl") or None,
+        # Aqui e não no `_map_extras`: sem `HasGPSLocation` o `_gps` devolve None
+        # e a chave **tem** de ser escrita, senão o centróide gravado antes da
+        # guarda (2026-08-12) fica para sempre. Era o caso de 40 dos 54, 19 no
+        # mesmo ponto. Só vêm da API, não do Excel — nada se perde ao escrever None.
+        **dict(zip(("latitude", "longitude"), _gps(p))),
         # `ExternalVirtualTours` só existe no endpoint de **detalhe** (104 campos)
         # — a listagem tem 82 e não o traz. O chamador funde o detalhe em `p`
         # antes de mapear. Sempre presente na chave (mesmo a None) para que tirar
@@ -161,10 +166,21 @@ def _map_extras(p: dict) -> dict:
 
     Vão FORA do upsert, aplicados linha a linha, e a razão é dura: o PostgREST
     constrói um único `INSERT ... ON CONFLICT` sobre a UNIÃO das chaves de todo
-    o lote. Basta um registo trazer `latitude` para a coluna entrar no
+    o lote. Basta um registo trazer uma chave esparsa para a coluna entrar no
     statement, e todos os outros do lote são escritos a NULL — omitir a chave
     não protege nada. Aconteceu ao vivo em 2026-08-12: 40 imóveis publicados
     perderam a coordenada num único sync. Ver `test_upsert_com_chaves_uniformes`.
+
+    O filtro final (`if v is not None`) é o que protege o valor vindo do Excel:
+    a API não sabe destes campos para a maioria dos imóveis, e escrever `None`
+    apagaria o que outra fonte preencheu.
+
+    ⚠️ **Só entra aqui o que tem outra fonte.** `latitude`/`longitude` estiveram
+    nesta lista e saíram a 2026-08-18: não vêm do Excel, vêm só da API, e o
+    filtro dos nulos tornava a guarda do `_gps` incapaz de **apagar** — 40
+    imóveis ficaram com o centróide da zona gravado de antes de a guarda existir,
+    19 deles no mesmo ponto, e nenhum sync os limpava. Passaram para o
+    `_map_property`, onde a chave existe sempre e o `None` é escrito.
     """
     tags = _feature_tags(p)
     n_suites = tags.get("PROPERTY_HAS_SUITE") or ""
@@ -172,15 +188,12 @@ def _map_extras(p: dict) -> dict:
     # do `Floor` quando ambos existem — serve de fallback.
     piso = _int_or_none(p.get("Floor"))
     piso = str(piso) if piso is not None else (tags.get("PROPERTY_FLOOR") or None)
-    latitude, longitude = _gps(p)
     extras = {
         "conservacao": tags.get("FEATURE_CONDITION") or None,
         "certificacao_energetica": p.get("EnergyCertification") or None,
         "angariador": _angariador(p),
         "suites": int(n_suites) if n_suites.isdigit() else None,
         "piso": piso,
-        "latitude": latitude,
-        "longitude": longitude,
     }
     return {k: v for k, v in extras.items() if v is not None}
 

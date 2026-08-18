@@ -121,8 +121,7 @@ def test_campos_esparsos_saem_fora_do_upsert():
     assert vazio == {}, f"chave a None apagaria o valor existente: {vazio}"
 
     record = _map_property(_payload())
-    for col in ("conservacao", "certificacao_energetica", "angariador", "suites",
-                "piso", "latitude", "longitude"):
+    for col in ("conservacao", "certificacao_energetica", "angariador", "suites", "piso"):
         assert col not in record, f"{col} no upsert volta a apagar as outras linhas"
 
 
@@ -137,14 +136,30 @@ def test_datas_truncadas_e_exclusividade():
 
 def test_gps_so_quando_o_eGO_diz_que_e_real():
     """`GPSLat`/`GPSLon` vêm sempre; sem `HasGPSLocation` são o centróide da
-    zona — 42 dos 54 imóveis, 19 no mesmo ponto. Marcá-los é inventar morada."""
-    aproximado = _payload(HasGPSLocation=False, GPSLat=40.16661, GPSLon=-8.845518)
-    e = _map_extras(aproximado)
-    assert "latitude" not in e and "longitude" not in e
+    zona — 42 dos 55 imóveis, 19 no mesmo ponto. Marcá-los é inventar morada."""
+    real = _map_property(_payload(HasGPSLocation=True, GPSLat=40.15253, GPSLon=-8.857521))
+    assert (real["latitude"], real["longitude"]) == (40.15253, -8.857521)
 
-    real = _payload(HasGPSLocation=True, GPSLat=40.15253, GPSLon=-8.857521)
-    e = _map_extras(real)
-    assert (e["latitude"], e["longitude"]) == (40.15253, -8.857521)
+    aproximado = _map_property(_payload(HasGPSLocation=False, GPSLat=40.16661, GPSLon=-8.845518))
+    assert (aproximado["latitude"], aproximado["longitude"]) == (None, None)
+
+
+def test_gps_aproximado_apaga_o_que_estava_gravado():
+    """A guarda do `_gps` existe desde 2026-08-12 e mesmo assim 40 imóveis
+    publicados tinham o centróide gravado a 2026-08-18 — 19 no mesmo ponto.
+
+    Enquanto isto viveu no `_map_extras`, que filtra os nulos, a chave era
+    simplesmente omitida e o valor antigo sobrevivia a todos os syncs: a guarda
+    impedia escrever, mas nunca apagava. No `_map_property` a chave existe
+    sempre, e é a presença do `None` que limpa. Sem isto, um mapa no site novo
+    punha 19 imóveis no mesmo sítio para sempre."""
+    aproximado = _map_property(_payload(HasGPSLocation=False, GPSLat=40.16661, GPSLon=-8.845518))
+    assert "latitude" in aproximado and "longitude" in aproximado, (
+        "chave omitida — o centróide gravado nunca seria apagado"
+    )
+    assert _map_extras(_payload(HasGPSLocation=True, GPSLat=40.1, GPSLon=-8.8)) .get("latitude") is None, (
+        "latitude de volta ao _map_extras, onde não pode apagar"
+    )
 
 
 def test_piso_usa_a_tag_quando_Floor_nao_vem():

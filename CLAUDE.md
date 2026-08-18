@@ -103,7 +103,7 @@ põe `/lp/*` no ar a dar 500**. Deployar de `git worktree add <tmp> master`.
 
 - **Features do imóvel ≠ zona envolvente** nas `FeatureTags` do eGO: `SWIMMING_POOLS`/`PROPERTY_NEAR_GARDENS` são "há na zona"; as do imóvel são `PROPERTY_HAS_POOL`/`PROPERTY_HAS_GARDEN`. A tag errada põe o A1 a afirmar ao comprador o que o imóvel não tem.
 - **Upsert por lotes do PostgREST**: uma chave presente num só registo vira coluna e escreve NULL em todos os outros. Omitir a chave não protege — custou 40 coordenadas. Esparsos saem por `_map_extras`, UPDATE linha a linha.
-- **`latitude`/`longitude` só com `HasGPSLocation=true`** (13/53): sem o flag o eGO devolve o centróide da zona — 40 imóveis em 11 pontos, 19 no mesmo.
+- **`latitude`/`longitude` só com `HasGPSLocation=true`** (13/55): sem o flag o eGO devolve o centróide da zona — 42 imóveis em 10 pontos, 19 no mesmo. A guarda vive no `_gps`, mas a chave tem de ser escrita pelo **`_map_property`**: no `_map_extras`, que filtra nulos, impedia escrever e nunca apagava — 40 linhas ficaram com o centróide até 2026-08-18.
 - **O eGO demora ~10 min** a expor um imóvel novo na Web API; sincronizar logo a seguir a publicar não o apanha. **Prompt caching a 67%** — "Servido de cache" a zero havendo turnos multiplica o custo por 10.
 - **Três allowlists são fronteiras de segurança**, todas com teste: `_TOOLS_INPUT_SEGURO`, `gerador.CAMPOS_PUBLICOS`, `_FEATURE_BOOLS`.
 - **MQL = orçamento + zona + tipo de interesse** (`guards.lead_qualificada`); o timing só vem do gate das landing pages. **Imóveis contam-se por `publicado` (53)**, não `disponibilidade`.
