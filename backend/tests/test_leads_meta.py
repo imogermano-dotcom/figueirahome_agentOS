@@ -427,6 +427,45 @@ def test_cliente_ganha_a_ficha(monkeypatch):
     assert "250000" not in perfil
 
 
+# ── apresentação da Matilde, uma só vez ─────────────────────────────────────
+#
+# O template da Meta é enviado pelo n8n e gravado em `leads.template_enviado`.
+# Se ele já disser quem é a assistente, repetir "Sou a Matilde" na resposta
+# seguinte soa a robô partido; se não disser e a A1 também não, a pessoa nunca
+# fica a saber com quem fala. Deixar o modelo inferir do histórico dava as duas
+# falhas — daí a instrução ser explícita e calculada aqui.
+
+
+def test_apresenta_se_quando_o_template_nao_a_identificou(monkeypatch):
+    """O template em uso a 2026-08-18 diz só "Fala da Figueirahome"."""
+    perfil, _ = _contexto(monkeypatch, lead={
+        "nome": "Isabel", "ficha": FICHA,
+        "template_enviado": "Olá Isabel,\nFala da Figueirahome.\nEm que posso ser útil?",
+    })
+    assert "Sou a Matilde, assistente virtual da FigueiraHome." in perfil
+    assert "não voltes a apresentar-te" not in perfil
+
+
+def test_nao_repete_a_apresentacao_se_o_template_ja_a_fez(monkeypatch):
+    perfil, _ = _contexto(monkeypatch, lead={
+        "nome": "Isabel", "ficha": FICHA,
+        "template_enviado": "Olá Isabel, sou a Matilde, assistente virtual da FigueiraHome.",
+    })
+    assert "não voltes a apresentar-te" in perfil
+    assert "Começa a tua resposta" not in perfil
+
+
+def test_sem_template_gravado_manda_o_prompt_decidir(monkeypatch):
+    """As 108 leads anteriores ao fluxo do n8n têm `template_enviado` a NULL —
+    não se sabe o que lhes foi dito. Sem instrução injectada, vale a regra geral
+    do prompt: apresentar-se na primeira mensagem."""
+    perfil, msg = _contexto(monkeypatch, lead={
+        "nome": "Isabel", "ficha": FICHA, "template_enviado": None,
+    })
+    assert msg is None
+    assert "Matilde" not in perfil
+
+
 def test_template_entra_so_no_primeiro_turno(monkeypatch):
     lead = {"nome": "Isabel", "ficha": FICHA, "template_enviado": "Olá Isabel, recebemos o seu pedido."}
 

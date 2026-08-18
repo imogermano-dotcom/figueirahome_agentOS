@@ -18,9 +18,11 @@ from datetime import datetime, timezone
 import httpx
 
 from app.agents.broker.assistants import (
+    APRESENTACAO_A1,
     ASSISTENTES,
     MAX_TOKENS,
     MENSAGEM_INATIVO,
+    NOME_A1,
     load_config,
 )
 from app.agents.broker.conversation import load_conversation, save_conversation
@@ -132,6 +134,25 @@ async def _contexto_inicial(
 
     template = lead.get("template_enviado")
     if thread_nova and template:
+        # Dizer ao modelo, sem margem para inferência, se a apresentação já foi
+        # feita. Deixá-lo deduzir do histórico dava as duas falhas: repetir
+        # "Sou a Matilde" logo a seguir ao template que já o dizia, ou nunca se
+        # apresentar por assumir que o template tratou disso.
+        #
+        # O template da Meta é fixo e aprovado, portanto isto é uma pergunta com
+        # uma resposta só — mas é o texto gravado que manda, não um palpite: o
+        # template muda sem o código saber. A 2026-08-18 o que está em uso diz
+        # apenas "Fala da Figueirahome", logo a A1 apresenta-se.
+        if NOME_A1.lower() in template.lower():
+            perfil += (
+                f"\n\nJá te apresentaste como {NOME_A1} na mensagem inicial "
+                "— não voltes a apresentar-te."
+            )
+        else:
+            perfil += (
+                "\n\nA mensagem inicial não te identificou. Começa a tua resposta "
+                f'com "{APRESENTACAO_A1}".'
+            )
         now = datetime.now(timezone.utc).isoformat()
         return perfil, {"role": "assistant", "content": template, "timestamp": now}, lead
     return perfil, None, lead
