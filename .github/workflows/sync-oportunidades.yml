@@ -1,0 +1,33 @@
+name: Sync oportunidades (relatório completo eGO)
+
+# 03:00 UTC, e não junto do sync de imóveis (06:00), de propósito: os dois entram
+# no backoffice do eGO com a MESMA conta — este por Playwright, o outro pela
+# validação CRM — e sessões concorrentes podem derrubar-se. Os agendamentos do
+# GitHub derivam bastante (o cron das 06:00 já disparou às 06:37, 06:52 e 07:22),
+# por isso a folga é de horas, não de minutos. Correu junto a 2026-08-18 e a app
+# principal morreu por OOM.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      # Chama o BACKEND, não o scraper: é o backend que guarda o
+      # `X-Scraper-Secret` e que grava o resumo em `agente_sync_log`. Chamar o
+      # scraper directamente daqui saltava o registo e obrigava a mais um segredo
+      # no GitHub.
+      #
+      # `--max-time 420` fica acima do tecto real, que é o `timeout=240` do
+      # `httpx.AsyncClient` em `api/oportunidades_sync.py`: assim, se o scraper
+      # demorar de mais, o que chega é o 502 do backend com a mensagem dele, e
+      # não um `exit 28` mudo do curl. Se este passo começar a devolver 502 por
+      # tempo, é esse 240 que tem de subir — não este número.
+      - name: Sincronizar oportunidades
+        run: |
+          curl -sf -X POST "https://figueirahome-agentos.fly.dev/api/oportunidades/sync/completo" \
+            -H "X-Sync-Secret: ${{ secrets.EGOREALESTATE_SYNC_SECRET }}" \
+            -w "\ntempo total: %{time_total}s\n" \
+            --max-time 420

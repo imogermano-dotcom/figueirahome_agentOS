@@ -68,7 +68,7 @@ Duas frentes, ambas paradas antes do fim:
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, com pesquisa de imóveis reais |
-| Cron sync eGO 06:00 UTC | ✅ GitHub Action `sync-imoveis.yml` → chama o **Fly.io**, não o repo (sem deploy corre código antigo). Falhou 08-16/17 (ordem + `--max-time`) e 08-18 (OOM a 256mb). Corre em **~43 s** desde os 512mb; `--max-time 600` |
+| Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: ambos entram no backoffice com a mesma conta, e correram juntos a 08-18 com OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
 | `master` | ✅ pushed. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
 ### Fase de hoje — detalhe em `docs/fases/leads-meta-resumo.md`
