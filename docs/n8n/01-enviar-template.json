@@ -55,6 +55,11 @@
               "leftValue": "={{ $json.template_enviado_em }}",
               "rightValue": "",
               "operator": { "type": "object", "operation": "empty", "singleValue": true }
+            },
+            {
+              "leftValue": "={{ ($json.ficha?.aceita_whatsapp || '').trim().toLowerCase().startsWith('sim') }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
             }
           ],
           "combinator": "and"
@@ -66,7 +71,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [-20, 300],
-      "notes": "1) só compra/arrendamento — angariação segue o fluxo humano. 2) tem telefone. 3) template_enviado_em vazio: idempotência, o Make pode repetir o webhook.\n\nA primeira usa `includes()` e Boolean/is true, e NÃO `contains` com \"compra,arrendamento\" do lado direito: o `contains` pergunta se o lado ESQUERDO contém o direito, ou seja se \"compra\" contém \"compra,arrendamento\" — nunca. Falhou assim ao vivo a 2026-08-16."
+      "notes": "1) só compra/arrendamento — angariação segue o fluxo humano. 2) tem telefone. 3) template_enviado_em vazio: idempotência, o Make pode repetir o webhook. 4) consentimento de WhatsApp.\n\nA 1ª usa `includes()` e Boolean/is true, e NÃO `contains` com \"compra,arrendamento\" do lado direito: o `contains` pergunta se o lado ESQUERDO contém o direito, ou seja se \"compra\" contém \"compra,arrendamento\" — nunca. Falhou assim ao vivo a 2026-08-16.\n\nA 4ª reconhece o consentimento pelo PREFIXO, nunca por igualdade a uma frase. O valor de ficha.aceita_whatsapp passou de \"sim,_aceito_receber_informações_pelo_whatsapp\" para \"SIM\" por volta de 2026-08-20, e o filtro pinado à frase antiga deixou de deixar passar seja quem for: a 20/08, 26 leads consentiram e 2 foram contactadas. Lista branca — o que não começa por \"sim\" não recebe, incluindo campo vazio ou em falta."
     },
     {
       "parameters": {

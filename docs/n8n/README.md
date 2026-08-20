@@ -99,18 +99,24 @@ Webhook aceita Header Auth; o Make manda o header.
 1. **Webhook** — o Make chama com `{"meta_lead_id": "…"}`. A linha é lida a
    seguir na base, para não depender do formato do Make.
 2. **Lê a lead** no Supabase.
-3. **Guardas** — três, e todas importam:
+3. **Guardas** — quatro, e todas importam:
    - `tipo` em `compra`/`arrendamento`. Angariação segue o fluxo humano.
    - tem telefone.
    - `template_enviado_em` vazio. **Idempotência**: o Make pode repetir o
      webhook, e sem isto a pessoa recebia a mensagem duas vezes.
+   - **consentimento de WhatsApp**, reconhecido pelo prefixo:
+     ```
+     {{ ($json.ficha?.aceita_whatsapp || '').trim().toLowerCase().startsWith('sim') }}
+     ```
+     Boolean → is true. **Nunca por igualdade a uma frase** — ver a quarta
+     armadilha.
 4. **Prepara** o texto renderizado e o número em E.164.
 5. **Envia** pela Graph API.
 6. **Marca** `template_enviado`, `template_enviado_em` e `estado='contactada'`.
 
 Se a Meta falhar, o nó aborta e a lead fica `nova` — a retentativa apanha-a.
 
-## Três armadilhas
+## Quatro armadilhas
 
 **O `template_enviado` tem de ser o texto renderizado**, com as variáveis já
 substituídas — não o nome do template nem `Olá {{1}}`. É esse texto que o
@@ -124,6 +130,19 @@ senão o histórico do A1 passa a mentir.
 
 **Nunca escrever `respondeu_em`.** Essa coluna é do backend, e é o sinal de que a
 pessoa falou. Se o n8n a escrever, o follow-up deixa de saber quem respondeu.
+
+**O consentimento reconhece-se pelo prefixo, nunca por igualdade.** O valor de
+`ficha.aceita_whatsapp` mudou por volta de 2026-08-20, de
+`sim,_aceito_receber_informações_pelo_whatsapp` para `SIM` — e o histórico foi
+normalizado com ele, portanto nem a base guarda memória de quando aconteceu. O
+filtro pinado à frase antiga deixou de deixar passar seja quem for: **a 20/08, 26
+leads consentiram e 2 foram contactadas**. As restantes 24 nunca souberam de nada.
+
+A mesma armadilha apanhou o distintivo no painel, ao contrário: marcou as 152
+leads como recusa. É a mesma lição das duas pontas — comparar com uma frase que
+outra pessoa controla é uma bomba com temporizador. `startsWith('sim')` aguenta
+`SIM`, `Sim` e a frase longa, e continua a ser lista branca: o que não começa por
+"sim" não recebe, incluindo campo vazio ou em falta.
 
 ## O que o n8n escreve, e o que não escreve
 
