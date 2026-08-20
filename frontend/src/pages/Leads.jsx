@@ -23,9 +23,25 @@ const ORIGENS = ['meta', 'assistente', 'voz', 'landing', 'manual']
 // quem preencheu o formulário continua contactável por telefone até dizer o
 // contrário. Sem este distintivo, estas leads não têm caminho nenhum — o
 // automático está fechado (filtro no n8n) e ninguém sabe que existem.
-const ACEITA_WHATSAPP = 'sim,_aceito_receber_informações_pelo_whatsapp'
-const recusaWhatsapp = lead => (lead.ficha?.aceita_whatsapp ?? null) !== null
-  && lead.ficha.aceita_whatsapp !== ACEITA_WHATSAPP
+//
+// Reconhecido pelo prefixo, não por igualdade a um literal: entre 18 e 20 de
+// Agosto o valor passou de 'sim,_aceito_receber_informações_pelo_whatsapp' para
+// 'SIM'. A versão que comparava com a frase inteira marcou as 152 leads como
+// recusa durante dois dias — e a mesma armadilha existe no filtro do n8n.
+//
+// Opt-in: só conta como consentimento o que começa por "sim". Sem remoção de
+// acentos porque nenhum dos valores os tem no início, e "não" nunca começa por
+// "sim" — a regra funciona para 'SIM', 'Sim', 'sim,_aceito…' e falha em segurança
+// para qualquer coisa que a Meta invente a seguir.
+//
+// `null` = não respondeu (sem distintivo), `false` = recusou, `true` = aceitou.
+function aceitaWhatsapp(lead) {
+  const v = lead.ficha?.aceita_whatsapp
+  if (typeof v !== 'string' || !v.trim()) return null
+  return v.trim().toLowerCase().startsWith('sim')
+}
+
+const recusaWhatsapp = lead => aceitaWhatsapp(lead) === false
 
 const inputCls = "w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition-colors"
 const selectCls = "w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-500 transition-colors"
