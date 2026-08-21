@@ -7,7 +7,7 @@
       "name": "Disparo manual",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [-620, 300],
+      "position": [-760, 300],
       "notes": "MANUAL de propósito. Isto manda mensagens de WhatsApp a pessoas reais; nunca pôr em agenda.\n\nAntes de correr, conferir a data em `criado_em=gte.` e o `Limit` no nó seguinte."
     },
     {
@@ -23,8 +23,20 @@
       "name": "Ler leads pendentes",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
-      "position": [-400, 300],
-      "notes": "Credencial: Supabase API (host + service_role).\n\nFiltro em modo **String** e não Manual: o modo manual não deixa escrever `ficha->>aceita_whatsapp`, que é uma chave dentro de jsonb.\n\nOs quatro filtros são as guardas do fluxo 01 aplicadas já na consulta:\n\n- `template_enviado_em=is.null` — idempotência. É isto que impede mandar duas vezes a quem já recebeu, e o que torna seguro repetir este fluxo.\n- `tipo=in.(compra,arrendamento)` — angariação segue o fluxo humano.\n- `telefone=not.is.null`.\n- `ficha->>aceita_whatsapp=ilike.sim*` — consentimento por PREFIXO. No PostgREST o wildcard do `ilike` é `*`, não `%`. Nunca igualdade a uma frase: o valor passou de 'sim,_aceito_receber_informações_pelo_whatsapp' para 'SIM' a 2026-08-20, e o filtro pinado à frase antiga deixou 24 leads sem mensagem.\n\n`criado_em=gte.` é a janela — EDITAR a cada corrida. `Limit=5` é o travão: correr, conferir os 5, e só depois subir. A 2026-08-21 havia 24 elegíveis de 20/08 e 121 no total desde 13/08."
+      "position": [-540, 300],
+      "notes": "Credencial: Supabase API (host + service_role).\n\nFiltro em modo **String** e não Manual: o manual não deixa escrever `ficha->>aceita_whatsapp`, que é uma chave dentro de jsonb.\n\nOs quatro filtros são as guardas do fluxo 01 aplicadas já na consulta:\n\n- `template_enviado_em=is.null` — idempotência. É isto que impede mandar duas vezes a quem já recebeu, e o que torna seguro repetir este fluxo.\n- `tipo=in.(compra,arrendamento)` — angariação segue o fluxo humano.\n- `telefone=not.is.null`.\n- `ficha->>aceita_whatsapp=ilike.sim*` — consentimento por PREFIXO. No PostgREST o wildcard do `ilike` é `*`, não `%`. Nunca igualdade a uma frase: o valor passou de 'sim,_aceito_receber_informações_pelo_whatsapp' para 'SIM' a 2026-08-20, e o filtro pinado à frase antiga deixou 24 leads sem mensagem.\n\n`criado_em=gte.` é a janela — EDITAR a cada corrida. `Limit=5` é o travão: correr, conferir os 5, e só depois subir. A 2026-08-21 havia 24 elegíveis de 20/08 e 121 no total desde 13/08."
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop",
+      "name": "Uma de cada vez",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [-320, 300],
+      "notes": "`Batch Size = 1`. Sem isto o n8n manda as mensagens todas em rajada — os nós processam os itens em paralelo e não há opção de intervalo no nó da Meta (o `batching` das options é do HTTP Request, não deste).\n\nSaída **done** (a de cima) = acabou. Saída **loop** (a de baixo) = próximo item.\n\nTUDO tem de voltar aqui, incluindo o ramo falso do IF: um ramo que morra sem regressar deixa o ciclo pendurado no item em que estava."
     },
     {
       "parameters": {
@@ -60,8 +72,8 @@
       "name": "Guardas",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [-180, 300],
-      "notes": "Repetidas de propósito, apesar de a consulta já filtrar. São a mesma coisa dita duas vezes: um erro no `filterString` — um nome de coluna trocado, um `is.null` que vira texto — não dá erro nenhum, o PostgREST devolve linhas a mais em silêncio. Aqui a mensagem só sai se as quatro forem verdade sobre a linha que chegou."
+      "position": [-100, 380],
+      "notes": "Repetidas de propósito, apesar de a consulta já filtrar. São a mesma coisa dita duas vezes: um erro no `filterString` — um nome de coluna trocado, um `is.null` que vira texto — não dá erro nenhum, o PostgREST devolve linhas a mais em silêncio. Aqui a mensagem só sai se as quatro forem verdade sobre a linha que chegou.\n\nO ramo **falso** volta ao ciclo: a lead é saltada, não interrompe o resto."
     },
     {
       "parameters": {
@@ -84,6 +96,12 @@
               "name": "nome_lead",
               "value": "={{ $json.nome || 'boa tarde' }}",
               "type": "string"
+            },
+            {
+              "id": "leadid",
+              "name": "lead_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
             }
           ]
         },
@@ -93,8 +111,8 @@
       "name": "Preparar texto e número",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [40, 300],
-      "notes": "`texto_renderizado` tem de ser IGUAL ao do fluxo 01 e ao template aprovado na Meta, com as variáveis já substituídas. É este texto que fica em `leads.template_enviado` e que o A1 lê como algo que já disse.\n\n`nome_lead` existe para o nó da Meta não ter de voltar atrás buscar o nome, e para o parâmetro do template ser o mesmo texto que fica gravado."
+      "position": [120, 380],
+      "notes": "`texto_renderizado` tem de ser IGUAL ao do fluxo 01 e ao template aprovado na Meta, com as variáveis já substituídas. É este texto que fica em `leads.template_enviado` e que o A1 lê como algo que já disse.\n\n`lead_id` viaja com o item de propósito: dentro de um ciclo, `$('Ler leads pendentes').item` refere-se ao item do lote actual e é fácil de enganar. Levar o id na mão evita a dúvida."
     },
     {
       "parameters": {
@@ -114,24 +132,21 @@
               }
             }
           ]
-        },
-        "options": {
-          "batching": { "batch": { "batchSize": 1, "batchInterval": 2000 } }
         }
       },
       "id": "enviar-template",
       "name": "WhatsApp: enviar template",
       "type": "n8n-nodes-base.whatsApp",
       "typeVersion": 1,
-      "position": [260, 300],
-      "notes": "DOIS CAMPOS A ESCOLHER NA INTERFACE, não valem os que estão aqui:\n\n1. **Credencial** WhatsApp Business Cloud.\n2. **Template** — é uma lista carregada da tua conta Meta. O valor tem o formato `nome|idioma`; o que está aqui é um marcador.\n\nTem de sair do MESMO `phone_number_id` do fluxo 01, senão a resposta da lead nunca chega ao A1.\n\n`batching` de 1 em 1 com 2 s: aqui saem dezenas de mensagens de uma vez, ao contrário do fluxo 01 que manda uma. Não é delicadeza com a Meta — é ter tempo de cancelar a execução se as primeiras vierem erradas."
+      "position": [340, 380],
+      "notes": "DOIS CAMPOS A ESCOLHER NA INTERFACE, não valem os que estão aqui:\n\n1. **Credencial** WhatsApp Business Cloud.\n2. **Template** — é uma lista carregada da tua conta Meta. O valor tem o formato `nome|idioma`; o que está aqui é um marcador.\n\nTem de sair do MESMO `phone_number_id` do fluxo 01, senão a resposta da lead nunca chega ao A1.\n\nO espaçamento entre mensagens NÃO se configura aqui — é o `Wait` no fim do ciclo."
     },
     {
       "parameters": {
         "operation": "update",
         "tableId": "leads",
         "filterType": "string",
-        "filterString": "=id=eq.{{ $('Ler leads pendentes').item.json.id }}",
+        "filterString": "=id=eq.{{ $('Preparar texto e número').item.json.lead_id }}",
         "dataToSend": "defineBelow",
         "fieldsUi": {
           "fieldValues": [
@@ -146,8 +161,29 @@
       "name": "Supabase: marcar enviado",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
-      "position": [480, 300],
+      "position": [560, 380],
       "notes": "Só depois do envio ter corrido bem — é o que torna a repetição segura: quem não foi marcado volta a aparecer na consulta da próxima corrida.\n\nNUNCA escrever `respondeu_em`: essa coluna é do backend e é o sinal de que a pessoa falou. Se o n8n a escrever, o follow-up deixa de saber quem respondeu."
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "esperar",
+      "name": "Esperar 5s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [780, 380],
+      "notes": "5 s entre mensagens. Não é limite da Meta — 24 mensagens não a incomodam. É para veres as primeiras chegarem e teres tempo de parar a execução se estiverem erradas: às 24 leads, isto demora 2 minutos.\n\nDepois volta ao `Uma de cada vez`, que puxa a seguinte."
+    },
+    {
+      "parameters": {},
+      "id": "fim",
+      "name": "Fim",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [-100, 180],
+      "notes": "Saída **done** do ciclo. Chegar aqui = todas as leads do lote foram processadas."
     }
   ],
   "connections": {
@@ -155,16 +191,31 @@
       "main": [[{ "node": "Ler leads pendentes", "type": "main", "index": 0 }]]
     },
     "Ler leads pendentes": {
-      "main": [[{ "node": "Guardas", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Uma de cada vez", "type": "main", "index": 0 }]]
+    },
+    "Uma de cada vez": {
+      "main": [
+        [{ "node": "Fim", "type": "main", "index": 0 }],
+        [{ "node": "Guardas", "type": "main", "index": 0 }]
+      ]
     },
     "Guardas": {
-      "main": [[{ "node": "Preparar texto e número", "type": "main", "index": 0 }], []]
+      "main": [
+        [{ "node": "Preparar texto e número", "type": "main", "index": 0 }],
+        [{ "node": "Uma de cada vez", "type": "main", "index": 0 }]
+      ]
     },
     "Preparar texto e número": {
       "main": [[{ "node": "WhatsApp: enviar template", "type": "main", "index": 0 }]]
     },
     "WhatsApp: enviar template": {
       "main": [[{ "node": "Supabase: marcar enviado", "type": "main", "index": 0 }]]
+    },
+    "Supabase: marcar enviado": {
+      "main": [[{ "node": "Esperar 5s", "type": "main", "index": 0 }]]
+    },
+    "Esperar 5s": {
+      "main": [[{ "node": "Uma de cada vez", "type": "main", "index": 0 }]]
     }
   },
   "settings": { "executionOrder": "v1" }

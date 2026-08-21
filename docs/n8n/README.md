@@ -187,9 +187,17 @@ aparece na corrida seguinte.
 `Guardas`. Um nome de coluna trocado no filtro não dá erro: o PostgREST devolve
 linhas a mais em silêncio. O `IF` verifica sobre a linha que chegou.
 
-O envio vai **1 a 1 com 2 s de intervalo** (`batching` no nó da Meta). Aqui saem
-dezenas de mensagens de uma vez, ao contrário do fluxo 01; o intervalo dá tempo
-de cancelar a execução se algo estiver errado.
+**O espaçamento é um ciclo explícito, não uma opção do nó.** *Uma de cada vez*
+(`Split In Batches`, tamanho 1) → envia → marca → `Wait` de 5 s → volta. Sem
+isto o n8n manda as mensagens em rajada: os nós processam os itens em paralelo,
+e o `batching` das *options* é do HTTP Request, **não** do nó da Meta — pô-lo lá
+não dá erro e não faz nada.
+
+Às 24 leads são 2 minutos, e é isso que dá tempo de ver as primeiras chegarem e
+parar a execução se estiverem erradas.
+
+⚠️ **Tudo tem de regressar ao ciclo**, incluindo o ramo falso do `IF`. Um ramo
+que morra sem voltar deixa o ciclo pendurado no item em que estava.
 
 **Decidir a idade antes de correr.** As de ontem são leads quentes. As de 13 de
 Agosto têm mais de uma semana, e "recebemos o seu pedido" sobre um pedido de há
