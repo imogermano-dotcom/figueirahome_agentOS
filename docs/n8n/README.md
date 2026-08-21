@@ -158,22 +158,34 @@ Disparo **manual**, para as leads que consentiram e nunca receberam o template.
 Nasceu a 2026-08-21: o filtro do fluxo 01 estava pinado à frase antiga do
 consentimento e deixou 24 leads de 20/08 sem nada — 121 no total desde 13/08.
 
-Mesma cadeia do fluxo 01, com a lista a vir de uma consulta em vez do webhook.
+Mesma cadeia do fluxo 01, mas com os **nós nativos** (Supabase e WhatsApp
+Business Cloud) em vez de HTTP Request, e a lista a vir de uma consulta em vez
+do webhook.
+
+**Dois campos a escolher na interface** depois de importar — os valores no
+ficheiro são marcadores:
+
+- a **credencial** de cada nó (Supabase API e WhatsApp Business Cloud);
+- o **template**, no nó da Meta. É uma lista carregada da conta, no formato
+  `nome|idioma`.
 
 **Antes de cada corrida, duas coisas a editar** no nó *Ler leads pendentes*:
 
 | Parâmetro | Para quê |
 |---|---|
-| `criado_em` = `gte.2026-08-20` | a janela. Sem isto apanha desde 13/08 |
-| `limit` = `5` | o travão. Correr, conferir os 5, e só depois subir |
+| `criado_em` = `gte.2026-08-20` no `filterString` | a janela. Sem isto apanha desde 13/08 |
+| `Limit` = `5` | o travão. Correr, conferir os 5, e só depois subir |
+
+O filtro está em modo **String** e não Manual porque o manual não deixa escrever
+`ficha->>aceita_whatsapp`, que é uma chave dentro de `jsonb`.
 
 **É seguro repetir.** `template_enviado_em=is.null` na consulta e a marcação só
 depois do envio: quem já recebeu não volta a aparecer, e quem falhou a meio
 aparece na corrida seguinte.
 
-**As guardas estão em dois sítios de propósito** — na consulta e no nó `Guardas`.
-Um nome de coluna errado nos parâmetros do PostgREST não dá erro: devolve linhas
-a mais em silêncio. O `IF` verifica sobre a linha que chegou.
+**As guardas estão em dois sítios de propósito** — no `filterString` e no nó
+`Guardas`. Um nome de coluna trocado no filtro não dá erro: o PostgREST devolve
+linhas a mais em silêncio. O `IF` verifica sobre a linha que chegou.
 
 O envio vai **1 a 1 com 2 s de intervalo** (`batching` no nó da Meta). Aqui saem
 dezenas de mensagens de uma vez, ao contrário do fluxo 01; o intervalo dá tempo

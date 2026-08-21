@@ -8,34 +8,23 @@
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [-620, 300],
-      "notes": "MANUAL de propósito. Isto manda mensagens de WhatsApp a pessoas reais; nunca pôr em agenda.\n\nAntes de correr, conferir a data em `criado_em=gte.` e o `limit` no nó seguinte."
+      "notes": "MANUAL de propósito. Isto manda mensagens de WhatsApp a pessoas reais; nunca pôr em agenda.\n\nAntes de correr, conferir a data em `criado_em=gte.` e o `Limit` no nó seguinte."
     },
     {
       "parameters": {
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "select", "value": "id,tipo,estado,nome,telefone,email,ficha,template_enviado_em,criado_em" },
-            { "name": "template_enviado_em", "value": "is.null" },
-            { "name": "tipo", "value": "in.(compra,arrendamento)" },
-            { "name": "telefone", "value": "not.is.null" },
-            { "name": "ficha->>aceita_whatsapp", "value": "ilike.sim*" },
-            { "name": "criado_em", "value": "gte.2026-08-20" },
-            { "name": "order", "value": "criado_em.asc" },
-            { "name": "limit", "value": "5" }
-          ]
-        },
-        "options": {}
+        "operation": "getAll",
+        "tableId": "leads",
+        "returnAll": false,
+        "limit": 5,
+        "filterType": "string",
+        "filterString": "template_enviado_em=is.null&tipo=in.(compra,arrendamento)&telefone=not.is.null&ficha->>aceita_whatsapp=ilike.sim*&criado_em=gte.2026-08-20&order=criado_em.asc"
       },
       "id": "ler-pendentes",
       "name": "Ler leads pendentes",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
       "position": [-400, 300],
-      "notes": "Os quatro filtros são as mesmas guardas do fluxo automático, aplicadas já na consulta:\n\n- `template_enviado_em=is.null` — idempotência. É isto que impede mandar duas vezes a quem já recebeu, e o que torna seguro correr este fluxo repetidamente.\n- `tipo=in.(compra,arrendamento)` — angariação segue o fluxo humano.\n- `telefone=not.is.null`.\n- `ficha->>aceita_whatsapp=ilike.sim*` — consentimento por PREFIXO. No PostgREST o wildcard do `ilike` é `*`, não `%`. Nunca igualdade a uma frase: o valor passou de 'sim,_aceito_receber_informações_pelo_whatsapp' para 'SIM' a 2026-08-20 e o filtro pinado à frase antiga deixou 24 leads sem mensagem.\n\n`criado_em=gte.` é a janela — EDITAR a cada corrida. `limit=5` é o travão: correr, conferir os 5, e só depois subir. A 2026-08-21 havia 24 elegíveis de 20/08 e 121 no total desde 13/08."
+      "notes": "Credencial: Supabase API (host + service_role).\n\nFiltro em modo **String** e não Manual: o modo manual não deixa escrever `ficha->>aceita_whatsapp`, que é uma chave dentro de jsonb.\n\nOs quatro filtros são as guardas do fluxo 01 aplicadas já na consulta:\n\n- `template_enviado_em=is.null` — idempotência. É isto que impede mandar duas vezes a quem já recebeu, e o que torna seguro repetir este fluxo.\n- `tipo=in.(compra,arrendamento)` — angariação segue o fluxo humano.\n- `telefone=not.is.null`.\n- `ficha->>aceita_whatsapp=ilike.sim*` — consentimento por PREFIXO. No PostgREST o wildcard do `ilike` é `*`, não `%`. Nunca igualdade a uma frase: o valor passou de 'sim,_aceito_receber_informações_pelo_whatsapp' para 'SIM' a 2026-08-20, e o filtro pinado à frase antiga deixou 24 leads sem mensagem.\n\n`criado_em=gte.` é a janela — EDITAR a cada corrida. `Limit=5` é o travão: correr, conferir os 5, e só depois subir. A 2026-08-21 havia 24 elegíveis de 20/08 e 121 no total desde 13/08."
     },
     {
       "parameters": {
@@ -72,7 +61,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [-180, 300],
-      "notes": "Repetidas de propósito, apesar de a consulta já filtrar. São a mesma coisa dita duas vezes: um erro de escrita nos parâmetros do PostgREST (um `is.null` que vira texto, um filtro que o PostgREST ignora em silêncio por o nome da coluna estar errado) devolve linhas a mais sem dar erro nenhum. Aqui a mensagem só sai se as quatro forem verdade sobre a linha que chegou."
+      "notes": "Repetidas de propósito, apesar de a consulta já filtrar. São a mesma coisa dita duas vezes: um erro no `filterString` — um nome de coluna trocado, um `is.null` que vira texto — não dá erro nenhum, o PostgREST devolve linhas a mais em silêncio. Aqui a mensagem só sai se as quatro forem verdade sobre a linha que chegou."
     },
     {
       "parameters": {
@@ -89,6 +78,12 @@
               "name": "telefone_e164",
               "value": "={{ $json.telefone.length === 9 ? '351' + $json.telefone : $json.telefone }}",
               "type": "string"
+            },
+            {
+              "id": "nome",
+              "name": "nome_lead",
+              "value": "={{ $json.nome || 'boa tarde' }}",
+              "type": "string"
             }
           ]
         },
@@ -99,51 +94,60 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [40, 300],
-      "notes": "Tem de ser IGUAL ao do fluxo 01 e ao template aprovado na Meta. É este texto que fica em `leads.template_enviado` e que o A1 lê como algo que já disse."
+      "notes": "`texto_renderizado` tem de ser IGUAL ao do fluxo 01 e ao template aprovado na Meta, com as variáveis já substituídas. É este texto que fica em `leads.template_enviado` e que o A1 lê como algo que já disse.\n\n`nome_lead` existe para o nó da Meta não ter de voltar atrás buscar o nome, e para o parâmetro do template ser o mesmo texto que fica gravado."
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "=https://graph.facebook.com/v19.0/{{ $env.META_PHONE_NUMBER_ID }}/messages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"messaging_product\": \"whatsapp\",\n  \"to\": \"{{ $json.telefone_e164 }}\",\n  \"type\": \"template\",\n  \"template\": {\n    \"name\": \"NOME_DO_TEMPLATE_APROVADO\",\n    \"language\": { \"code\": \"pt_PT\" },\n    \"components\": [\n      {\n        \"type\": \"body\",\n        \"parameters\": [\n          { \"type\": \"text\", \"text\": \"{{ $('Ler leads pendentes').item.json.nome || 'boa tarde' }}\" }\n        ]\n      }\n    ]\n  }\n}",
+        "operation": "send",
+        "phoneNumberId": "={{ $env.META_PHONE_NUMBER_ID }}",
+        "recipientPhoneNumber": "={{ $json.telefone_e164 }}",
+        "messageType": "template",
+        "template": "NOME_DO_TEMPLATE_APROVADO|pt_PT",
+        "components": {
+          "component": [
+            {
+              "type": "body",
+              "bodyParameters": {
+                "parameter": [
+                  { "type": "text", "text": "={{ $json.nome_lead }}" }
+                ]
+              }
+            }
+          ]
+        },
         "options": {
           "batching": { "batch": { "batchSize": 1, "batchInterval": 2000 } }
         }
       },
       "id": "enviar-template",
-      "name": "Meta: enviar template",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "name": "WhatsApp: enviar template",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
       "position": [260, 300],
-      "notes": "`batching` de 1 em 1 com 2 s de intervalo: aqui saem dezenas de mensagens de uma vez, ao contrário do fluxo 01 que manda uma. Não é só delicadeza com a Meta — é reduzir o estrago se algo estiver errado, porque dá tempo de cancelar a execução a meio.\n\nMesmo `phone_number_id` do fluxo 01, senão a resposta da lead nunca chega ao A1."
+      "notes": "DOIS CAMPOS A ESCOLHER NA INTERFACE, não valem os que estão aqui:\n\n1. **Credencial** WhatsApp Business Cloud.\n2. **Template** — é uma lista carregada da tua conta Meta. O valor tem o formato `nome|idioma`; o que está aqui é um marcador.\n\nTem de sair do MESMO `phone_number_id` do fluxo 01, senão a resposta da lead nunca chega ao A1.\n\n`batching` de 1 em 1 com 2 s: aqui saem dezenas de mensagens de uma vez, ao contrário do fluxo 01 que manda uma. Não é delicadeza com a Meta — é ter tempo de cancelar a execução se as primeiras vierem erradas."
     },
     {
       "parameters": {
-        "method": "PATCH",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "id", "value": "=eq.{{ $('Ler leads pendentes').item.json.id }}" }
+        "operation": "update",
+        "tableId": "leads",
+        "filterType": "string",
+        "filterString": "=id=eq.{{ $('Ler leads pendentes').item.json.id }}",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "template_enviado", "fieldValue": "={{ $('Preparar texto e número').item.json.texto_renderizado }}" },
+            { "fieldId": "template_enviado_em", "fieldValue": "={{ $now.toISO() }}" },
+            { "fieldId": "estado", "fieldValue": "contactada" },
+            { "fieldId": "atualizado_em", "fieldValue": "={{ $now.toISO() }}" }
           ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"template_enviado\": {{ JSON.stringify($('Preparar texto e número').item.json.texto_renderizado) }},\n  \"template_enviado_em\": \"{{ $now.toISO() }}\",\n  \"estado\": \"contactada\",\n  \"atualizado_em\": \"{{ $now.toISO() }}\"\n}",
-        "options": {}
+        }
       },
       "id": "marcar-enviado",
       "name": "Supabase: marcar enviado",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
       "position": [480, 300],
-      "notes": "Só depois do envio ter corrido bem — é o que torna a repetição segura: quem não foi marcado volta a aparecer na consulta da próxima corrida. NUNCA escrever `respondeu_em`: essa é do backend."
+      "notes": "Só depois do envio ter corrido bem — é o que torna a repetição segura: quem não foi marcado volta a aparecer na consulta da próxima corrida.\n\nNUNCA escrever `respondeu_em`: essa coluna é do backend e é o sinal de que a pessoa falou. Se o n8n a escrever, o follow-up deixa de saber quem respondeu."
     }
   ],
   "connections": {
@@ -157,9 +161,9 @@
       "main": [[{ "node": "Preparar texto e número", "type": "main", "index": 0 }], []]
     },
     "Preparar texto e número": {
-      "main": [[{ "node": "Meta: enviar template", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "WhatsApp: enviar template", "type": "main", "index": 0 }]]
     },
-    "Meta: enviar template": {
+    "WhatsApp: enviar template": {
       "main": [[{ "node": "Supabase: marcar enviado", "type": "main", "index": 0 }]]
     }
   },
