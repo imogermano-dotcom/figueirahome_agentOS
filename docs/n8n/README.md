@@ -152,6 +152,37 @@ outra pessoa controla é uma bomba com temporizador. `startsWith('sim')` aguenta
 | `respondeu_em`, `conversa_id` | backend, quando a lead fala |
 | `estado='qualificada'`, `qualificada_em` | backend, quando o MQL fica completo |
 
+## `02-backfill-template.json` — recuperar quem ficou sem mensagem
+
+Disparo **manual**, para as leads que consentiram e nunca receberam o template.
+Nasceu a 2026-08-21: o filtro do fluxo 01 estava pinado à frase antiga do
+consentimento e deixou 24 leads de 20/08 sem nada — 121 no total desde 13/08.
+
+Mesma cadeia do fluxo 01, com a lista a vir de uma consulta em vez do webhook.
+
+**Antes de cada corrida, duas coisas a editar** no nó *Ler leads pendentes*:
+
+| Parâmetro | Para quê |
+|---|---|
+| `criado_em` = `gte.2026-08-20` | a janela. Sem isto apanha desde 13/08 |
+| `limit` = `5` | o travão. Correr, conferir os 5, e só depois subir |
+
+**É seguro repetir.** `template_enviado_em=is.null` na consulta e a marcação só
+depois do envio: quem já recebeu não volta a aparecer, e quem falhou a meio
+aparece na corrida seguinte.
+
+**As guardas estão em dois sítios de propósito** — na consulta e no nó `Guardas`.
+Um nome de coluna errado nos parâmetros do PostgREST não dá erro: devolve linhas
+a mais em silêncio. O `IF` verifica sobre a linha que chegou.
+
+O envio vai **1 a 1 com 2 s de intervalo** (`batching` no nó da Meta). Aqui saem
+dezenas de mensagens de uma vez, ao contrário do fluxo 01; o intervalo dá tempo
+de cancelar a execução se algo estiver errado.
+
+**Decidir a idade antes de correr.** As de ontem são leads quentes. As de 13 de
+Agosto têm mais de uma semana, e "recebemos o seu pedido" sobre um pedido de há
+oito dias soa mal — podem merecer outro texto, ou nenhum.
+
 ## Follow-up às 48h — por construir
 
 A query já é trivial e inequívoca, graças à `0027`:
