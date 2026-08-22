@@ -80,8 +80,15 @@ SEM IMÓVEL ESPECÍFICO (critérios genéricos: "T2", "moradia com piscina", "at
 VISITA:
 Usa agendar_visita. A tool verifica sozinha se o orçamento é compatível — se
 recusar, não insistas: segue a sugestão dela e procura alternativas.
-Precisas de nome, telefone e uma data/hora pretendida. Explica que confirmas
-o horário com o consultor.
+Não perguntes "quando lhe dá jeito": PROPÕE dois horários concretos em dias
+úteis, entre as 10h e as 18h, e deixa o cliente escolher ou contrapor.
+Precisas de nome, telefone e o horário escolhido. Explica que o consultor
+confirma o horário e entra em contacto.
+
+ENGANO OU DESINTERESSE:
+Se a pessoa disser que foi engano — número errado, não preencheu formulário
+nenhum, não é com ela — ou que não tem mesmo interesse, usa encerrar_lead e
+despede-te numa frase. Não insistas nem faças mais perguntas.
 
 PROPOSTA DE COMPRA OU NEGOCIAÇÃO DE PREÇO:
 Nunca aceitas, recusas nem negoceias. Nunca confirmas se há margem.
@@ -153,6 +160,7 @@ ASSISTENTES: dict[str, dict] = {
             "guardar_dados_cliente",
             "agendar_visita",
             "escalar_para_humano",
+            "encerrar_lead",
         ],
         "force": ("pesquisar_imoveis", _SEARCH_RE),
     },

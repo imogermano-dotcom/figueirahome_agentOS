@@ -19,15 +19,24 @@ from pydantic import BaseModel
 # União dos dois vocabulários que existiam. O de `leads` (0021) manda porque é
 # dele que `guards._ESTADOS_LEAD_ABERTA` depende; `visita` e `proposta` vêm do
 # painel antigo e são etapas comerciais reais que não havia razão para perder.
+#
+# `sem_resposta` e `engano` são os desfechos da spec §2.2 que faltavam. Nenhum
+# precisa de migration: a `0021` descreve os estados num comentário, não numa
+# CHECK constraint.
 ESTADOS = (
-    "nova", "contactada", "qualificada",
+    "nova", "contactada", "sem_resposta", "qualificada",
     "visita", "proposta",
-    "fechada", "perdida", "sem_interesse",
+    "fechada", "perdida", "sem_interesse", "engano",
 )
 
 # Fechadas para o assistente: uma lead nestes estados não volta a ser reaberta
 # nem requalificada (`tools._criar_lead_se_preciso`).
-ESTADOS_FECHADOS = ("fechada", "perdida", "sem_interesse")
+#
+# `sem_resposta` **não** está aqui de propósito — significa "desistimos de
+# insistir", não "não falar com esta pessoa". Quem responde uma semana depois tem
+# de continuar a cair na A1 com o `imovel_ref` do anúncio; fechá-lo fazia
+# `guards.lead_aberta` devolver None e a pessoa chegava ao A2 sem contexto.
+ESTADOS_FECHADOS = ("fechada", "perdida", "sem_interesse", "engano")
 
 # Eixo distinto de `tipo` (o interesse: compra | angariacao).
 ORIGENS = ("meta", "assistente", "voz", "landing", "manual")

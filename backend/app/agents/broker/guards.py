@@ -157,7 +157,13 @@ def _promover_lead(
 # resposta ("Sim", "Olá") deixa de ter routing colado e cai no A2. Esta janela
 # cobre esse intervalo sem forçar o A1 para sempre a quem já foi trabalhado.
 _JANELA_LEAD_DIAS = 30
-_ESTADOS_LEAD_ABERTA = ("nova", "contactada")
+#
+# `sem_resposta` conta como aberta: é o estado que o follow-up das 48h escreve, e
+# quer dizer "desistimos de insistir", não "não falar com esta pessoa". Quem
+# responde uma semana depois tem de manter a A1 e o `imovel_ref` do anúncio.
+# Como esta mesma tupla é o filtro de `promover_se_qualificada`, uma resposta
+# tardia que traga o MQL completo continua a ser promovida.
+_ESTADOS_LEAD_ABERTA = ("nova", "contactada", "sem_resposta")
 
 
 # `ficha` (respostas do formulário da Meta) → colunas do MQL. Vive aqui, ao lado
@@ -306,6 +312,55 @@ async def promover_se_qualificada(telefone: str | None) -> None:
         # Corre depois de a resposta estar entregue ao cliente: falhar aqui não
         # pode derrubar a conversa. Repete-se no turno seguinte na mesma.
         logger.exception("Falha ao promover lead de %s", numero)
+
+
+_MOTIVOS_ENCERRAMENTO = ("engano", "sem_interesse")
+
+
+async def encerrar_lead_do_telefone(
+    telefone: str | None, motivo: str, nota: str | None = None
+) -> bool:
+    """Fecha a lead deste número. Desfecho "Engano" da spec §2.2.
+
+    A spec diz "Regista o contacto na base de dados com o estado 'engano'. Sem
+    mais ações" — e é à letra: nem cliente, nem tarefa, nem email. O único efeito
+    é o estado, e o estado é o que faz a pessoa deixar de ser perseguida:
+    `engano` está em `ESTADOS_FECHADOS`, logo `lead_aberta` passa a devolver
+    `None` (o router larga a A1), `_criar_lead_se_preciso` não reabre, e o
+    follow-up das 48h filtra por `estado in (nova, contactada)`.
+
+    Quem decide que houve engano é o modelo, via tool; quem escreve é isto. Só
+    mexe em leads abertas: uma segunda chamada sobre algo já fechado não reescreve
+    o motivo original.
+    """
+    numero = normalizar_telefone(telefone)
+    if not numero or motivo not in _MOTIVOS_ENCERRAMENTO:
+        return False
+
+    agora = datetime.now(timezone.utc).isoformat()
+    dados = {"estado": motivo, "atualizado_em": agora}
+    if nota:
+        dados["notas"] = nota
+
+    def _fechar():
+        return (
+            get_supabase()
+            .table("leads")
+            .update(dados)
+            .in_("telefone", variantes_telefone(numero))
+            .in_("estado", list(_ESTADOS_LEAD_ABERTA))
+            .execute()
+        )
+
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, _fechar)
+    except Exception:
+        logger.exception("Falha a encerrar lead de %s (%s)", numero, motivo)
+        return False
+
+    fechadas = len(resp.data or [])
+    logger.info("Lead de %s encerrada como '%s' (%d linha(s))", numero, motivo, fechadas)
+    return fechadas > 0
 
 
 def visita_permitida(orcamento: float | None, preco: float | None) -> bool:

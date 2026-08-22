@@ -101,6 +101,7 @@ class _FakeQuery:
     def __init__(self, tabela, estado):
         self.tabela, self.estado = tabela, estado
         self._dados = []
+        self._pendente = None
 
     def select(self, *a, **k):
         # O cliente é procurado por variantes do telefone, não por `eq` — tanto
@@ -110,11 +111,11 @@ class _FakeQuery:
         return self
 
     def update(self, dados):
-        self.estado["updates"].append((self.tabela, dados))
-        # A promoção tem de ser visível na chamada seguinte, senão a
-        # idempotência não se consegue testar.
-        if self.tabela == "leads" and self.estado.get("lead"):
-            self.estado["lead"].update(dados)
+        # Adiado até ao `execute()`: no PostgREST o `update` vem antes dos
+        # filtros, e aplicar já aqui fazia o duplo escrever em linhas que a query
+        # real nunca tocaria — era impossível testar um `.in_("estado", ...)`
+        # restritivo, que é exactamente a guarda de `encerrar_lead_do_telefone`.
+        self._pendente = dados
         return self
 
     def insert(self, dados):
@@ -150,6 +151,15 @@ class _FakeQuery:
 
     def execute(self):
         from types import SimpleNamespace
+        # Um update só conta se os filtros deixaram alguma linha de pé — é assim
+        # que o Postgres se comporta, e é a diferença entre "a lead fechou" e
+        # "reescrevi uma lead que já estava fechada".
+        if self._pendente is not None and self._dados:
+            self.estado["updates"].append((self.tabela, self._pendente))
+            if self.tabela == "leads" and self.estado.get("lead"):
+                # A escrita tem de ser visível na chamada seguinte, senão a
+                # idempotência não se consegue testar.
+                self.estado["lead"].update(self._pendente)
         return SimpleNamespace(data=self._dados)
 
 
@@ -649,6 +659,70 @@ def test_ficha_vazia_nao_inventa_perfil(monkeypatch):
     formulário, o resultado é perfil vazio — não uma frase truncada."""
     perfil, _ = _contexto(monkeypatch, lead={"nome": None, "ficha": {"campo_desconhecido": "x"}})
     assert perfil == ""
+
+
+# ══════════════════════════════════════════════════════════════
+# Desfecho "Engano" (spec §2.2) — `encerrar_lead_do_telefone`
+# ══════════════════════════════════════════════════════════════
+
+
+@pytest.fixture
+def encerramento(monkeypatch):
+    """`guards` com Supabase falso. Devolve `(fechar, estado)`."""
+    import app.agents.broker.guards as guards
+
+    estado = {"lead": dict(LEAD), "cliente": None, "inserts": [], "updates": []}
+    monkeypatch.setattr(guards, "get_supabase", lambda: _FakeSupabase(estado))
+
+    def fechar(motivo="engano", nota=None):
+        return asyncio.run(
+            guards.encerrar_lead_do_telefone(LEAD["telefone"], motivo, nota)
+        )
+
+    return fechar, estado
+
+
+def test_engano_fecha_a_lead_e_nao_faz_mais_nada(encerramento):
+    """A spec diz "Regista o contacto com o estado engano. Sem mais ações" — e é
+    à letra. Uma tarefa aqui punha o corretor a ligar a quem acabou de dizer que
+    foi engano, que é o oposto do desfecho."""
+    fechar, estado = encerramento
+
+    assert fechar("engano", "disse que é número errado") is True
+
+    assert estado["lead"]["estado"] == "engano"
+    assert estado["lead"]["notas"] == "disse que é número errado"
+    assert not estado["inserts"], "sem tarefa, sem cliente: 'sem mais ações'"
+
+
+def test_lead_ja_fechada_nao_e_reescrita(encerramento):
+    """Segunda chamada sobre uma lead já fechada não lhe muda o motivo — o
+    filtro `estado in _ESTADOS_LEAD_ABERTA` é o que garante isso."""
+    fechar, estado = encerramento
+    estado["lead"]["estado"] = "fechada"
+
+    assert fechar("engano") is False
+    assert estado["lead"]["estado"] == "fechada"
+    assert not [d for t, d in estado["updates"] if t == "leads"]
+
+
+def test_lead_sem_resposta_ainda_pode_ser_encerrada(encerramento):
+    """`sem_resposta` é estado aberto: quem responde tarde a dizer que foi
+    engano tem de conseguir fechar na mesma."""
+    fechar, estado = encerramento
+    estado["lead"]["estado"] = "sem_resposta"
+
+    assert fechar("engano") is True
+    assert estado["lead"]["estado"] == "engano"
+
+
+def test_motivo_desconhecido_nao_escreve_nada(encerramento):
+    """O enum da tool é a fronteira, mas o modelo escolhe o valor. Um motivo
+    fora da lista não pode inventar um estado que o painel não conhece."""
+    fechar, estado = encerramento
+
+    assert fechar("aborrecido") is False
+    assert not estado["updates"]
 
 
 if __name__ == "__main__":

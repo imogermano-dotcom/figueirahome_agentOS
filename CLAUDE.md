@@ -5,8 +5,8 @@
 ## O que é
 
 Plataforma de IA para agência imobiliária em Portugal:
-1. **Assistentes de atendimento** — **A1 Vendedor** (compradores e arrendatários) e
-   **A2 Geral** (recepção e encaminhamento), em WhatsApp e no chat do painel.
+1. **Assistentes de atendimento** — **A1 Vendedor "Matilde"** (compradores e arrendatários) e
+   **A2 Geral "Maria"** (recepção e encaminhamento), em WhatsApp e no painel.
 2. **Agente de Voz** — atendimento telefónico (Telnyx). Bloqueado por credenciais.
 3. **Assistente Broker** — chat interno do corretor, com acesso de leitura à BD.
 4. **Painel de gestão** — React: clientes, imóveis, leads, métricas dos assistentes.
@@ -50,12 +50,10 @@ cloudflare/ ⑂  worker-landing.js (proxy site.pt/imovel/* → /lp/*)
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-08-13
+## Estado actual — Handoff 2026-08-23
 
-Duas frentes, ambas paradas antes do fim:
-
-1. **Leads da Meta** (fase de hoje) — construída, testada ao vivo, `0021`
-   aplicada. **Por deployar** e com um buraco por fechar (ver abaixo).
+1. **Leads da Meta** — a correr ao vivo. Os três desfechos da spec §2.2 são a
+   fase de hoje: **`0030` por correr, tudo por deployar** (ver abaixo).
 2. **Landing pages** — construída desde 08-08, isolada no ramo
    **`feat/landing-pages`**, em standby à espera da decisão de alojamento do
    cliente. Não deployar, não fazer merge.
@@ -69,23 +67,25 @@ Duas frentes, ambas paradas antes do fim:
 | Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, com pesquisa de imóveis reais |
 | Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: ambos entram no backoffice com a mesma conta, e correram juntos a 08-18 com OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
-| `master` | ✅ pushed. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
+| `master` | ⚠️ **com commits por pushar e por deployar** (apresentação da Matilde + os três desfechos). Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
-### Fase de hoje — detalhe em `docs/fases/leads-meta-resumo.md`
+### Fase de hoje — os três desfechos da spec §2.2
 
-Sync eGO (deployado, `_map_property` passou de 25 para 60 colunas), leads da
-Meta (semeadura da conversa, `0021`) e o fecho do buraco da qualificação
-(`guards.promover_se_qualificada`, ao fim de cada turno). Os dois últimos estão
-em `master` e **por deployar**.
+Faltavam dois e meio dos três. **Engano** (não existia): tool `encerrar_lead`,
+escrita em `guards.encerrar_lead_do_telefone`, "Sem mais ações" à letra.
+**Sem resposta 48h** (não existia): `0030` (`follow_up_em`, o travão) +
+`docs/n8n/03-follow-up-48h.json`, diário às 10h Lisboa. **Interesse real**
+(parcial): a visita passou a avisar por email, e a Matilde propõe horários em vez
+de os perguntar. **`0030` por correr, tudo por deployar** — com o `25f62b3`
+(apresentação garantida) atrás.
 
 ### Visitas do eGO — `0023` aplicada, scraper deployado 2026-08-15
 
-Uma oportunidade só guardava **1 visita** (colunas `visita_*` em `oportunidades`,
-chave `oportunidade_ref`); o eGO dá uma linha por visita e o `setdefault` em
-`group()` ficava com a primeira. Medido: 25517 oportunidades, 1739 com visita,
-máximo de 1. Tabela `visitas` própria (chave `visita_ref_ego`), aditiva —
-`oportunidades` fica intacta por causa do portal do Miguel. O histórico perdido
-só volta reprocessando um export com período largo; adiado.
+Uma oportunidade só guardava **1 visita** (o eGO dá uma linha por visita e o
+`setdefault` em `group()` ficava com a primeira; medido: 1739 com visita, máximo
+de 1). Tabela `visitas` própria (`visita_ref_ego`), aditiva — `oportunidades`
+fica intacta por causa do portal do Miguel. O histórico perdido só volta
+reprocessando um export com período largo; adiado.
 
 ### Landing pages — standby no ramo `feat/landing-pages`
 
@@ -125,7 +125,7 @@ do repo** — não gerir daqui; o portal do Miguel também as lê.
 
 - Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>`
 - `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌
-- Testes: `pytest backend/tests/` de `backend/` — **91**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Testes: `pytest backend/tests/` de `backend/` — **130**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -139,6 +139,7 @@ do repo** — não gerir daqui; o portal do Miguel também as lê.
 
 ### Próximos passos
 
+0. **Fechar a fase dos desfechos**: correr a **`0030`**, push + deploy, importar o `03-follow-up-48h.json` e correr **à mão com `Limit=5`** antes de activar a agenda (a contagem de controlo está no `docs/n8n/README.md`). Precisa de **template de follow-up aprovado na Meta** — é outro, não o do fluxo 01.
 1. **Validar em produção**: correr "Validar CRM" no painel (resolve os 12 imóveis em limbo) e uma lead de teste ponta a ponta. Backend e scraper já deployados.
 2. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) e **chave do portal do Miguel** → desbloqueia a `0022` (RLS). E **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria estado "Disponível" — 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
 3. **Confirmar com o Make/n8n**: campos reais do formulário de venda (`_ALIAS_FICHA`) e quem marca `whatsapp_permissao`. **Decisão de alojamento das landing pages** bloqueia essa fase toda.
@@ -160,6 +161,7 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Leads da Meta: semear a conversa, não mexer no router** — a resposta a um template é "Sim"/"Olá", que `_A1_RE` não apanha. A thread nasce com `agente='a1_vendedor'`; alargar o regex mandaria para o A1 toda a gente que diz "olá".
 - **`load_conversation` procura por variantes do número** — a Meta manda `351…`, a semeadura guarda 9 dígitos. Com `.eq()` exacto a thread nunca era encontrada e a funcionalidade parecia instalada sem fazer nada.
 - **Qualificação: regra única em `guards.py`, dois gatilhos** — `find_or_create_cliente` (escrita de cliente) e `promover_se_qualificada` (fim de turno). Sem o segundo, a lead cujo formulário já traz o MQL nunca era promovida. `nova` só conta como "respondeu" no segundo.
+- **Desfecho de conversa ≠ qualificação** — os três da spec §2.2 entram **ao lado** do MQL, não por cima. **`engano` fecha** (sai de `_ESTADOS_LEAD_ABERTA`, entra em `ESTADOS_FECHADOS`); **`sem_resposta` fica ABERTO** apesar do nome — quem responde tarde tem de manter a Matilde e o `imovel_ref`. Detecção do engano por **tool**, escrita em código; o travão do follow-up é a **coluna `follow_up_em`**, nunca o estado (o estado é editável no painel).
 - **Visitas em tabela própria (`visitas`, `0023`)** — em colunas de `oportunidades` cabia 1 por oportunidade e o eGO dá uma linha por visita. `oportunidades` fica intacta: o portal do Miguel lê-a.
 - **Segredo próprio para automações** (`X-Automacao-Secret`) — Make e n8n não têm de poder disparar syncs do eGO; segredo vazio nunca autentica.
 - **Refs duplicadas do eGO desempatam por data de alteração**, não pela ordem da lista — a ordem escolhia a cópia por preencher (FH2460 4D gravava piso 0 num 4.º andar).

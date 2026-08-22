@@ -4,17 +4,21 @@ import { api } from '../lib/api'
 // Vocabulário de `leads` (migration 0021), alargado com as etapas comerciais que
 // vinham do painel antigo. `guards._ESTADOS_LEAD_ABERTA` depende dos três
 // primeiros — não renomear sem olhar para lá.
-const ESTADOS = ['nova', 'contactada', 'qualificada', 'visita', 'proposta', 'fechada', 'perdida', 'sem_interesse']
+const ESTADOS = ['nova', 'contactada', 'sem_resposta', 'qualificada', 'visita', 'proposta', 'fechada', 'perdida', 'sem_interesse', 'engano']
 
+// `sem_resposta` não é cinzento como os outros desfechos: a lead continua aberta
+// (`guards._ESTADOS_LEAD_ABERTA`) e se responder tarde volta para a Matilde.
 const estadoBadge = {
   nova: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',
   contactada: 'bg-amber-500/15 text-amber-400 border border-amber-500/20',
+  sem_resposta: 'bg-amber-500/10 text-amber-500/70 border border-amber-500/15',
   qualificada: 'bg-teal-500/15 text-teal-400 border border-teal-500/20',
   visita: 'bg-violet-500/15 text-violet-400 border border-violet-500/20',
   proposta: 'bg-orange-500/15 text-orange-400 border border-orange-500/20',
   fechada: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20',
   perdida: 'bg-zinc-700 text-zinc-500',
   sem_interesse: 'bg-zinc-700 text-zinc-500',
+  engano: 'bg-zinc-700 text-zinc-500',
 }
 
 const ORIGENS = ['meta', 'assistente', 'voz', 'landing', 'manual']
@@ -181,7 +185,7 @@ export default function Leads() {
             <div>
               <label className="block text-xs font-medium text-zinc-400 mb-1.5 uppercase tracking-wide">Estado</label>
               <select className={selectCls} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
-                {ESTADOS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                {ESTADOS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1).replace('_', ' ')}</option>)}
               </select>
             </div>
             <div>

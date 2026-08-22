@@ -1,0 +1,228 @@
+{
+  "name": "FigueiraHome — follow-up às 48h (diário)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 10 * * *" }
+          ]
+        }
+      },
+      "id": "agenda",
+      "name": "Todos os dias às 10h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-760, 300],
+      "notes": "10:00 no fuso do n8n — pôr Europe/Lisbon nas Settings do workflow.\n\nNÃO usar as horas dos crons do eGO (03:00 e 06:00 UTC): estes são syncs de máquina, isto é uma mensagem de WhatsApp para uma pessoa. Ninguém quer ser acordado às 4 da manhã com um follow-up.\n\nDEIXAR INACTIVO até à primeira corrida à mão com `Limit=5` — ver o README."
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "leads",
+        "returnAll": false,
+        "limit": 5,
+        "filterType": "string",
+        "filterString": "=respondeu_em=is.null&follow_up_em=is.null&estado=in.(nova,contactada)&telefone=not.is.null&ficha->>aceita_whatsapp=ilike.sim*&template_enviado_em=lt.{{ $now.minus(48, 'hours').toISO() }}&order=template_enviado_em.asc"
+    },
+      "id": "ler-sem-resposta",
+      "name": "Ler leads sem resposta",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [-540, 300],
+      "notes": "Credencial: Supabase API (host + service_role).\n\nFiltro em modo **String**: o Manual não escreve `ficha->>aceita_whatsapp` (chave dentro de jsonb) nem uma data calculada.\n\nCada filtro, e porquê:\n\n- `respondeu_em=is.null` — o sinal, e só o backend o escreve (migration 0027). Quem já está a falar com a Matilde fica de fora automaticamente.\n- `follow_up_em=is.null` — O TRAVÃO (migration 0030). Sem isto este workflow reenvia a mesma mensagem à mesma pessoa todos os dias até ela responder ou bloquear o número. Um follow-up por lead, uma só vez.\n- `estado=in.(nova,contactada)` — não persegue quem já foi encerrado como `engano` ou `sem_interesse`.\n- `telefone=not.is.null`.\n- `ficha->>aceita_whatsapp=ilike.sim*` — consentimento por PREFIXO. No PostgREST o wildcard do `ilike` é `*`, não `%`. Nunca igualdade a uma frase: o valor passou de 'sim,_aceito_receber_informações_pelo_whatsapp' para 'SIM' a 2026-08-20 e o filtro pinado à frase antiga deixou 24 leads sem mensagem.\n- `template_enviado_em=lt.<agora-48h>` — a regra da spec §2.2. Uma lead que nunca recebeu template tem isto a NULL e não aparece aqui: nunca lhe perguntámos nada, marcá-la 'sem resposta' seria mentira.\n\n`Limit=5` é o travão da primeira corrida. Subir depois de conferir."
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop",
+      "name": "Uma de cada vez",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [-320, 300],
+      "notes": "`Batch Size = 1`. Sem isto o n8n manda as mensagens todas em rajada — os nós processam os itens em paralelo e não há opção de intervalo no nó da Meta (o `batching` das options é do HTTP Request, não deste).\n\nSaída **done** (a de cima) = acabou. Saída **loop** (a de baixo) = próximo item.\n\nTUDO tem de voltar aqui, incluindo o ramo falso do IF: um ramo que morra sem regressar deixa o ciclo pendurado no item em que estava."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "version": 2 },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.respondeu_em }}",
+              "rightValue": "",
+              "operator": { "type": "object", "operation": "empty", "singleValue": true }
+            },
+            {
+              "leftValue": "={{ $json.follow_up_em }}",
+              "rightValue": "",
+              "operator": { "type": "object", "operation": "empty", "singleValue": true }
+            },
+            {
+              "leftValue": "={{ $json.telefone }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            },
+            {
+              "leftValue": "={{ ($json.ficha?.aceita_whatsapp || '').trim().toLowerCase().startsWith('sim') }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "guardas",
+      "name": "Guardas",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [-100, 380],
+      "notes": "Repetidas de propósito, apesar de a consulta já filtrar. São a mesma coisa dita duas vezes: um erro no `filterString` — um nome de coluna trocado, um `is.null` que vira texto — não dá erro nenhum, o PostgREST devolve linhas a mais em silêncio. Aqui a mensagem só sai se as quatro forem verdade sobre a linha que chegou.\n\nAs duas primeiras são as que interessam: `respondeu_em` vazio e `follow_up_em` vazio. Uma delas errada = segunda mensagem a quem já está em conversa, ou a mesma mensagem todos os dias.\n\nO ramo **falso** volta ao ciclo: a lead é saltada, não interrompe o resto."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "texto",
+              "name": "texto_renderizado",
+              "value": "=Olá {{ $json.nome || 'boa tarde' }}, é da FigueiraHome. Contactámos-o há uns dias sobre imóveis na Figueira da Foz e ainda não conseguimos falar. Continua interessado? Se preferir, diga-nos só que não e não voltamos a incomodar.",
+              "type": "string"
+            },
+            {
+              "id": "e164",
+              "name": "telefone_e164",
+              "value": "={{ $json.telefone.length === 9 ? '351' + $json.telefone : $json.telefone }}",
+              "type": "string"
+            },
+            {
+              "id": "nome",
+              "name": "nome_lead",
+              "value": "={{ $json.nome || 'boa tarde' }}",
+              "type": "string"
+            },
+            {
+              "id": "leadid",
+              "name": "lead_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "preparar",
+      "name": "Preparar texto e número",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [120, 380],
+      "notes": "Template DIFERENTE do fluxo 01 — este é a segunda tentativa e tem de o dizer, senão a pessoa recebe duas vezes a mesma frase e parece um sistema avariado. Precisa de aprovação própria na Meta.\n\nA saída explícita (\"diga-nos só que não\") não é cortesia: uma resposta negativa faz a Matilde chamar `encerrar_lead` e a pessoa sai da lista de vez, em vez de ficar `sem_resposta` para sempre.\n\n`texto_renderizado` tem de ser IGUAL ao template aprovado, com as variáveis já substituídas — é o que fica em `leads.template_enviado` e que a Matilde lê como algo que já disse.\n\n`lead_id` viaja com o item de propósito: dentro de um ciclo, `$('Ler leads sem resposta').item` refere-se ao item do lote actual e é fácil de enganar."
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $env.META_PHONE_NUMBER_ID }}",
+        "recipientPhoneNumber": "={{ $json.telefone_e164 }}",
+        "messageType": "template",
+        "template": "NOME_DO_TEMPLATE_FOLLOWUP|pt_PT",
+        "components": {
+          "component": [
+            {
+              "type": "body",
+              "bodyParameters": {
+                "parameter": [
+                  { "type": "text", "text": "={{ $json.nome_lead }}" }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "enviar-followup",
+      "name": "WhatsApp: enviar follow-up",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [340, 380],
+      "notes": "DOIS CAMPOS A ESCOLHER NA INTERFACE, não valem os que estão aqui:\n\n1. **Credencial** WhatsApp Business Cloud.\n2. **Template** — lista carregada da conta Meta, formato `nome|idioma`. Tem de ser o template de FOLLOW-UP, não o do fluxo 01.\n\nTem de sair do MESMO `phone_number_id` dos outros fluxos, senão a resposta da lead nunca chega à Matilde.\n\nTemplate e não mensagem livre: passaram 48h, a janela das 24h já fechou há muito. É também o que a spec §2.2 manda (\"Follow-up só via template\")."
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "leads",
+        "filterType": "string",
+        "filterString": "=id=eq.{{ $('Preparar texto e número').item.json.lead_id }}",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "estado", "fieldValue": "sem_resposta" },
+            { "fieldId": "follow_up_em", "fieldValue": "={{ $now.toISO() }}" },
+            { "fieldId": "template_enviado", "fieldValue": "={{ $('Preparar texto e número').item.json.texto_renderizado }}" },
+            { "fieldId": "atualizado_em", "fieldValue": "={{ $now.toISO() }}" }
+          ]
+        }
+      },
+      "id": "marcar-sem-resposta",
+      "name": "Supabase: marcar sem resposta",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [560, 380],
+      "notes": "Só depois do envio ter corrido bem — é o que torna a repetição segura: quem não foi marcado volta a aparecer na consulta da corrida seguinte.\n\n`estado='sem_resposta'` é o desfecho da spec §2.2. NÃO é um estado fechado: se a pessoa responder uma semana depois, `guards._ESTADOS_LEAD_ABERTA` inclui-o e a conversa volta à Matilde com o `imovel_ref` do anúncio.\n\n`follow_up_em` é o travão. É a única coluna que impede este workflow de reenviar amanhã.\n\n`template_enviado` é actualizado para o texto do follow-up: é a última coisa que dissemos, e é o que a Matilde injecta no histórico quando a pessoa responder.\n\nNUNCA escrever `respondeu_em`: essa coluna é do backend e é o sinal de que a pessoa falou."
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "esperar",
+      "name": "Esperar 5s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [780, 380],
+      "notes": "5 s entre mensagens. Não é limite da Meta — é para as mensagens não saírem todas no mesmo segundo e para dar tempo de parar a execução se as primeiras estiverem erradas.\n\nDepois volta ao `Uma de cada vez`, que puxa a seguinte."
+    },
+    {
+      "parameters": {},
+      "id": "fim",
+      "name": "Fim",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [-100, 180],
+      "notes": "Saída **done** do ciclo. Chegar aqui = o lote acabou. Num dia sem leads elegíveis, o workflow chega aqui directamente e não manda nada — é o resultado normal."
+    }
+  ],
+  "connections": {
+    "Todos os dias às 10h": {
+      "main": [[{ "node": "Ler leads sem resposta", "type": "main", "index": 0 }]]
+    },
+    "Ler leads sem resposta": {
+      "main": [[{ "node": "Uma de cada vez", "type": "main", "index": 0 }]]
+    },
+    "Uma de cada vez": {
+      "main": [
+        [{ "node": "Fim", "type": "main", "index": 0 }],
+        [{ "node": "Guardas", "type": "main", "index": 0 }]
+      ]
+    },
+    "Guardas": {
+      "main": [
+        [{ "node": "Preparar texto e número", "type": "main", "index": 0 }],
+        [{ "node": "Uma de cada vez", "type": "main", "index": 0 }]
+      ]
+    },
+    "Preparar texto e número": {
+      "main": [[{ "node": "WhatsApp: enviar follow-up", "type": "main", "index": 0 }]]
+    },
+    "WhatsApp: enviar follow-up": {
+      "main": [[{ "node": "Supabase: marcar sem resposta", "type": "main", "index": 0 }]]
+    },
+    "Supabase: marcar sem resposta": {
+      "main": [[{ "node": "Esperar 5s", "type": "main", "index": 0 }]]
+    },
+    "Esperar 5s": {
+      "main": [[{ "node": "Uma de cada vez", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1", "timezone": "Europe/Lisbon" }
+}

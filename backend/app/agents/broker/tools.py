@@ -10,7 +10,12 @@ import json
 import logging
 from datetime import date
 
-from app.agents.broker.guards import find_or_create_cliente, normalizar_telefone, visita_permitida
+from app.agents.broker.guards import (
+    encerrar_lead_do_telefone,
+    find_or_create_cliente,
+    normalizar_telefone,
+    visita_permitida,
+)
 from app.db.supabase_client import get_supabase
 from app.models.lead import ESTADOS_FECHADOS
 from app.notificacoes import notificar
@@ -99,6 +104,7 @@ TOOL_DEFINITIONS = [
         "description": (
             "Regista um pedido de visita a um imóvel. A tool verifica se o orçamento "
             "declarado é compatível com o preço — se não for, recusa e devolve instruções. "
+            "Propõe tu os horários ao cliente; não lhe peças que escolha sozinho. "
             "O horário fica por confirmar pelo consultor."
         ),
         "input_schema": {
@@ -141,6 +147,26 @@ TOOL_DEFINITIONS = [
                 "urgente": {"type": "boolean", "description": "True para reclamações e assuntos legais"},
             },
             "required": ["motivo", "resumo"],
+        },
+    },
+    {
+        "name": "encerrar_lead",
+        "description": (
+            "Encerra o contacto. Usa quando a pessoa diz que foi engano (número errado, "
+            "não preencheu formulário nenhum, não é com ela) ou que não tem interesse "
+            "nenhum. Depois de chamares, despede-te numa frase e não voltes a insistir."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "motivo": {
+                    "type": "string",
+                    "enum": ["engano", "sem_interesse"],
+                    "description": "'engano' se não é a pessoa certa; 'sem_interesse' se é mas não quer",
+                },
+                "nota": {"type": "string", "description": "O que a pessoa disse, em poucas palavras"},
+            },
+            "required": ["motivo"],
         },
     },
     # ── Internas (só o assistente `broker`) ───────────────────
@@ -466,10 +492,50 @@ async def _agendar_visita(inputs: dict, contexto: dict) -> str:
             "conversa_id": contexto.get("conversa_id"),
         },
     )
+    # A visita era a única escrita cliente-facing que ficava só na tarefa. A spec
+    # §2.2 ("Interesse real") manda avisar por email, e é o desfecho que mais o
+    # merece: a pessoa está a pedir para ver a casa. `notificar` engole os
+    # próprios erros e resolve sozinho a consultora do imóvel — ver notificacoes.py.
+    await _run(
+        notificar,
+        f"Pedido de visita — {imovel.get('imovel_ref')}",
+        "\n".join(p for p in (
+            f"Pedido de visita pelo {contexto.get('agente') or 'assistente'} em "
+            f"{contexto.get('canal', '?')}.",
+            "",
+            f"Imóvel:    {imovel.get('imovel_ref')} — {imovel.get('morada') or '—'}",
+            f"Preço:     {venda_preco:.0f}€" if venda_preco else None,
+            f"Contacto:  {nome or '—'} — {telefone or '—'}",
+            f"Orçamento: {orcamento:.0f}€" if orcamento else None,
+            f"Quando:    {quando}",
+            "",
+            "Foi dito ao cliente que o consultor confirma o horário e entra em contacto.",
+        ) if p is not None),
+        imovel.get("imovel_ref"),
+    )
+
     return (
         "Pedido de visita registado. Confirma ao cliente que o consultor valida "
         "o horário e entra em contacto."
     )
+
+
+async def _encerrar_lead(inputs: dict, contexto: dict) -> str:
+    """Desfecho "Engano" (e "Sem interesse") da spec §2.2 — "Sem mais ações".
+
+    Sem cliente, sem tarefa, sem email: a única coisa que acontece é o estado da
+    lead, e é isso que faz a pessoa deixar de ser contactada. A escrita vive em
+    `guards` com o resto do ciclo de vida da lead.
+    """
+    await encerrar_lead_do_telefone(
+        contexto.get("telefone"),
+        (inputs.get("motivo") or "").strip(),
+        inputs.get("nota"),
+    )
+    # Mesmo quando não há lead para fechar (chat do painel, número desconhecido),
+    # a instrução ao modelo é a mesma: a pessoa disse que não quer, e insistir é
+    # o erro — não o estado que ficou ou deixou de ficar na base.
+    return "Registado. Despede-te com uma frase curta e não faças mais perguntas."
 
 
 async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
@@ -619,6 +685,8 @@ async def execute_tool(name: str, inputs: dict, contexto: dict | None = None) ->
             return await _agendar_visita(inputs, contexto)
         if name == "escalar_para_humano":
             return await _escalar_para_humano(inputs, contexto)
+        if name == "encerrar_lead":
+            return await _encerrar_lead(inputs, contexto)
 
         if name in _CONSULTAS:
             resultado = await _run(_CONSULTAS[name], inputs)

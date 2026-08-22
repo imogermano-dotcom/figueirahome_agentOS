@@ -11,10 +11,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.agents.broker.guards import (  # noqa: E402
     _compativel,
+    _ESTADOS_LEAD_ABERTA,
     normalizar_email,
     normalizar_telefone,
     visita_permitida,
 )
+from app.models.lead import ESTADOS, ESTADOS_FECHADOS  # noqa: E402
 
 
 def test_normalizar_telefone():
@@ -75,6 +77,34 @@ def test_compativel_recusa_quando_ha_contradicao():
 def test_compativel_sem_identificadores():
     """Nada a contradizer — o nome é o único dado que temos."""
     assert _compativel({"nome": "Ana", "telefone": None, "email": None}, None, None) is True
+
+
+def test_engano_fecha_a_lead():
+    """`engano` tem de estar fechado: é o que faz `lead_aberta` devolver None (o
+    router larga a A1) e impede `_criar_lead_se_preciso` de a reabrir."""
+    assert "engano" in ESTADOS
+    assert "engano" in ESTADOS_FECHADOS
+    assert "engano" not in _ESTADOS_LEAD_ABERTA
+
+
+def test_sem_resposta_continua_aberta():
+    """A regressão que interessa. `sem_resposta` quer dizer "desistimos de
+    insistir", não "não falar com esta pessoa": quem responde uma semana depois
+    do follow-up tem de manter a A1 e o `imovel_ref` do anúncio. Fechá-lo mandava
+    essa pessoa para o A2 sem contexto nenhum — e é o erro fácil de cometer,
+    porque o nome soa a desfecho final."""
+    assert "sem_resposta" in ESTADOS
+    assert "sem_resposta" in _ESTADOS_LEAD_ABERTA
+    assert "sem_resposta" not in ESTADOS_FECHADOS
+
+
+def test_vocabulario_do_painel_cobre_o_das_guardas():
+    """`_ESTADOS_LEAD_ABERTA` e `ESTADOS_FECHADOS` são subconjuntos de `ESTADOS`,
+    e não se sobrepõem. Um estado só num dos lados é uma lead invisível no painel
+    ou um filtro que nunca bate."""
+    assert set(_ESTADOS_LEAD_ABERTA) <= set(ESTADOS)
+    assert set(ESTADOS_FECHADOS) <= set(ESTADOS)
+    assert not set(_ESTADOS_LEAD_ABERTA) & set(ESTADOS_FECHADOS)
 
 
 if __name__ == "__main__":

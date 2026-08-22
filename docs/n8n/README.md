@@ -11,7 +11,8 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 | Ficheiro | O quê | Estado |
 |---|---|---|
 | `01-enviar-template.json` | envia o template e marca a lead | pronto a importar |
-| follow-up 48h | segunda tentativa a quem não respondeu | por construir — ver no fim |
+| `02-backfill-template.json` | recupera quem ficou sem mensagem (manual) | pronto a importar |
+| `03-follow-up-48h.json` | segunda tentativa a quem não respondeu (diário) | pronto a importar — precisa da migration `0030` |
 
 ## Antes de importar
 
@@ -148,9 +149,11 @@ outra pessoa controla é uma bomba com temporizador. `startsWith('sim')` aguenta
 
 | Coluna | Quem |
 |---|---|
-| `template_enviado`, `template_enviado_em`, `estado='contactada'` | **n8n** |
+| `template_enviado`, `template_enviado_em`, `estado='contactada'` | **n8n** (fluxos 01 e 02) |
+| `estado='sem_resposta'`, `follow_up_em` | **n8n** (fluxo 03) |
 | `respondeu_em`, `conversa_id` | backend, quando a lead fala |
 | `estado='qualificada'`, `qualificada_em` | backend, quando o MQL fica completo |
+| `estado='engano'` / `'sem_interesse'` | backend, quando a Matilde chama `encerrar_lead` |
 
 ## `02-backfill-template.json` — recuperar quem ficou sem mensagem
 
@@ -203,20 +206,79 @@ que morra sem voltar deixa o ciclo pendurado no item em que estava.
 Agosto têm mais de uma semana, e "recebemos o seu pedido" sobre um pedido de há
 oito dias soa mal — podem merecer outro texto, ou nenhum.
 
-## Follow-up às 48h — por construir
+## `03-follow-up-48h.json` — a segunda tentativa
 
-A query já é trivial e inequívoca, graças à `0027`:
+Desfecho **"Sem resposta"** da spec §2.2: sem resposta em 48h, marca a lead e
+manda o follow-up **por template** (a spec é explícita nisso — a janela das 24h
+já fechou há muito).
 
-```sql
-select id, nome, telefone, template_enviado_em
-from leads
-where respondeu_em is null
-  and template_enviado_em < now() - interval '48 hours';
+Disparo **diário às 10:00 Europe/Lisbon**. Não às horas dos crons do eGO (03:00 e
+06:00 UTC): esses são syncs de máquina, isto é uma mensagem para uma pessoa.
+
+**Precisa da migration `0030`** (`leads.follow_up_em`). Sem a coluna o filtro
+`follow_up_em=is.null` não bate e o PostgREST devolve erro.
+
+Mesma cadeia do `02` — nós nativos, `Split In Batches` (1) → envia → marca →
+`Wait 5s` → volta ao ciclo — com o `Disparo manual` trocado por `Schedule
+Trigger` e outra consulta.
+
+### A consulta
+
+```
+respondeu_em=is.null
+follow_up_em=is.null
+estado=in.(nova,contactada)
+telefone=not.is.null
+ficha->>aceita_whatsapp=ilike.sim*
+template_enviado_em=lt.{{ $now.minus(48, 'hours').toISO() }}
 ```
 
-Quem está a falar com o A1 fica de fora automaticamente.
+**`follow_up_em` é o travão, e é a razão de ser da `0030`.** Sem ele um
+*Schedule Trigger* diário reenvia a mesma mensagem à mesma pessoa todos os dias
+até ela responder ou bloquear o número. Um follow-up por lead, uma só vez.
 
-**Falta uma decisão e uma coluna.** A decisão: segunda mensagem, ou tarefa para
-alguém ligar? A coluna: sem registar que o follow-up saiu, um *Schedule Trigger*
-diário reenvia à mesma pessoa todos os dias. É uma migration de uma linha
-(`follow_up_em timestamptz`) — digam quando decidirem o resto e faço.
+Coluna própria e não o estado: o `estado` é editável no painel, e um corretor a
+reabrir uma lead para `contactada` fazia sair segunda mensagem. O carimbo é do
+fluxo e ninguém lhe mexe.
+
+`respondeu_em` (`0027`) tira de circulação quem já está a falar com a Matilde.
+
+### Três coisas a saber
+
+**O template é outro.** Não reutilizar o do `01`: a pessoa recebia a mesma frase
+duas vezes e parece um sistema avariado. Precisa de aprovação própria na Meta. O
+texto proposto dá uma saída explícita — *"se preferir, diga-nos só que não"* — e
+isso não é cortesia: uma resposta negativa faz a Matilde chamar `encerrar_lead`,
+e a pessoa sai da lista de vez em vez de ficar `sem_resposta` para sempre.
+
+**`sem_resposta` NÃO é um estado fechado.** Quer dizer "desistimos de insistir",
+não "não falar com esta pessoa". `guards._ESTADOS_LEAD_ABERTA` inclui-o: se
+responder uma semana depois, a conversa volta à Matilde com o `imovel_ref` do
+anúncio, e se trouxer o MQL completo ainda qualifica. Passá-lo para
+`ESTADOS_FECHADOS` mandava essa pessoa para o A2 sem contexto nenhum — há um
+teste em `test_guards.py` só para isto.
+
+**Quem nunca consentiu fica de fora, e é assim que deve ser.** Sem consentimento
+nunca houve template, logo `template_enviado_em` é NULL e a lead não aparece
+aqui: fica `nova` para sempre. Marcá-la "sem resposta" seria mentira — nunca lhe
+perguntámos nada. Essas leads têm o caminho do telefone, sinalizado no painel.
+
+### Antes de ligar a agenda
+
+O `Schedule Trigger` fica **inactivo** até a primeira corrida à mão passar. Como
+no `02`: `Limit = 5`, correr, conferir as cinco que saíram, e só depois subir o
+limite e activar.
+
+Contagem de controlo antes disso, para saber quantas vai apanhar:
+
+```sql
+select count(*) from leads
+ where respondeu_em is null and follow_up_em is null
+   and estado in ('nova','contactada')
+   and lower(ficha->>'aceita_whatsapp') like 'sim%'
+   and template_enviado_em < now() - interval '48 hours';
+```
+
+**Uma segunda tentativa e mais nenhuma.** A spec é omissa sobre o que fazer a
+seguir; `follow_up_em is null` fecha essa porta. Passar a duas é acrescentar um
+contador, não refazer o fluxo.
