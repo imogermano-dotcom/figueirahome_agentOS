@@ -436,6 +436,61 @@ def test_cliente_ganha_a_ficha(monkeypatch):
 # falhas — daí a instrução ser explícita e calculada aqui.
 
 
+def test_apresentacao_prefixada_quando_o_modelo_falha():
+    """Medido a 2026-08-22 em 7 conversas reais: o modelo apresentou-se em 4. A
+    Ana Luísa, o Pedro Marques e o Jorge Pessoa falaram com uma IA sem lho ser
+    dito, apesar de a instrução ter sido injectada nas sete. É transparência, não
+    estilo — e por isso deixou de estar ao critério do modelo."""
+    from app.agents.broker.assistants import A1, APRESENTACAO_A1
+
+    template = {"role": "assistant", "content": "Olá Ana, fala da Figueirahome."}
+    resposta = engine._garantir_apresentacao(
+        "Claro, Ana! O imóvel do seu anúncio é este: …", A1, True, [template]
+    )
+    assert resposta.startswith(APRESENTACAO_A1)
+    assert "O imóvel do seu anúncio" in resposta
+
+
+def test_nao_duplica_quando_o_modelo_ja_se_apresentou():
+    from app.agents.broker.assistants import A1, APRESENTACAO_A1
+
+    ja = f"{APRESENTACAO_A1}\n\nOlá Teresa! Encontrei a ficha."
+    assert engine._garantir_apresentacao(ja, A1, True, []) == ja
+
+
+def test_nao_duplica_quando_o_template_ja_apresentou():
+    """O template do n8n é o outro sítio de onde a apresentação pode vir."""
+    from app.agents.broker.assistants import A1
+
+    template = {"role": "assistant", "content": "Olá, sou a Matilde da FigueiraHome."}
+    resposta = engine._garantir_apresentacao("Claro! A ficha é esta.", A1, True, [template])
+    assert resposta == "Claro! A ficha é esta."
+
+
+def test_apresentacao_so_no_primeiro_turno_e_so_na_a1():
+    """A A2 não tem nome atribuído, e a meio da conversa seria absurdo."""
+    from app.agents.broker.assistants import A1, A2
+
+    assert engine._garantir_apresentacao("Sim.", A1, False, []) == "Sim."
+    assert engine._garantir_apresentacao("Sim.", A2, True, []) == "Sim."
+
+
+def test_erro_nao_leva_apresentacao():
+    """Prefixar a mensagem de avaria seria pior do que a avaria."""
+    from app.agents.broker.assistants import A1
+
+    assert engine._garantir_apresentacao(engine._ERRO, A1, True, []) == engine._ERRO
+
+
+def test_prompt_manda_responder_antes_de_qualificar():
+    """O Pedro Marques perguntou pela documentação de financiamento e recebeu as
+    duas perguntas do guião, sem resposta nenhuma (2026-08-22)."""
+    from app.agents.broker.assistants import _PROMPT_A1
+
+    assert "RESPONDE PRIMEIRO AO QUE TE PERGUNTAM" in _PROMPT_A1
+    assert "nunca em vez da resposta" in _PROMPT_A1
+
+
 def test_apresenta_se_quando_o_template_nao_a_identificou(monkeypatch):
     """O template em uso a 2026-08-18 diz só "Fala da Figueirahome"."""
     perfil, _ = _contexto(monkeypatch, lead={

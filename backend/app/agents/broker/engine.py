@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.agents.broker.assistants import (
+    A1,
     APRESENTACAO_A1,
     ASSISTENTES,
     MAX_TOKENS,
@@ -197,6 +198,37 @@ async def _registar_interacao(dados: dict) -> None:
         logger.exception("Falha ao registar interacao (%s)", dados.get("agente"))
 
 
+def _garantir_apresentacao(
+    resposta: str, agente: str, thread_nova: bool, mensagens: list[dict]
+) -> str:
+    """A A1 identifica-se no primeiro turno, e isso não fica ao critério do modelo.
+
+    Estava só no prompt, com a frase exacta e uma instrução injectada a dizer se
+    já tinha sido feita. **Obedeceu em 4 de 7 conversas reais** (2026-08-22): a
+    Ana Luísa, o Pedro Marques e o Jorge Pessoa falaram com uma IA sem lho ser
+    dito. Numa instrução mole a competir com o resto do prompt, 43% de falha é o
+    que se obtém — e aqui não é estilo, é transparência.
+
+    Prefixar em código é determinístico e não estraga nada quando o modelo já
+    acertou: verifica-se primeiro se o nome aparece na resposta **ou** numa
+    mensagem anterior do assistente — que no primeiro turno é o template do n8n,
+    o único sítio de onde a apresentação também pode ter vindo.
+
+    Só a A1: a A2 não tem nome atribuído.
+    """
+    if agente != A1 or not thread_nova or resposta == _ERRO:
+        return resposta
+
+    nome = NOME_A1.lower()
+    if nome in resposta.lower():
+        return resposta
+    if any(nome in (m.get("content") or "").lower()
+           for m in mensagens if m.get("role") == "assistant"):
+        return resposta
+
+    return f"{APRESENTACAO_A1}\n\n{resposta}"
+
+
 async def responder(
     canal: str,
     participante: str,
@@ -339,6 +371,9 @@ async def responder(
             break
 
     latencia_ms = int((time.monotonic() - inicio) * 1000)
+
+    # Antes de gravar: o que fica no histórico tem de ser o que a pessoa recebeu.
+    resposta = _garantir_apresentacao(resposta, agente, thread_nova, mensagens)
 
     now = datetime.now(timezone.utc).isoformat()
     mensagens.append({"role": "assistant", "content": resposta, "timestamp": now})
