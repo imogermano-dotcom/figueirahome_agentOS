@@ -74,8 +74,9 @@ cloudflare/ ⑂  worker-landing.js (proxy site.pt/imovel/* → /lp/*)
 **Engano**: tool `encerrar_lead` → `guards.encerrar_lead_do_telefone`, "Sem mais
 ações" à letra. **Sem resposta 48h**: `0030` (`follow_up_em`, o travão) +
 `docs/n8n/03-follow-up-48h.json`, diário às 10h Lisboa. **Interesse real**: a
-visita passou a avisar por email, e a Matilde propõe horários. `0030` aplicada;
-**falta o template de follow-up na Meta** e correr o `03` à mão (27 elegíveis).
+visita passou a avisar por email, e a Matilde propõe horários. `0030` aplicada,
+deployado, template aprovado na Meta. Falta importar o `03` no n8n e correr à mão
+com `Limit=5` — **35 elegíveis a 24/08**, e a fila cresce sozinha.
 
 ### Visitas do eGO — `0023` aplicada, scraper deployado 2026-08-15
 
@@ -123,9 +124,8 @@ do repo** — não gerir daqui; o portal do Miguel lê-as, e desde 23/08 a
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>`
-- `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌
-- Testes: `pytest backend/tests/` de `backend/` — **130**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões)
+- `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **130**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -139,7 +139,7 @@ do repo** — não gerir daqui; o portal do Miguel lê-as, e desde 23/08 a
 
 ### Próximos passos
 
-0. **Fechar a fase dos desfechos**: `0030` ✅ e deploy ✅. Falta o **template de follow-up aprovado na Meta** (é outro, não o do fluxo 01), importar o `03-follow-up-48h.json` e correr **à mão com `Limit=5`** antes de activar a agenda — contagem de controlo no `docs/n8n/README.md`.
+0. **Fechar a fase dos desfechos**: `0030` ✅, deploy ✅, template aprovado ✅. Falta importar o `03-follow-up-48h.json` (credenciais + template nos nós, phone id `925368620661613`) e correr **à mão com `Limit=5`**, trigger desligado, antes de activar a agenda. Contagem de controlo no `docs/n8n/README.md`. A seguir à corrida, confirmar na base que os 5 ficaram `sem_resposta` com `follow_up_em`, e que os outros não foram tocados.
 1. **Validar em produção**: correr "Validar CRM" no painel (resolve os 12 imóveis em limbo) e uma lead de teste ponta a ponta. Backend e scraper já deployados.
 2. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) e **chave do portal do Miguel** → desbloqueia a `0022` (RLS). E **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria estado "Disponível" — 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
 3. **Confirmar com o Make/n8n**: campos reais do formulário de venda (`_ALIAS_FICHA`) e quem marca `whatsapp_permissao`. **Decisão de alojamento das landing pages** bloqueia essa fase toda.
