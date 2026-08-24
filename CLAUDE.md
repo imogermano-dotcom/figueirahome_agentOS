@@ -90,12 +90,11 @@ reprocessando um export com período largo; adiado.
 Detalhe em `docs/fases/landing-pages-resumo.md` (no ramo). `0020` por correr,
 zero gerações reais. Espera a decisão de alojamento: **A** (HTML do backend +
 Worker Cloudflare, gate real) vs **B** (estático, gate cosmético e `anon`
-exposta). Recomendação registada: **A**.
+exposta). Recomendação: **A**. `POST /lp/{slug}/lead` **sem rate-limit**.
 
 ⚠️ **`flyctl deploy` envia a árvore de trabalho, não o HEAD** e o
 `backend/.dockerignore` não exclui as landing pages — **merge antes da `0020`
 põe `/lp/*` no ar a dar 500**. Deployar de `git worktree add <tmp> master`.
-`POST /lp/{slug}/lead` continua **sem rate-limit** (só honeypot).
 
 ### Invariantes que não são óbvias a ler o código
 
@@ -172,8 +171,7 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 ## Bugs conhecidos
 
 - **`agente_leads` ainda existe**, agora vazia de uso — nada lhe escreve nem lê desde 2026-08-18. Só desaparece a confusão quando for apagada (Próximos passos 4).
-- **Dedup de clientes sob carga**: teste falhou e voltou a passar com o mesmo código. Se aparecerem duplicados em produção, é por aqui.
-- **Landing pages nunca correram contra dados reais** — zero gerações, `0020` por aplicar, custo estimado; **`POST /lp/{slug}/lead` sem rate-limit** (só honeypot).
+- **Dedup de clientes sob carga**: teste falhou e voltou a passar com o mesmo código. Se aparecerem duplicados em produção, é por aqui. **Landing pages nunca correram contra dados reais** — zero gerações, `0020` por aplicar, custo estimado.
 - **Agente de voz** (bloqueado por Telnyx, não se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2 s sem VAD.
 
 ## Convenções
