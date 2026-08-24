@@ -62,22 +62,22 @@ cloudflare/ ⑂  worker-landing.js (proxy site.pt/imovel/* → /lp/*)
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-18 em `8acc3b9` (`v46`, 512mb) — leads da Meta, qualificação, contexto da lead, visitas virtuais (`0028`), apresentação da Matilde, notificações Graph (inertes sem credenciais). **Sem** landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-24 em `809dfb3` (`v49`, 512mb) — leads da Meta, qualificação, os três desfechos (`encerrar_lead`, `sem_resposta`, email da visita), visitas virtuais (`0028`), apresentação da Matilde, notificações Graph (inertes sem credenciais). **Sem** landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, com pesquisa de imóveis reais |
 | Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: ambos entram no backoffice com a mesma conta, e correram juntos a 08-18 com OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
-| `master` | ⚠️ **com commits por pushar e por deployar** (apresentação da Matilde + os três desfechos). Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
+| `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
-### Fase de hoje — os três desfechos da spec §2.2
+### Fase de hoje — os três desfechos da spec §2.2 (deployada)
 
 Faltavam dois e meio dos três. **Engano** (não existia): tool `encerrar_lead`,
 escrita em `guards.encerrar_lead_do_telefone`, "Sem mais ações" à letra.
 **Sem resposta 48h** (não existia): `0030` (`follow_up_em`, o travão) +
 `docs/n8n/03-follow-up-48h.json`, diário às 10h Lisboa. **Interesse real**
 (parcial): a visita passou a avisar por email, e a Matilde propõe horários em vez
-de os perguntar. **`0030` por correr, tudo por deployar** — com o `25f62b3`
-(apresentação garantida) atrás.
+de os perguntar. `0030` aplicada; **falta o template de follow-up aprovado na
+Meta** e correr o `03` à mão. **27 leads elegíveis** a 24/08.
 
 ### Visitas do eGO — `0023` aplicada, scraper deployado 2026-08-15
 
@@ -139,7 +139,7 @@ do repo** — não gerir daqui; o portal do Miguel também as lê.
 
 ### Próximos passos
 
-0. **Fechar a fase dos desfechos**: correr a **`0030`**, push + deploy, importar o `03-follow-up-48h.json` e correr **à mão com `Limit=5`** antes de activar a agenda (a contagem de controlo está no `docs/n8n/README.md`). Precisa de **template de follow-up aprovado na Meta** — é outro, não o do fluxo 01.
+0. **Fechar a fase dos desfechos**: `0030` ✅ e deploy ✅. Falta o **template de follow-up aprovado na Meta** (é outro, não o do fluxo 01), importar o `03-follow-up-48h.json` e correr **à mão com `Limit=5`** antes de activar a agenda — contagem de controlo no `docs/n8n/README.md`.
 1. **Validar em produção**: correr "Validar CRM" no painel (resolve os 12 imóveis em limbo) e uma lead de teste ponta a ponta. Backend e scraper já deployados.
 2. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) e **chave do portal do Miguel** → desbloqueia a `0022` (RLS). E **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria estado "Disponível" — 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
 3. **Confirmar com o Make/n8n**: campos reais do formulário de venda (`_ALIAS_FICHA`) e quem marca `whatsapp_permissao`. **Decisão de alojamento das landing pages** bloqueia essa fase toda.
