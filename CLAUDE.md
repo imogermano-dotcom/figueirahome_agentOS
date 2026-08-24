@@ -71,13 +71,11 @@ cloudflare/ ⑂  worker-landing.js (proxy site.pt/imovel/* → /lp/*)
 
 ### Fase de hoje — os três desfechos da spec §2.2 (deployada)
 
-Faltavam dois e meio dos três. **Engano** (não existia): tool `encerrar_lead`,
-escrita em `guards.encerrar_lead_do_telefone`, "Sem mais ações" à letra.
-**Sem resposta 48h** (não existia): `0030` (`follow_up_em`, o travão) +
-`docs/n8n/03-follow-up-48h.json`, diário às 10h Lisboa. **Interesse real**
-(parcial): a visita passou a avisar por email, e a Matilde propõe horários em vez
-de os perguntar. `0030` aplicada; **falta o template de follow-up aprovado na
-Meta** e correr o `03` à mão. **27 leads elegíveis** a 24/08.
+**Engano**: tool `encerrar_lead` → `guards.encerrar_lead_do_telefone`, "Sem mais
+ações" à letra. **Sem resposta 48h**: `0030` (`follow_up_em`, o travão) +
+`docs/n8n/03-follow-up-48h.json`, diário às 10h Lisboa. **Interesse real**: a
+visita passou a avisar por email, e a Matilde propõe horários. `0030` aplicada;
+**falta o template de follow-up na Meta** e correr o `03` à mão (27 elegíveis).
 
 ### Visitas do eGO — `0023` aplicada, scraper deployado 2026-08-15
 
@@ -105,21 +103,24 @@ põe `/lp/*` no ar a dar 500**. Deployar de `git worktree add <tmp> master`.
 - **Upsert por lotes do PostgREST**: uma chave presente num só registo vira coluna e escreve NULL em todos os outros. Omitir a chave não protege — custou 40 coordenadas. Esparsos saem por `_map_extras`, UPDATE linha a linha.
 - **`latitude`/`longitude` só com `HasGPSLocation=true`** (13/55): sem o flag o eGO devolve o centróide da zona — 42 imóveis em 10 pontos, 19 no mesmo. A guarda vive no `_gps`, mas a chave tem de ser escrita pelo **`_map_property`**: no `_map_extras`, que filtra nulos, impedia escrever e nunca apagava — 40 linhas ficaram com o centróide até 2026-08-18.
 - **O eGO demora ~10 min** a expor um imóvel novo na Web API; sincronizar logo a seguir a publicar não o apanha. **Prompt caching a 67%** — "Servido de cache" a zero havendo turnos multiplica o custo por 10.
-- **Três allowlists são fronteiras de segurança**, todas com teste: `_TOOLS_INPUT_SEGURO`, `gerador.CAMPOS_PUBLICOS`, `_FEATURE_BOOLS`.
+- **Três allowlists são fronteiras de segurança**, todas com teste: `_TOOLS_INPUT_SEGURO`, `gerador.CAMPOS_PUBLICOS`, `_FEATURE_BOOLS`. **A quarta não se vê em Python**: o consentimento de WhatsApp é normalizado por um *trigger* na base (`tgr_normaliza_aceita_whatsapp`, `0031`, vivo desde 20/08 11:34).
+- **O repo não é a fonte de verdade única do esquema** — 59 entradas em `supabase_migrations` vieram da interface do Supabase. **`db push` proibido** (a `0001` aborta); CLI só de leitura. `supabase migration list` antes de confiar no `database-schema.md`.
 - **MQL = orçamento + zona + tipo de interesse** (`guards.lead_qualificada`); o timing só vem do gate das landing pages. **Imóveis contam-se por `publicado` (53)**, não `disponibilidade`.
 - **Visitas de um imóvel contam-se por `visitas.visita_imovel_ref`**, nunca por `oportunidades.imovel_ref` — a segunda é o imóvel da *oportunidade* e perde quem visitou vindo de outra (FH2571: 7 contra 4). O painel não mostra visitas do eGO; `visitas_pendentes` no Dashboard vem de `agente_tarefas`.
 - **WhatsApp não lê Markdown** — `channels/whatsapp/formatacao.py`, ponto único de saída. **Sem gráficos de evolução nem de receita** — os dados mentiriam (`dashboard-plano.md`).
 
 ### Dados
 
-Tudo no projecto Supabase `zphasvfopnbzwnaidsnw` (settings `supabase_imoveis_*`);
-o original é **só Auth**. `get_supabase()` = dados, `get_supabase_auth()` = login.
+Tudo no projecto `zphasvfopnbzwnaidsnw` (settings `supabase_imoveis_*`, CLI
+ligado a ele); o original `fykbo…` é **só Auth** — lá só se lê a `profiles`, para
+o email da consultora. `get_supabase()` = dados, `get_supabase_auth()` = login.
 **Migrations corridas à mão pelo utilizador** no editor SQL — explicar antes.
 Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — é para aqui
 que as outras convergiram, `0029` deu-lhe `origem`), `agente_leads` (morta desde
 2026-08-18 — sem escritores nem leitores, por apagar) e `leads_angariacao`
 (79, fluxo humano Make + consultora). **`oportunidades`/`contactos` são de fora
-do repo** — não gerir daqui; o portal do Miguel também as lê.
+do repo** — não gerir daqui; o portal do Miguel lê-as, e desde 23/08 a
+`social_imovel_stats` dele lê também a nossa `visitas`.
 
 ### Ambiente local
 

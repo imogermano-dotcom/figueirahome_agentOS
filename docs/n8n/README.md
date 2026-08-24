@@ -133,11 +133,26 @@ senão o histórico do A1 passa a mentir.
 pessoa falou. Se o n8n a escrever, o follow-up deixa de saber quem respondeu.
 
 **O consentimento reconhece-se pelo prefixo, nunca por igualdade.** O valor de
-`ficha.aceita_whatsapp` mudou por volta de 2026-08-20, de
-`sim,_aceito_receber_informações_pelo_whatsapp` para `SIM` — e o histórico foi
-normalizado com ele, portanto nem a base guarda memória de quando aconteceu. O
-filtro pinado à frase antiga deixou de deixar passar seja quem for: **a 20/08, 26
-leads consentiram e 2 foram contactadas**. As restantes 24 nunca souberam de nada.
+`ficha.aceita_whatsapp` mudou de `sim,_aceito_receber_informações_pelo_whatsapp`
+para `SIM` e o filtro pinado à frase antiga deixou de deixar passar seja quem
+for: **a 20/08, 26 leads consentiram e 2 foram contactadas**. As restantes 24
+nunca souberam de nada.
+
+**Quem mudou o valor foi um trigger na base** — `tgr_normaliza_aceita_whatsapp`,
+aplicado a **2026-08-20 às 11:34:07** pela interface do Supabase, fora do
+repositório. Está registado na `0031`, que é cópia literal e não muda nada. Duas
+coisas a reter:
+
+- **Não foi um `UPDATE` de uma vez; é uma regra viva.** Normaliza a cada escrita
+  em `ficha`, portanto as leads novas do Make entram já em forma. A 2026-08-24 a
+  tabela tinha exactamente `SIM` (194) e `NÃO` (29) — mais nada.
+- **A regra dele é a mesma que a nossa**: lista branca por prefixo `sim*`, tudo o
+  resto vira `NÃO`, chave ausente ou vazia fica intacta. Por isso o
+  `ilike.sim*` do PostgREST e o `startsWith('sim')` do nó `IF` seleccionam o
+  mesmo conjunto — verificado, 194 dos dois lados.
+
+Continuar a filtrar pelo prefixo mesmo assim: o trigger pode ser desligado por
+quem tem acesso ao painel do Supabase, e o filtro é a segunda tranca.
 
 A mesma armadilha apanhou o distintivo no painel, ao contrário: marcou as 152
 leads como recusa. É a mesma lição das duas pontas — comparar com uma frase que
