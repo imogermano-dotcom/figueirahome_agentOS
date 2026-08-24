@@ -88,7 +88,7 @@
             {
               "id": "texto",
               "name": "texto_renderizado",
-              "value": "=Olá {{ $json.nome || 'boa tarde' }}, é da FigueiraHome. Contactámos-o há uns dias sobre imóveis na Figueira da Foz e ainda não conseguimos falar. Continua interessado? Se preferir, diga-nos só que não e não voltamos a incomodar.",
+              "value": "=Olá {{ ($json.nome || '').trim().split(' ')[0] || 'boa tarde' }}, é da FigueiraHome. Contactámos-o há uns dias sobre imóveis na Figueira da Foz e ainda não conseguimos falar. Continua interessado? Se preferir, diga-nos só que não e não voltamos a incomodar.",
               "type": "string"
             },
             {
@@ -100,7 +100,7 @@
             {
               "id": "nome",
               "name": "nome_lead",
-              "value": "={{ $json.nome || 'boa tarde' }}",
+              "value": "={{ ($json.nome || '').trim().split(' ')[0] || 'boa tarde' }}",
               "type": "string"
             },
             {
