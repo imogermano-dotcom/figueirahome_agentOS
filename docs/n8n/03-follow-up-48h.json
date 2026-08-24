@@ -88,7 +88,7 @@
             {
               "id": "texto",
               "name": "texto_renderizado",
-              "value": "=Olá {{ ($json.nome || '').trim().split(' ')[0] || 'boa tarde' }}, é da FigueiraHome. Contactámos-o há uns dias sobre imóveis na Figueira da Foz e ainda não conseguimos falar. Continua interessado? Se preferir, diga-nos só que não e não voltamos a incomodar.",
+              "value": "=Olá {{ ($json.nome || '').trim().split(' ')[0] || 'boa tarde' }}, é da FigueiraHome. Ainda estou disponível para ajudar com informações sobre o imóvel que viu nas redes sociais. Basta responder quando quiser — ou dizer que não tem interesse, e não volto a incomodar.",
               "type": "string"
             },
             {
@@ -118,7 +118,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [120, 380],
-      "notes": "Template DIFERENTE do fluxo 01 — este é a segunda tentativa e tem de o dizer, senão a pessoa recebe duas vezes a mesma frase e parece um sistema avariado. Precisa de aprovação própria na Meta.\n\nA saída explícita (\"diga-nos só que não\") não é cortesia: uma resposta negativa faz a Matilde chamar `encerrar_lead` e a pessoa sai da lista de vez, em vez de ficar `sem_resposta` para sempre.\n\n`texto_renderizado` tem de ser IGUAL ao template aprovado, com as variáveis já substituídas — é o que fica em `leads.template_enviado` e que a Matilde lê como algo que já disse.\n\n`lead_id` viaja com o item de propósito: dentro de um ciclo, `$('Ler leads sem resposta').item` refere-se ao item do lote actual e é fácil de enganar."
+      "notes": "Template DIFERENTE do fluxo 01 — este é a segunda tentativa. Não o diz por palavras: o \"ainda estou disponível\" implica o contacto anterior sem ter de o explicar, e sem culpar quem não respondeu.\n\nTRÊS COISAS NESTE TEXTO QUE NÃO SÃO ESTILO:\n\n1. \"é da FigueiraHome\" — no WhatsApp a pessoa vê o nome verificado da conta, que é **Imogermano**. Sem esta parte recebe \"ainda estou disponível\" de um nome que pode não reconhecer.\n\n2. NÃO menciona a Matilde, de propósito. O motor procura o nome dela em `leads.template_enviado` (`engine._contexto_inicial`); não o encontrando, manda-a apresentar-se na primeira resposta, e `_garantir_apresentacao` prefixa em código se o modelo falhar. Pôr aqui o nome dela fá-la-ia apresentar-se duas vezes.\n\n3. A saída explícita (\"ou dizer que não tem interesse\") não é cortesia: uma resposta negativa faz a Matilde chamar `encerrar_lead`, a lead fecha como `sem_interesse` e sai de circulação. Sem ela, quem não quer limita-se a não responder e fica `sem_resposta` para sempre — silêncio ambíguo em vez de informação.\n\n`texto_renderizado` tem de ser IGUAL ao template aprovado, com as variáveis já substituídas — é o que fica em `leads.template_enviado` e que a Matilde lê como algo que já disse.\n\nPrimeiro nome só (`split(' ')[0]`): as leads trazem nome completo, e \"Olá Edmilson Alcantara\" lê-se como carta do banco.\n\n`lead_id` viaja com o item de propósito: dentro de um ciclo, `$('Ler leads sem resposta').item` refere-se ao item do lote actual e é fácil de enganar."
     },
     {
       "parameters": {
