@@ -10,6 +10,7 @@ import json
 import logging
 import re
 from datetime import date
+from urllib.parse import quote
 
 from app.agents.broker.guards import (
     encerrar_lead_do_telefone,
@@ -82,8 +83,8 @@ TOOL_DEFINITIONS = [
         "description": (
             "Dá o link da página do imóvel, com fotografias, vídeo e descrição. Usa "
             "sempre que pedirem 'o link', fotos, imagens, vídeo ou mais informação "
-            "sobre um imóvel — está tudo nessa página. Nem todos os imóveis têm "
-            "página: chama a tool para saber, nunca montes o endereço de cabeça."
+            "sobre um imóvel — está tudo nessa página. Nunca montes o endereço de "
+            "cabeça: chama a tool, que confirma o imóvel e devolve o link certo."
         ),
         "input_schema": {
             "type": "object",
@@ -443,20 +444,26 @@ def _ficha_imovel(inputs: dict) -> str:
 
 LANDING_BASE = "https://imoveis.figueirahome.pt"
 
-# A landing page existe por referência, mas **só para referências simples**.
-# Verificado ao vivo a 2026-08-25 contra os 54 publicados: 38 têm página; as 16
-# que não têm são exactamente as de referência com sufixo — `FH2460 3C`,
-# `FH2483_C`, `FH2318A`, `FH2450B`. Essas caem na homepage genérica, com HTTP
-# **200** e não 404: nada no protocolo denuncia o engano, portanto não dá para
-# validar em runtime — a lista de quem tem página tem de sair daqui.
+# **Todos os imóveis publicados têm página.** O site lê a MESMA tabela `imoveis`,
+# com `imovel_ref=eq.<ref>` — é a nossa base a alimentá-lo. Se está publicado
+# para nós, o site encontra-o: verificado ao vivo a 2026-08-25, 54 em 54, pelo
+# mesmo caminho que o browser faz.
 #
-# A referência-base tem página (`FH2460` existe), mas é a do empreendimento
-# inteiro, com outro preço — mandá-la como alternativa era mostrar ao cliente um
-# valor que não é o do imóvel de que se está a falar. Sem referência simples não
-# sai link nenhum, e é por isto que o link é uma **tool** e não uma frase no
-# prompt: o modelo montava `LANDING_BASE + ref` para toda a gente, sem saber que
-# em 16 dos 54 o endereço não vai dar a lado nenhum.
-_REF_COM_LANDING = re.compile(r"FH\d+")
+# Houve aqui uma regra que só deixava passar `FH\d+` e recusava as 16 refs com
+# sufixo. **Estava errada** e recusou links de páginas que existem — a Matilde
+# chegou a dizer ao cliente que o `FH2450A` não tinha página, e tem: T1+1 em
+# Buarcos, 199 000 €, 23 fotografias. O erro foi de método: procurei as OG tags
+# com um UA de bot e concluí "não existe" quando o que faltava era o
+# **prerender**, não a página. Estas duas coisas são independentes:
+#
+#   página  = o SPA renderiza no browser  → todas as 54
+#   OG tags = o prerender serve o bot     → só as de referência simples
+#
+# A consequência de o prerender faltar é **cosmética**: no WhatsApp o cartão sai
+# genérico ("Figueira Home — Imóveis na Figueira da Foz") em vez de trazer a foto
+# e o preço. O link funciona à mesma quando o cliente lhe toca, e um cartão feio
+# é muito melhor do que recusar o link. Se um dia se quiser o cartão certo para
+# todas, isso pede-se a quem faz o site — não se resolve deste lado.
 
 
 def _imovel_para_link(ref: str) -> dict | None:
@@ -473,19 +480,16 @@ async def _link_imovel(inputs: dict, contexto: dict) -> str:
         return f"Não encontrei nenhum imóvel disponível para '{ref_pedida}'."
 
     # A referência da base, não a que o modelo escreveu: é ela que entra no URL.
+    # `quote` porque 11 referências têm um espaço a sério (`FH2460 3C`), e um
+    # espaço cru num endereço parte o link em duas palavras no WhatsApp.
     ref = imovel.get("imovel_ref") or ref_pedida
-    if not _REF_COM_LANDING.fullmatch(ref):
-        return (
-            f"O {ref} não tem página própria. Diz ao cliente que o consultor lha "
-            "envia, e continua a ajudá-lo com a informação que já tens."
-        )
 
     # "Escreve" e não "Enviei": o link tem de ir no TEXTO da resposta. Medido a
     # 2026-08-25 com a formulação errada, o modelo dizia "Enviei o vídeo!" e não
     # punha o endereço em lado nenhum — o cliente ficava com a promessa e mais nada.
     return (
         f"Escreve este endereço na tua resposta, tal e qual, sozinho na linha e "
-        f"SEM asteriscos à volta:\n{LANDING_BASE}/{ref}\n"
+        f"SEM asteriscos à volta:\n{LANDING_BASE}/{quote(ref)}\n"
         "A página tem as fotografias, o vídeo e a descrição completa. Diz isso ao "
         "cliente e pergunta o que achou."
     )

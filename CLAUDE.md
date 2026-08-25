@@ -69,10 +69,10 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 Tool `link_imovel` na A1, e **só o link** — a página já tem fotos, vídeo e
 descrição, portanto "manda fotos" responde-se com ela.
-`imoveis.figueirahome.pt/<ref>`, **só para refs `FH\d+`**: as 16 com sufixo caem
-na homepage com HTTP 200, e a base é a do empreendimento, com outro preço.
-Corrigidos pelo caminho: a procura por ref já não comprime sempre os espaços (as
-11 fracções `FH2460 <x>` eram invisíveis às tools) e o `preview_url`. **141 testes.**
+`imoveis.figueirahome.pt/<ref>`, para **todos os 54 publicados** (a ref vai por
+`quote()`: 11 têm espaço a sério). Corrigidos pelo caminho: a procura por ref já
+não comprime sempre os espaços, o `preview_url` do WhatsApp, e a regra `FH\d+`
+que recusava 16 links de páginas que existem. **142 testes.**
 
 ### Desfechos da spec §2.2 — deployados, falta correr o `03`
 
@@ -85,8 +85,8 @@ ações" à letra. **Sem resposta 48h**: `0030` (`follow_up_em`, o travão) +
 
 Uma oportunidade só guardava **1 visita** (o eGO dá uma linha por visita e o
 `setdefault` em `group()` ficava com a primeira; medido: 1739 com visita, máximo de
-1). Tabela `visitas` própria (`visita_ref_ego`), aditiva — `oportunidades` fica
-intacta por causa do portal do Miguel. Histórico só volta com export largo.
+1). Tabela `visitas` própria, aditiva — `oportunidades` fica intacta por causa do
+portal do Miguel. Histórico só volta com export largo.
 
 ### Landing pages — as LPs existem; o construtor está em standby
 
@@ -109,7 +109,7 @@ não exclui as landing pages: **merge antes da `0020` põe `/lp/*` a dar 500**.
 - **MQL = orçamento + zona + tipo de interesse** (`guards.lead_qualificada`); o timing só vem do gate das landing pages. **Imóveis contam-se por `publicado` (53)**, não `disponibilidade`.
 - **Visitas de um imóvel contam-se por `visitas.visita_imovel_ref`**, nunca por `oportunidades.imovel_ref` — a segunda é o imóvel da *oportunidade* e perde quem visitou vindo de outra (FH2571: 7 contra 4). O painel não mostra visitas do eGO; `visitas_pendentes` no Dashboard vem de `agente_tarefas`.
 - **WhatsApp não lê Markdown** — `channels/whatsapp/formatacao.py`, ponto único de saída. **Sem gráficos de evolução nem de receita** — os dados mentiriam (`dashboard-plano.md`).
-- **`imoveis.figueirahome.pt` devolve HTTP 200 a tudo** (SPA): uma ref sem página cai na homepage, não dá 404 — não há validação em runtime. Prerender **por User-Agent**: `curl`/`facebookexternalhit` vêem as OG tags, browsers e `httpx` não. **E `preview_url` é `false` por omissão na Cloud API** — sem a chave o WhatsApp mostra o URL em texto cru e nem lê as OG tags; falha em silêncio (200, mensagem entregue) e custou o primeiro deploy do `link_imovel`. Tem teste.
+- **Página ≠ OG tags em `imoveis.figueirahome.pt`.** O SPA renderiza os 54 publicados (lê a nossa `imoveis` por `eq`); o **prerender** só serve OG tags a bots, e só para refs simples. `curl` não distingue as duas e leva a concluir "não existe" — ir ao browser. Faltar prerender é cosmético: cartão genérico, link a funcionar. **`preview_url` é `false` por omissão na Cloud API** — sem a chave o WhatsApp mostra o URL cru e nem lê as OG tags; falha em silêncio (200, entregue) e custou um deploy. Tem teste.
 
 ### Dados
 
@@ -125,7 +125,7 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **141**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **142**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -139,7 +139,7 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 ### Próximos passos
 
-0. **Reconfirmar o cartão no WhatsApp** depois do `preview_url` (v51) — na `v50` o link chegava em texto cru. Depois: **as 16 refs com sufixo não têm página** — decidir se as LPs passam a cobri-las ou se ficam sem link.
+0. **Reconfirmar no WhatsApp** depois do `preview_url` e da reversão da regra `FH\d+`. Nas 16 refs com sufixo o cartão sai genérico (falta-lhes prerender, não página) — se o cliente quiser o cartão certo, é pedido a quem faz o site.
 1. **Correr o fluxo `03`**: importar o `03-follow-up-48h.json` (credenciais + template nos nós, phone id `925368620661613`), **à mão com `Limit=5`**, trigger desligado. Contagem de controlo no `docs/n8n/README.md`; a seguir confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e que os outros não foram tocados.
 2. **Validar em produção**: "Validar CRM" no painel (resolve os 12 imóveis em limbo) e uma lead de teste ponta a ponta.
 3. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
@@ -165,7 +165,7 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Visitas em tabela própria (`visitas`, `0023`)** — em colunas de `oportunidades` cabia 1 por oportunidade e o eGO dá uma linha por visita. `oportunidades` fica intacta: o portal do Miguel lê-a.
 - **Segredo próprio para automações** (`X-Automacao-Secret`) — Make e n8n não têm de poder disparar syncs do eGO; segredo vazio nunca autentica.
 - **Refs duplicadas do eGO desempatam por data de alteração**, não pela ordem da lista — a ordem escolhia a cópia por preencher (FH2460 4D gravava piso 0 num 4.º andar).
-- **O link da LP é uma tool, não uma frase no prompt** — o modelo montaria `base + ref` para toda a gente, e em 16 dos 54 esse endereço não vai dar a lado nenhum (a base de uma fracção é a página do empreendimento, com outro preço). A tool diz-lhe **"escreve"**, nunca "enviei", e proíbe asteriscos: com "enviei" prometia a página sem dar o endereço, e a regra `*assim*` colava-se ao URL — ambos observados ao vivo. Procura por ref em `_por_referencia`, ponto único.
+- **O link da LP é uma tool, não uma frase no prompt** — a tool confirma que o imóvel existe e está publicado, e codifica a ref. Diz ao modelo **"escreve"**, nunca "enviei", e proíbe asteriscos: com "enviei" prometia a página sem dar o endereço, e a regra `*assim*` colava-se ao URL — ambos observados ao vivo. **Nunca recusar link por causa do formato da ref**: essa regra existiu meio dia e mentiu ao cliente. Procura por ref em `_por_referencia`, ponto único.
 - **Landing pages em HTML servido pelo backend**, não rota do SPA — as OG tags têm de existir no HTML (WhatsApp). **`fonte_hash` decide se se regenera.** **`publicado` é coluna GENERATED**; `disponivel_na_api` é a excepção escrita pela app.
 - **Sync eGO sempre full** (`?Since=` avariado). **Validação CRM completa só manual** (no cron sobrepunha estados que a API já confirmava) — **excepto restrita aos refs que saíram da API**, e essa corre **depois do upsert, nunca antes**: raspa o backoffice inteiro, e à frente do upsert estourou o `--max-time` do cron e matou o sync dois dias seguidos. **RAM da app principal é escassa**: Playwright nunca lá (`scraper/` tem app própria), e o `fetch_all` do backoffice obrigou a subir de 256 para **512mb** — em 256 o uvicorn morria por OOM a meio do sync.
 

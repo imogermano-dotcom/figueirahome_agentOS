@@ -2,13 +2,17 @@
 
 O que estes testes protegem, por ordem de gravidade:
 
-1. **O link só sai para referências que têm página.** Das 54 publicadas, 38 têm;
-   as 16 que não têm são exactamente as de referência com sufixo. O site é uma
-   SPA e devolve **HTTP 200** para tudo — uma referência sem página cai na
-   homepage genérica e nada no protocolo denuncia o engano, portanto não há
-   validação em runtime possível. Verificado ao vivo a 2026-08-25.
-2. **`publicado=True` é fronteira**, a mesma do `ficha_imovel`.
-3. **O URL usa a referência da base**, não a que o modelo escreveu.
+1. **Todo o imóvel publicado tem link.** Houve aqui uma regra que só deixava
+   passar `FH\\d+` e recusava as 16 referências com sufixo — a Matilde chegou a
+   dizer a um cliente que o `FH2450A` não tinha página, e tem. O site lê a MESMA
+   tabela `imoveis` com `imovel_ref=eq.<ref>`: se está publicado para nós, ele
+   encontra-o (54/54, verificado a 2026-08-25). O que falta às 16 é só o
+   **prerender** das OG tags, e isso é cosmético — o cartão do WhatsApp sai
+   genérico, o link funciona.
+2. **As referências com espaço vão codificadas.** 11 têm um espaço a sério
+   (`FH2460 3C`); cru, o WhatsApp parte o endereço em duas palavras.
+3. **`publicado=True` é fronteira**, a mesma do `ficha_imovel`.
+4. **O URL usa a referência da base**, não a que o modelo escreveu.
 
 Corre com `pytest backend/tests/` ou directamente com
 `python backend/tests/test_link_imovel.py`.
@@ -52,16 +56,25 @@ def test_usa_a_ref_da_base_e_nao_a_que_o_modelo_escreveu(pedir):
     assert "https://imoveis.figueirahome.pt/FH2571" in pedir(ref="fh 2571")
 
 
-@pytest.mark.parametrize("ref", ["FH2460 3C", "FH2483_C", "FH2318A", "FH2450B"])
-def test_ref_com_sufixo_nao_tem_landing_page(pedir, ref):
-    """As 16 refs com sufixo caem na homepage genérica, com HTTP 200.
+@pytest.mark.parametrize("ref", ["FH2483_C", "FH2318A", "FH2450B", "FH2450A"])
+def test_ref_com_sufixo_tem_link_na_mesma(pedir, ref):
+    """A regressão que originou este ficheiro.
 
-    A base (`FH2460`) tem página, mas é a do empreendimento inteiro e com outro
-    preço — por isso não serve de alternativa e não sai link nenhum.
+    Uma regra `FH\\d+` recusava estas referências, e a Matilde dizia ao cliente
+    que o imóvel não tinha página. Tem: o `FH2450A` é um T1+1 em Buarcos a
+    199 000 €, com 23 fotografias. Faltava-lhe o prerender das OG tags, não a
+    página.
     """
     r = pedir(imovel_ref=ref)
-    assert "imoveis.figueirahome.pt" not in r, f"{ref} não tem página própria"
-    assert "não tem página própria" in r
+    assert f"https://imoveis.figueirahome.pt/{ref}" in r
+    assert "não tem" not in r
+
+
+def test_ref_com_espaco_vai_codificada(pedir):
+    """11 referências têm espaço a sério. Cru, o WhatsApp parte o link em duas."""
+    r = pedir(imovel_ref="FH2460 3C")
+    assert "https://imoveis.figueirahome.pt/FH2460%203C" in r
+    assert "FH2460 3C\n" not in r, "espaço cru no endereço parte o link"
 
 
 def test_imovel_nao_publicado_nao_tem_link(pedir, monkeypatch):
