@@ -49,8 +49,8 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 ## Estado actual — Handoff 2026-08-25
 
-1. **Leads da Meta** ao vivo; desfechos da §2.2 deployados, falta correr o `03` no
-   n8n. **Media do imóvel por deployar** (abaixo).
+1. **Leads da Meta** ao vivo; desfechos da §2.2 e `link_imovel` deployados
+   (`v50`). Falta correr o fluxo `03` no n8n.
 2. **Construtor de LPs** no ramo `feat/landing-pages`, standby (25/08): as LPs
    são feitas à parte, e há alterações a fazer antes.
 
@@ -58,14 +58,14 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-24 em `809dfb3` (`v49`, 512mb) — leads da Meta, qualificação, os três desfechos (`encerrar_lead`, `sem_resposta`, email da visita), visitas virtuais (`0028`), apresentação da Matilde, notificações Graph (inertes sem credenciais). **Sem** landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-25 em `645f587` (`v50`, 512mb) — `link_imovel`, leads da Meta, qualificação, os três desfechos (`encerrar_lead`, `sem_resposta`, email da visita), visitas virtuais (`0028`), apresentação da Matilde, notificações Graph (inertes sem credenciais). **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
 | Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: ambos entram no backoffice com a mesma conta, e correram juntos a 08-18 com OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
-### Fase de hoje — link da landing page (2026-08-25, por deployar)
+### Fase de hoje — link da landing page (2026-08-25, deployada)
 
 Tool `link_imovel` na A1, e **só o link** — a página já tem fotos, vídeo e
 descrição, portanto "manda fotos" responde-se com ela.
@@ -139,7 +139,7 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 ### Próximos passos
 
-0. **Deployar o `link_imovel`** e confirmar ao vivo que o cartão de pré-visualização aparece mesmo no WhatsApp (o prerender é por User-Agent — só o cliente real prova). Depois: **as 16 refs com sufixo não têm página** — decidir se as LPs passam a cobri-las ou se ficam sem link.
+0. **Confirmar o `link_imovel` no WhatsApp real** — deployado em `v50`, mas o cartão de pré-visualização só se prova com um cliente a sério (o prerender do site é por User-Agent). Depois: **as 16 refs com sufixo não têm página** — decidir se as LPs passam a cobri-las ou se ficam sem link.
 1. **Correr o fluxo `03`**: importar o `03-follow-up-48h.json` (credenciais + template nos nós, phone id `925368620661613`), **à mão com `Limit=5`**, trigger desligado. Contagem de controlo no `docs/n8n/README.md`; a seguir confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e que os outros não foram tocados.
 2. **Validar em produção**: "Validar CRM" no painel (resolve os 12 imóveis em limbo) e uma lead de teste ponta a ponta.
 3. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
