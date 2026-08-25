@@ -38,7 +38,13 @@ async def send_text_message(to: str, text: str) -> None:
                 "messaging_product": "whatsapp",
                 "to": to,
                 "type": "text",
-                "text": {"body": chunk},
+                # `preview_url` é **false por omissão** na Cloud API: sem esta
+                # chave o WhatsApp mostra o endereço em texto cru e não vai
+                # buscar as OG tags. Não é como no WhatsApp normal, onde a
+                # pré-visualização é automática. Observado ao vivo a 2026-08-25:
+                # a Matilde mandava o link da landing page e chegava sem cartão.
+                # Sempre `True`: uma mensagem sem endereço nenhum ignora-o.
+                "text": {"body": chunk, "preview_url": True},
             }
             resp = await client.post(url, headers=headers, json=payload)
             if resp.status_code not in (200, 201):

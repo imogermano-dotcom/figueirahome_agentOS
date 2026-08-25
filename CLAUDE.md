@@ -71,8 +71,8 @@ Tool `link_imovel` na A1, e **só o link** — a página já tem fotos, vídeo e
 descrição, portanto "manda fotos" responde-se com ela.
 `imoveis.figueirahome.pt/<ref>`, **só para refs `FH\d+`**: as 16 com sufixo caem
 na homepage com HTTP 200, e a base é a do empreendimento, com outro preço.
-Corrigido: a procura por ref já não comprime sempre os espaços — as 11 fracções
-`FH2460 <x>` eram invisíveis às tools. **139 testes.**
+Corrigidos pelo caminho: a procura por ref já não comprime sempre os espaços (as
+11 fracções `FH2460 <x>` eram invisíveis às tools) e o `preview_url`. **141 testes.**
 
 ### Desfechos da spec §2.2 — deployados, falta correr o `03`
 
@@ -109,7 +109,7 @@ não exclui as landing pages: **merge antes da `0020` põe `/lp/*` a dar 500**.
 - **MQL = orçamento + zona + tipo de interesse** (`guards.lead_qualificada`); o timing só vem do gate das landing pages. **Imóveis contam-se por `publicado` (53)**, não `disponibilidade`.
 - **Visitas de um imóvel contam-se por `visitas.visita_imovel_ref`**, nunca por `oportunidades.imovel_ref` — a segunda é o imóvel da *oportunidade* e perde quem visitou vindo de outra (FH2571: 7 contra 4). O painel não mostra visitas do eGO; `visitas_pendentes` no Dashboard vem de `agente_tarefas`.
 - **WhatsApp não lê Markdown** — `channels/whatsapp/formatacao.py`, ponto único de saída. **Sem gráficos de evolução nem de receita** — os dados mentiriam (`dashboard-plano.md`).
-- **`imoveis.figueirahome.pt` devolve HTTP 200 a tudo** (SPA): uma ref sem página cai na homepage, não dá 404 — não há validação em runtime. Prerender **por User-Agent**: `curl`/`facebookexternalhit` vêem as OG tags, browsers e `httpx` não, e verificar com UA de browser parece avaria sem ser.
+- **`imoveis.figueirahome.pt` devolve HTTP 200 a tudo** (SPA): uma ref sem página cai na homepage, não dá 404 — não há validação em runtime. Prerender **por User-Agent**: `curl`/`facebookexternalhit` vêem as OG tags, browsers e `httpx` não. **E `preview_url` é `false` por omissão na Cloud API** — sem a chave o WhatsApp mostra o URL em texto cru e nem lê as OG tags; falha em silêncio (200, mensagem entregue) e custou o primeiro deploy do `link_imovel`. Tem teste.
 
 ### Dados
 
@@ -125,7 +125,7 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **139**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **141**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -139,7 +139,7 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 ### Próximos passos
 
-0. **Confirmar o `link_imovel` no WhatsApp real** — deployado em `v50`, mas o cartão de pré-visualização só se prova com um cliente a sério (o prerender do site é por User-Agent). Depois: **as 16 refs com sufixo não têm página** — decidir se as LPs passam a cobri-las ou se ficam sem link.
+0. **Reconfirmar o cartão no WhatsApp** depois do `preview_url` (v51) — na `v50` o link chegava em texto cru. Depois: **as 16 refs com sufixo não têm página** — decidir se as LPs passam a cobri-las ou se ficam sem link.
 1. **Correr o fluxo `03`**: importar o `03-follow-up-48h.json` (credenciais + template nos nós, phone id `925368620661613`), **à mão com `Limit=5`**, trigger desligado. Contagem de controlo no `docs/n8n/README.md`; a seguir confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e que os outros não foram tocados.
 2. **Validar em produção**: "Validar CRM" no painel (resolve os 12 imóveis em limbo) e uma lead de teste ponta a ponta.
 3. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
