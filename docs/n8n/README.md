@@ -227,8 +227,24 @@ Desfecho **"Sem resposta"** da spec §2.2: sem resposta em 48h, marca a lead e
 manda o follow-up **por template** (a spec é explícita nisso — a janela das 24h
 já fechou há muito).
 
-Disparo **diário às 10:00 Europe/Lisbon**. Não às horas dos crons do eGO (03:00 e
+Disparo **diário às 12:00 Europe/Lisbon**. Não às horas dos crons do eGO (03:00 e
 06:00 UTC): esses são syncs de máquina, isto é uma mensagem para uma pessoa.
+
+**Era 10:00, e as 10:00 não vinham de dado nenhum** — eram um palpite de "início
+da manhã". A 2026-08-25, com 17 conversas reais no histórico, as primeiras
+respostas concentram-se às **12h (4), 15h (3) e 16h (3)**; às 10h houve uma só.
+
+⚠️ **O que os dados dizem mesmo é que a hora conta pouco ao pé do dia**: 13 das
+17 conversas foram **sábado ou domingo**. Não se restringiu o cron a `6,0` porque
+só há **um follow-up por lead** — uma lead elegível à terça esperaria quatro dias
+para o gastar, e gastá-lo tarde é pior do que gastá-lo à hora certa de um dia
+útil. Se a corrida de controlo desmentir isto, a alternativa é `0 12 * * 6,0`.
+
+⚠️ **A premissa das 48h continua por confirmar.** Das 17 que responderam, **16
+responderam em menos de UMA hora**, mediana imediata, máximo 1,3 h — ninguém
+respondeu tarde, nunca. O follow-up pode valer como segundo toque a quem ignorou
+o primeiro, mas isso ainda não está demonstrado. A corrida com `Limit=5` é a
+medição, não uma formalidade: se as 5 não responderem, a hipótese cai.
 
 **Precisa da migration `0030`** (`leads.follow_up_em`). Sem a coluna o filtro
 `follow_up_em=is.null` não bate e o PostgREST devolve erro.

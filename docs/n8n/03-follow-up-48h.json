@@ -5,16 +5,16 @@
       "parameters": {
         "rule": {
           "interval": [
-            { "field": "cronExpression", "expression": "0 10 * * *" }
+            { "field": "cronExpression", "expression": "0 12 * * *" }
           ]
         }
       },
       "id": "agenda",
-      "name": "Todos os dias às 10h",
+      "name": "Todos os dias às 12h",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [-760, 300],
-      "notes": "10:00 no fuso do n8n — pôr Europe/Lisbon nas Settings do workflow.\n\nNÃO usar as horas dos crons do eGO (03:00 e 06:00 UTC): estes são syncs de máquina, isto é uma mensagem de WhatsApp para uma pessoa. Ninguém quer ser acordado às 4 da manhã com um follow-up.\n\nDEIXAR INACTIVO até à primeira corrida à mão com `Limit=5` — ver o README."
+      "notes": "12:00 no fuso do n8n — pôr Europe/Lisbon nas Settings do workflow.\n\nERA 10:00. Mudou a 2026-08-25 depois de olhar para as 17 conversas reais: as primeiras respostas concentram-se às 12h (4), 15h (3) e 16h (3), e às 10h houve uma só. As 10h não vinham de dado nenhum — era um palpite de \"início da manhã\".\n\nO fim-de-semana é que manda: 13 das 17 conversas foram sábado ou domingo. Não se restringiu o cron a Sáb/Dom porque isso faz uma lead elegível à terça esperar quatro dias, e como só há UM follow-up por lead, gastá-lo tarde é pior do que gastá-lo à hora certa de um dia útil. Se a corrida de controlo mostrar o contrário, `0 12 * * 6,0` é a alternativa.\n\nNÃO usar as horas dos crons do eGO (03:00 e 06:00 UTC): estes são syncs de máquina, isto é uma mensagem de WhatsApp para uma pessoa. Ninguém quer ser acordado às 4 da manhã com um follow-up.\n\nDEIXAR INACTIVO até à primeira corrida à mão com `Limit=5` — ver o README."
     },
     {
       "parameters": {

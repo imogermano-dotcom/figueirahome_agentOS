@@ -76,10 +76,10 @@ que recusava 16 links de páginas que existem. **142 testes.**
 
 ### Desfechos da spec §2.2 — deployados, falta correr o `03`
 
-**Engano**: tool `encerrar_lead` → `guards.encerrar_lead_do_telefone`, "Sem mais
-ações" à letra. **Sem resposta 48h**: `0030` (`follow_up_em`, o travão) +
-`docs/n8n/03-follow-up-48h.json`, diário às 10h Lisboa, **35 elegíveis a 24/08**.
-**Interesse real**: a visita avisa por email e a Matilde propõe horários.
+**Engano**: `encerrar_lead` → `guards.encerrar_lead_do_telefone`. **Sem resposta
+48h**: `0030` + `docs/n8n/03-follow-up-48h.json`, às **12h** Lisboa (as 10h eram
+palpite; os dados dão 12/15/16h), 35 elegíveis. **Interesse real**: a visita
+avisa por email e a Matilde propõe horários.
 
 ### Visitas do eGO — `0023` aplicada, scraper deployado 2026-08-15
 
@@ -103,10 +103,10 @@ não exclui as landing pages: **merge antes da `0020` põe `/lp/*` a dar 500**.
 - **Features do imóvel ≠ zona envolvente** nas `FeatureTags` do eGO: `SWIMMING_POOLS`/`PROPERTY_NEAR_GARDENS` são "há na zona"; as do imóvel são `PROPERTY_HAS_POOL`/`PROPERTY_HAS_GARDEN`. A tag errada põe o A1 a afirmar ao comprador o que o imóvel não tem.
 - **Upsert por lotes do PostgREST**: uma chave presente num só registo vira coluna e escreve NULL em todos os outros. Omitir a chave não protege — custou 40 coordenadas. Esparsos saem por `_map_extras`, UPDATE linha a linha.
 - **`latitude`/`longitude` só com `HasGPSLocation=true`** (13/55): sem o flag o eGO devolve o centróide da zona — 42 imóveis em 10 pontos, 19 no mesmo. A guarda vive no `_gps`, mas a chave tem de ser escrita pelo **`_map_property`**: no `_map_extras`, que filtra nulos, impedia escrever e nunca apagava — 40 linhas ficaram com o centróide até 2026-08-18.
-- **O eGO demora ~10 min** a expor um imóvel novo na Web API; sincronizar logo a seguir a publicar não o apanha. **Prompt caching a 67%** — "Servido de cache" a zero havendo turnos multiplica o custo por 10.
-- **Três allowlists são fronteiras de segurança**, todas com teste: `_TOOLS_INPUT_SEGURO`, `gerador.CAMPOS_PUBLICOS`, `_FEATURE_BOOLS`. **A quarta não se vê em Python**: o consentimento de WhatsApp é normalizado por um *trigger* na base (`tgr_normaliza_aceita_whatsapp`, `0031`, vivo desde 20/08 11:34).
+- **O eGO demora ~10 min** a expor um imóvel novo na Web API. **Prompt caching a 67%** — "Servido de cache" a zero havendo turnos multiplica o custo por 10.
+- **Três allowlists são fronteiras de segurança**, todas com teste: `_TOOLS_INPUT_SEGURO`, `gerador.CAMPOS_PUBLICOS`, `_FEATURE_BOOLS`. **A quarta não se vê em Python**: o consentimento de WhatsApp vem de um *trigger* na base (`tgr_normaliza_aceita_whatsapp`, `0031`, vivo desde 20/08).
 - **O repo não é a fonte de verdade única do esquema** — 59 entradas em `supabase_migrations` vieram da interface do Supabase. **`db push` proibido** (a `0001` aborta); CLI só de leitura. `supabase migration list` antes de confiar no `database-schema.md`.
-- **MQL = orçamento + zona + tipo de interesse** (`guards.lead_qualificada`); o timing só vem do gate das landing pages. **Imóveis contam-se por `publicado` (53)**, não `disponibilidade`.
+- **MQL = orçamento + zona + tipo de interesse** (`guards.lead_qualificada`). **Imóveis contam-se por `publicado` (53)**, não `disponibilidade`. **A lead responde na 1.ª hora ou nunca** (16 de 17 reais, máx. 1,3 h) e **13 das 17 conversas foram ao fim-de-semana** — a premissa das 48h do follow-up não está confirmada.
 - **Visitas de um imóvel contam-se por `visitas.visita_imovel_ref`**, nunca por `oportunidades.imovel_ref` — a segunda é o imóvel da *oportunidade* e perde quem visitou vindo de outra (FH2571: 7 contra 4). O painel não mostra visitas do eGO; `visitas_pendentes` no Dashboard vem de `agente_tarefas`.
 - **WhatsApp não lê Markdown** — `channels/whatsapp/formatacao.py`, ponto único de saída. **Sem gráficos de evolução nem de receita** — os dados mentiriam (`dashboard-plano.md`).
 - **Página ≠ OG tags em `imoveis.figueirahome.pt`.** O SPA renderiza os 54 publicados (lê a nossa `imoveis` por `eq`); o **prerender** só serve OG tags a bots, e só para refs simples. `curl` não distingue as duas e leva a concluir "não existe" — ir ao browser. Faltar prerender é cosmético: cartão genérico, link a funcionar. **`preview_url` é `false` por omissão na Cloud API** — sem a chave o WhatsApp mostra o URL cru e nem lê as OG tags; falha em silêncio (200, entregue) e custou um deploy. Tem teste.
