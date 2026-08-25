@@ -8,6 +8,7 @@ devolve o subconjunto correspondente. As tools de consulta interna
 import asyncio
 import json
 import logging
+import re
 from datetime import date
 
 from app.agents.broker.guards import (
@@ -74,6 +75,22 @@ TOOL_DEFINITIONS = [
                 "morada": {"type": "string", "description": "Morada ou rua, se não houver referência"},
             },
             "required": [],
+        },
+    },
+    {
+        "name": "link_imovel",
+        "description": (
+            "Dá o link da página do imóvel, com fotografias, vídeo e descrição. Usa "
+            "sempre que pedirem 'o link', fotos, imagens, vídeo ou mais informação "
+            "sobre um imóvel — está tudo nessa página. Nem todos os imóveis têm "
+            "página: chama a tool para saber, nunca montes o endereço de cabeça."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "imovel_ref": {"type": "string", "description": "Referência do imóvel, ex: FH2233"},
+            },
+            "required": ["imovel_ref"],
         },
     },
     {
@@ -325,24 +342,70 @@ def _consulta_imoveis(filtros: dict) -> str:
     return "\n".join(linhas)
 
 
+def _refs_candidatas(ref: str) -> list[str]:
+    """Padrões a tentar para uma referência, do mais fiel ao mais tolerante.
+
+    Comprimir os espaços serve para o cliente que escreve `FH 2233`. Mas fazê-lo
+    **sempre** tornava invisíveis as 11 fracções cuja referência tem espaço a
+    sério — `FH2460 3C` virava `FH24603C`, que não existe, e o `ficha_imovel`
+    respondia "não encontrei" a um imóvel publicado. Tenta-se a referência como
+    veio; só se não der é que se comprime.
+    """
+    limpa = ref.strip()
+    comprimida = limpa.replace(" ", "")
+    return [limpa] if limpa == comprimida else [limpa, comprimida]
+
+
+def _por_referencia(campos: str, ref: str) -> dict | None:
+    """Um imóvel **publicado** por referência. Ponto único das duas tools que
+    procuram por ref, para não divergirem no que conseguem encontrar.
+
+    `publicado` é a fronteira: nem ficha nem fotografias de imóveis que a
+    assistente não pode mostrar.
+
+    ponytail: em `ilike`, `_` é wildcard de um caracter — `FH2483_C` também
+    casaria `FH2483XC`. Hoje não há colisão nenhuma nas 54 refs publicadas.
+    Escapar exigia confirmar como o PostgREST trata a barra invertida.
+    """
+    for padrao in _refs_candidatas(ref):
+        resp = (
+            get_supabase()
+            .table("imoveis")
+            .select(campos)
+            .eq("publicado", True)
+            .ilike("imovel_ref", padrao)
+            .limit(1)
+            .execute()
+        )
+        if resp.data:
+            return resp.data[0]
+    return None
+
+
 def _ficha_imovel(inputs: dict) -> str:
     ref = (inputs.get("imovel_ref") or "").strip()
     morada = (inputs.get("morada") or "").strip()
     if not ref and not morada:
         return "É preciso a referência ou a morada do imóvel."
 
-    q = get_supabase().table("imoveis").select(_CAMPOS_FICHA).eq("publicado", True)
     if ref:
-        q = q.ilike("imovel_ref", ref.replace(" ", ""))
+        r = _por_referencia(_CAMPOS_FICHA, ref)
     else:
-        q = q.ilike("morada", f"%{morada}%")
+        resp = (
+            get_supabase()
+            .table("imoveis")
+            .select(_CAMPOS_FICHA)
+            .eq("publicado", True)
+            .ilike("morada", f"%{morada}%")
+            .limit(1)
+            .execute()
+        )
+        r = resp.data[0] if resp.data else None
 
-    resp = q.limit(1).execute()
-    if not resp.data:
+    if not r:
         alvo = ref or morada
         return f"Não encontrei nenhum imóvel disponível para '{alvo}'."
 
-    r = resp.data[0]
     caracteristicas = [
         nome
         for nome, campo in (
@@ -374,6 +437,58 @@ def _ficha_imovel(inputs: dict) -> str:
     }
     return json.dumps({k: v for k, v in ficha.items() if v not in (None, [], "")},
                       ensure_ascii=False, default=str)
+
+
+# ── Link da landing page ──────────────────────────────────────
+
+LANDING_BASE = "https://imoveis.figueirahome.pt"
+
+# A landing page existe por referência, mas **só para referências simples**.
+# Verificado ao vivo a 2026-08-25 contra os 54 publicados: 38 têm página; as 16
+# que não têm são exactamente as de referência com sufixo — `FH2460 3C`,
+# `FH2483_C`, `FH2318A`, `FH2450B`. Essas caem na homepage genérica, com HTTP
+# **200** e não 404: nada no protocolo denuncia o engano, portanto não dá para
+# validar em runtime — a lista de quem tem página tem de sair daqui.
+#
+# A referência-base tem página (`FH2460` existe), mas é a do empreendimento
+# inteiro, com outro preço — mandá-la como alternativa era mostrar ao cliente um
+# valor que não é o do imóvel de que se está a falar. Sem referência simples não
+# sai link nenhum, e é por isto que o link é uma **tool** e não uma frase no
+# prompt: o modelo montava `LANDING_BASE + ref` para toda a gente, sem saber que
+# em 16 dos 54 o endereço não vai dar a lado nenhum.
+_REF_COM_LANDING = re.compile(r"FH\d+")
+
+
+def _imovel_para_link(ref: str) -> dict | None:
+    return _por_referencia("imovel_ref,titulo", ref)
+
+
+async def _link_imovel(inputs: dict, contexto: dict) -> str:
+    ref_pedida = (inputs.get("imovel_ref") or "").strip()
+    if not ref_pedida:
+        return "É preciso a referência do imóvel."
+
+    imovel = await _run(_imovel_para_link, ref_pedida)
+    if not imovel:
+        return f"Não encontrei nenhum imóvel disponível para '{ref_pedida}'."
+
+    # A referência da base, não a que o modelo escreveu: é ela que entra no URL.
+    ref = imovel.get("imovel_ref") or ref_pedida
+    if not _REF_COM_LANDING.fullmatch(ref):
+        return (
+            f"O {ref} não tem página própria. Diz ao cliente que o consultor lha "
+            "envia, e continua a ajudá-lo com a informação que já tens."
+        )
+
+    # "Escreve" e não "Enviei": o link tem de ir no TEXTO da resposta. Medido a
+    # 2026-08-25 com a formulação errada, o modelo dizia "Enviei o vídeo!" e não
+    # punha o endereço em lado nenhum — o cliente ficava com a promessa e mais nada.
+    return (
+        f"Escreve este endereço na tua resposta, tal e qual, sozinho na linha e "
+        f"SEM asteriscos à volta:\n{LANDING_BASE}/{ref}\n"
+        "A página tem as fotografias, o vídeo e a descrição completa. Diz isso ao "
+        "cliente e pergunta o que achou."
+    )
 
 
 async def _guardar_dados_cliente(inputs: dict, contexto: dict) -> str:
@@ -679,6 +794,8 @@ async def execute_tool(name: str, inputs: dict, contexto: dict | None = None) ->
             return await _run(_pesquisar_imoveis, inputs)
         if name == "ficha_imovel":
             return await _run(_ficha_imovel, inputs)
+        if name == "link_imovel":
+            return await _link_imovel(inputs, contexto)
         if name == "guardar_dados_cliente":
             return await _guardar_dados_cliente(inputs, contexto)
         if name == "agendar_visita":

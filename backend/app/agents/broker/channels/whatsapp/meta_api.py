@@ -10,12 +10,20 @@ logger = logging.getLogger(__name__)
 _MAX_MESSAGE_LENGTH = 4000
 
 
-async def send_text_message(to: str, text: str) -> None:
-    url = f"https://graph.facebook.com/{settings.meta_api_version}/{settings.meta_phone_number_id}/messages"
-    headers = {
+def _url() -> str:
+    return f"https://graph.facebook.com/{settings.meta_api_version}/{settings.meta_phone_number_id}/messages"
+
+
+def _headers() -> dict:
+    return {
         "Authorization": f"Bearer {settings.meta_whatsapp_token}",
         "Content-Type": "application/json",
     }
+
+
+async def send_text_message(to: str, text: str) -> None:
+    url = _url()
+    headers = _headers()
 
     # O modelo escreve Markdown; o WhatsApp não o percebe. Converter aqui, no
     # único ponto de saída, em vez de confiar que o prompt se lembra sempre.
@@ -40,11 +48,8 @@ async def send_text_message(to: str, text: str) -> None:
 
 
 async def mark_as_read(message_id: str) -> None:
-    url = f"https://graph.facebook.com/{settings.meta_api_version}/{settings.meta_phone_number_id}/messages"
-    headers = {
-        "Authorization": f"Bearer {settings.meta_whatsapp_token}",
-        "Content-Type": "application/json",
-    }
+    url = _url()
+    headers = _headers()
     payload = {
         "messaging_product": "whatsapp",
         "status": "read",

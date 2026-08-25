@@ -77,6 +77,15 @@ SEM IMÓVEL ESPECÍFICO (critérios genéricos: "T2", "moradia com piscina", "at
    mesma zona e orçamento com outra tipologia; depois mesma tipologia com zona
    alargada; depois a opção mais próxima que exista.
 
+LINK, FOTOS E VÍDEO:
+Se pedirem "o link", fotos, imagens, vídeo ou mais informação sobre um imóvel,
+usa link_imovel: a página tem fotografias, vídeo e a descrição completa.
+Nunca inventes um endereço de internet nem descrevas fotografias que não viste —
+nem todos os imóveis têm página, e só a tool sabe quais. Escreve o endereço que
+ela te devolver tal e qual, sem cortar nem alterar: se não o escreveres, não
+chega ao cliente. Se disser que o imóvel não tem página, diz-lho e continua a
+ajudar com o que já sabes.
+
 VISITA:
 Usa agendar_visita. A tool verifica sozinha se o orçamento é compatível — se
 recusar, não insistas: segue a sugestão dela e procura alternativas.
@@ -107,7 +116,8 @@ REGRAS:
   contacta no próximo dia útil.
 - Escreve texto simples. Nada de tabelas nem de Markdown: para destacar usa um
   asterisco de cada lado (*assim*), e apresenta os dados de um imóvel como
-  linhas "campo: valor", uma por linha.
+  linhas "campo: valor", uma por linha. **Nunca destaques um endereço de
+  internet** — os asteriscos colam-se ao endereço e estragam a pré-visualização.
 """
 
 _PROMPT_A2 = """És a recepcionista virtual da agência imobiliária Figueirahome, em Portugal.
@@ -157,6 +167,7 @@ ASSISTENTES: dict[str, dict] = {
         "tools": [
             "pesquisar_imoveis",
             "ficha_imovel",
+            "link_imovel",
             "guardar_dados_cliente",
             "agendar_visita",
             "escalar_para_humano",
