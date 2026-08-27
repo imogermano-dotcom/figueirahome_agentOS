@@ -65,36 +65,36 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 | Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: ambos entram no backoffice com a mesma conta, e correram juntos a 08-18 com OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
-### Fase de hoje — link da landing page (2026-08-25, deployada)
+### Fase de hoje — "publicar apesar de indisponível" (2026-08-27)
 
-Tool `link_imovel` na A1, e **só o link** — a página já tem fotos, vídeo e
-descrição, portanto "manda fotos" responde-se com ela.
-`imoveis.figueirahome.pt/<ref>`, para **todos os 54 publicados** (a ref vai por
-`quote()`: 11 têm espaço a sério). Corrigidos pelo caminho: a procura por ref já
-não comprime sempre os espaços, o `preview_url` do WhatsApp, e a regra `FH\d+`
-que recusava 16 links de páginas que existem. **142 testes.**
+Interruptor por imóvel no eGO que o mantém no site **e na Web API** depois de
+ficar indisponível; activado no `FH2520` (Reservado). Cai a premissa de que "a
+API só devolve publicados" — a 27/08 devolvia 55 Disponível + 1 Reservado + 1
+Vendido, e **nenhum dos 104 campos denuncia o interruptor**. Correcções:
+`_existing_ego_ids` filtra por `publicado=true` (senão o sync criava **51 tarefas
+falsas**), e `ficha_imovel`/`link_imovel` dizem *"está RESERVADO"* em vez de
+adivinhar — mediu-se *"pode ter sido vendido"* sobre um reservado. **147 testes.**
 
-### Desfechos da spec §2.2 — deployados, falta correr o `03`
+### Fases anteriores — deployadas
 
-**Engano**: `encerrar_lead` → `guards.encerrar_lead_do_telefone`. **Sem resposta
-48h**: `0030` + `docs/n8n/03-follow-up-48h.json`, às **12h** Lisboa (as 10h eram
-palpite; os dados dão 12/15/16h), 35 elegíveis. **Interesse real**: a visita
-avisa por email e a Matilde propõe horários.
+**Link da LP (25/08)**: tool `link_imovel`, só o link — a página já tem fotos e
+vídeo. `imoveis.figueirahome.pt/<ref>`, ref por `quote()` (11 têm espaço).
+**Desfechos da §2.2 (23/08)**: `encerrar_lead`; `0030` + o fluxo `03` às **12h**
+Lisboa (as 10h eram palpite, os dados dão 12/15/16h), 35 elegíveis, **por
+correr**; a visita avisa por email e a Matilde propõe horários.
 
 ### Visitas do eGO — `0023` aplicada, scraper deployado 2026-08-15
 
 Uma oportunidade só guardava **1 visita** (o eGO dá uma linha por visita e o
-`setdefault` em `group()` ficava com a primeira; medido: 1739 com visita, máximo de
-1). Tabela `visitas` própria, aditiva — `oportunidades` fica intacta por causa do
-portal do Miguel. Histórico só volta com export largo.
+`setdefault` em `group()` ficava com a primeira). Tabela `visitas` própria,
+aditiva — `oportunidades` fica intacta por causa do portal do Miguel.
 
-### Landing pages — as LPs existem; o construtor está em standby
+### Landing pages — existem; o construtor está em standby
 
-As páginas por imóvel **já estão no ar** em `imoveis.figueirahome.pt` (38/54,
-verificado 25/08), feitas fora deste repositório, e a A1 manda-as. O construtor do
-ramo `feat/landing-pages` (`/lp/*`) fica **parado por decisão do cliente**: tem
-alterações a fazer antes. Detalhe em `docs/fases/landing-pages-resumo.md`;
-`0020` por correr, zero gerações, `POST /lp/{slug}/lead` sem rate-limit.
+As páginas por imóvel **já estão no ar** em `imoveis.figueirahome.pt`, feitas
+fora deste repositório, e a A1 manda-as. O construtor do ramo
+`feat/landing-pages` (`/lp/*`) fica **parado por decisão do cliente**. Detalhe em
+`docs/fases/landing-pages-resumo.md`; `0020` por correr, zero gerações.
 ⚠️ **`flyctl deploy` envia a árvore de trabalho, não o HEAD** e o `.dockerignore`
 não exclui as landing pages: **merge antes da `0020` põe `/lp/*` a dar 500**.
 
@@ -125,7 +125,7 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **142**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **147**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 

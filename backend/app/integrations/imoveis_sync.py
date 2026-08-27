@@ -259,23 +259,34 @@ async def _existing_refs(refs: list[str]) -> set[str]:
 
 
 async def _existing_ego_ids(disponibilidades: set[str]) -> set[int]:
-    """ego_ids que já achávamos publicados (fonte='egorealestate' com
-    disponibilidade num dos valores que a API pública realmente devolve —
-    hoje só Disponível/Vendido, mas evita hardcode). Filtra por
-    disponibilidade porque `validar_disponibilidade_crm` também marca
-    fonte='egorealestate' em imóveis Por validar/Reservado/Arrendado que a
-    API pública nunca devolve por definição — sem este filtro seriam todos
-    sinalizados como "deixaram de estar publicados" indevidamente."""
-    if not disponibilidades:
-        return set()
+    """ego_ids que **nós** achávamos publicados — `publicado = true`, e nada mais.
 
+    A pergunta que interessa é "o que é que nós tínhamos no ar e a API deixou de
+    devolver". `publicado` responde-lhe exactamente: é GENERATED e já contém
+    `disponibilidade = 'Disponível' and disponivel_na_api`.
+
+    Filtrava-se antes pelas disponibilidades **que a pull calhou trazer**, para
+    não sinalizar os Reservado/Arrendado que a API pública "nunca devolve por
+    definição". Essa definição caiu a 2026-08-27: o eGO tem um interruptor por
+    imóvel — "publicar no site apesar de indisponível" — e a agência activou-o no
+    FH2520. Bastou **um** Reservado na listagem para o filtro se alargar às 53
+    linhas Reservado que temos, e 52 delas não vinham na pull: seriam marcadas
+    `disponivel_na_api=False` com **51 tarefas novas** para o corretor. Nenhum
+    imóvel perdia publicação (já estavam todos a `publicado=false`), mas o painel
+    enchia-se de ruído. Medido contra a API real antes de mudar; com `publicado`
+    o mesmo cenário dá `missing = 0`.
+
+    O parâmetro fica na assinatura por compatibilidade com o chamador e para o
+    log do sync continuar a poder registar o que a API trouxe; a filtragem já
+    não depende dele.
+    """
     def _fetch():
         return (
             get_supabase()
             .table("imoveis")
             .select("ego_id")
             .eq("fonte", "egorealestate")
-            .in_("disponibilidade", list(disponibilidades))
+            .eq("publicado", True)
             .not_.is_("ego_id", "null")
             .execute()
         )

@@ -77,10 +77,60 @@ def test_ref_com_espaco_vai_codificada(pedir):
     assert "FH2460 3C\n" not in r, "espaço cru no endereço parte o link"
 
 
-def test_imovel_nao_publicado_nao_tem_link(pedir, monkeypatch):
-    """Mesma fronteira do `ficha_imovel` — `_por_referencia` filtra `publicado`."""
+def test_imovel_desconhecido(pedir, monkeypatch):
+    """Referência que não existe de todo — nem publicada, nem na tabela."""
     monkeypatch.setattr(tools, "_imovel_para_link", lambda ref: None)
+    monkeypatch.setattr(tools, "_por_referencia", lambda campos, ref, apenas_publicados=True: None)
     assert "Não encontrei" in pedir()
+
+
+# ── Existe, mas não está para vender ──────────────────────────
+#
+# O eGO tem um interruptor por imóvel — "publicar no site apesar de
+# indisponível" — activado no FH2520 a 2026-08-27. Com ele o anúncio continua a
+# correr sobre um imóvel reservado, e a lead chega à A1 a perguntar por ele.
+# Antes disto ela dizia "o sistema não está a devolver a ficha" e escalava, ou
+# adivinhava: medido ao vivo, **"pode ter sido vendido"** sobre um reservado.
+
+
+@pytest.fixture
+def indisponivel(monkeypatch):
+    """A ref não está publicada, mas existe na tabela com esta disponibilidade."""
+    def _montar(disponibilidade):
+        monkeypatch.setattr(tools, "_imovel_para_link", lambda ref: None)
+        monkeypatch.setattr(
+            tools, "_por_referencia",
+            lambda campos, ref, apenas_publicados=True: (
+                None if apenas_publicados
+                else {"imovel_ref": "FH2520", "disponibilidade": disponibilidade}
+            ),
+        )
+        return asyncio.run(tools._link_imovel({"imovel_ref": "FH2520"}, CONTEXTO))
+    return _montar
+
+
+@pytest.mark.parametrize("estado,esperado", [
+    ("Reservado", "RESERVADO"),
+    ("Vendido", "já foi vendido"),
+    ("Arrendado", "já foi arrendado"),
+])
+def test_diz_o_estado_real_em_vez_de_nao_encontrei(indisponivel, estado, esperado):
+    r = indisponivel(estado)
+    assert esperado in r
+    assert "Não encontrei" not in r, "dizer que não encontrou é a mentira que isto corrige"
+    assert "não inventes o motivo" in r
+
+
+def test_estado_incerto_nao_ganha_motivo_inventado(indisponivel):
+    """`Por validar` / `Retirado`: nem nós sabemos porquê. Não inventar."""
+    r = indisponivel("Por validar")
+    assert "não está disponível de momento" in r
+    for palavra in ("vendido", "arrendado", "RESERVADO"):
+        assert palavra not in r
+
+
+def test_reservado_nao_promete_que_fica_livre(indisponivel):
+    assert "Não prometas" in indisponivel("Reservado")
 
 
 def test_sem_referencia_nao_inventa(pedir):

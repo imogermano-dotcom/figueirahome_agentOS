@@ -70,6 +70,44 @@
 - **A tool diz ao modelo "escreve", não "enviei".** O link vai no texto da resposta e mais nada o põe lá. Com a formulação errada, medido ao vivo, o modelo respondia "Enviei o vídeo!" e não punha o endereço em lado nenhum — o cliente ficava com a promessa e nada mais. Pelo mesmo motivo a instrução proíbe asteriscos à volta: a regra de destaque do prompt (`*assim*`) aplicava-se ao URL e colava-se-lhe.
 - **Procurar por referência tenta a referência como veio antes de comprimir os espaços.** O `replace(" ", "")` existia para quem escreve `FH 2233` e aplicava-se sempre: `FH2460 3C` virava `FH24603C`, que não existe, e o `ficha_imovel` respondia **"não encontrei" a um imóvel publicado** — as 11 fracções do `FH2460` eram invisíveis à assistente. Agora é `_por_referencia`, ponto único das tools que procuram por ref, para não voltarem a divergir no que conseguem encontrar.
 
+## "Publicar no site apesar de indisponível" (2026-08-27)
+
+O eGO tem um interruptor por imóvel que o mantém no site e **na Web API** depois
+de ficar indisponível. A agência activou-o no `FH2520` (Reservado). Duas coisas
+que o código dava como certas caíram nesse instante:
+
+- **"A Web API só devolve imóveis publicados" era falso.** Está escrito em vários
+  comentários e foi a premissa de todo o mecanismo de detecção. A 27/08 a
+  listagem devolvia 57: 55 `Disponível`, 1 `Reservado`, 1 `Vendido`. Não há flag
+  no payload — 104 campos, nenhum o denuncia. O único sinal observável é estar
+  na listagem com `Availability != 'Disponível'`.
+- **`disponivel_na_api` mudou de significado.** Já não quer dizer "está
+  disponível", quer dizer "o eGO mostra-o no site". `publicado` continua correcto
+  porque exige as duas coisas (`disponibilidade = 'Disponível' and disponivel_na_api`).
+
+**Consequência boa:** a detecção é mais directa do que se pensava. O sync escreve
+`Availability` em `disponibilidade`, `publicado` (GENERATED) cai sozinho, e a A1
+deixa de o oferecer no mesmo sync — sem scraper e sem esperar por ninguém.
+
+**Consequência má, apanhada a horas:** `_existing_ego_ids` escolhia candidatos
+pelas disponibilidades **que a pull calhou trazer**. Bastou um `Reservado` na
+listagem para o filtro se alargar às 53 linhas Reservado da tabela; 52 não
+vinham na pull e seriam marcadas `disponivel_na_api=False`, com **51 tarefas
+novas**. Nenhum imóvel perdia publicação (já estavam a `publicado=false`), mas o
+painel enchia-se. Passa a filtrar por **`publicado = true`** — "o que nós
+achávamos que estava no ar", que é a pergunta que se queria fazer desde início.
+Medido contra a API real: com o filtro antigo `missing = 66`, com o novo `0`.
+
+- **Filtrar `publicado` é fronteira para OFERECER, não para SABER.** As tools
+  filtravam todas `publicado=true`, e a quem perguntava pelo `FH2520` — que
+  continua anunciado — a A1 respondia *"o sistema não está a devolver a ficha"* e
+  escalava, ou adivinhava: medido ao vivo, **"pode ter sido vendido"** sobre um
+  imóvel apenas reservado. `ficha_imovel` e `link_imovel` passam a procurar
+  segunda vez sem o filtro e a dizer o estado real (`_estado_nao_publicado`).
+  `pesquisar_imoveis` **não** muda: um reservado nunca entra numa pesquisa.
+  Para `Por validar`/`Retirado`/`Em Prospecção` diz-se "não está disponível de
+  momento" e mais nada — nem nós sabemos o motivo, e inventá-lo era o defeito.
+
 ## Dados e esquema
 
 - **Tabelas da spec dos assistentes rejeitadas por duplicação**: `ai_conversations`→`agente_conversas`, `ai_messages`→`mensagens` jsonb, `ai_visit_bookings`→`agente_tarefas` (já indexada e já no painel), `agency_knowledge`→`agente_config.instrucoes`. `consultants`/`agency_info`/`properties`/`feedback_queries` não existem — a spec inventou-as. Migration `0014` = 1 coluna e 2 linhas de seed, mais nada.

@@ -357,30 +357,68 @@ def _refs_candidatas(ref: str) -> list[str]:
     return [limpa] if limpa == comprimida else [limpa, comprimida]
 
 
-def _por_referencia(campos: str, ref: str) -> dict | None:
-    """Um imóvel **publicado** por referência. Ponto único das duas tools que
-    procuram por ref, para não divergirem no que conseguem encontrar.
+def _por_referencia(campos: str, ref: str, apenas_publicados: bool = True) -> dict | None:
+    """Um imóvel por referência. Ponto único das tools que procuram por ref,
+    para não divergirem no que conseguem encontrar.
 
-    `publicado` é a fronteira: nem ficha nem fotografias de imóveis que a
-    assistente não pode mostrar.
+    `publicado` é a fronteira para **oferecer** — nem ficha nem link de um
+    imóvel que a assistente não pode vender. Não é fronteira para **saber**:
+    com `apenas_publicados=False` responde-se a verdade a quem nomeia uma
+    referência que existe (ver `_estado_nao_publicado`).
 
     ponytail: em `ilike`, `_` é wildcard de um caracter — `FH2483_C` também
     casaria `FH2483XC`. Hoje não há colisão nenhuma nas 54 refs publicadas.
     Escapar exigia confirmar como o PostgREST trata a barra invertida.
     """
     for padrao in _refs_candidatas(ref):
-        resp = (
-            get_supabase()
-            .table("imoveis")
-            .select(campos)
-            .eq("publicado", True)
-            .ilike("imovel_ref", padrao)
-            .limit(1)
-            .execute()
-        )
+        q = get_supabase().table("imoveis").select(campos)
+        if apenas_publicados:
+            q = q.eq("publicado", True)
+        resp = q.ilike("imovel_ref", padrao).limit(1).execute()
         if resp.data:
             return resp.data[0]
     return None
+
+
+# O que dizer ao cliente por cada estado. `None` é a omissão prudente: para
+# `Por validar` / `Em Prospecção` / `Retirado` nem nós sabemos o que se passa,
+# e inventar um motivo é o erro que isto vem corrigir.
+_MOTIVO_INDISPONIVEL = {
+    "Reservado": "está RESERVADO neste momento",
+    "Vendido": "já foi vendido",
+    "Arrendado": "já foi arrendado",
+}
+
+
+def _estado_nao_publicado(ref: str) -> str | None:
+    """Se a referência existe mas não está publicada, o que a A1 deve dizer.
+
+    O eGO tem um interruptor por imóvel — "publicar no site apesar de
+    indisponível" — que a agência activou no FH2520 a 2026-08-27. Com ele, um
+    imóvel reservado continua anunciado, os anúncios continuam a correr e as
+    leads continuam a chegar. Antes disto a A1 ficava cega: as tools filtram
+    todas `publicado=true`, e a quem perguntava pelo FH2520 ela respondia
+    "o sistema não está a devolver a ficha" e escalava, ou pior, adivinhava —
+    medido ao vivo: **"pode ter sido vendido"** sobre um imóvel apenas reservado.
+
+    Filtrar `publicado` continua certo para *oferecer* (nunca entra numa
+    pesquisa) e errado para *saber*. A tool passa a saber.
+    """
+    r = _por_referencia("imovel_ref,disponibilidade", ref, apenas_publicados=False)
+    if not r:
+        return None
+
+    motivo = _MOTIVO_INDISPONIVEL.get(r.get("disponibilidade"))
+    frase = (
+        f"O imóvel {r['imovel_ref']} {motivo}."
+        if motivo
+        else f"O imóvel {r['imovel_ref']} não está disponível de momento."
+    )
+    return (
+        f"{frase} Diz isto ao cliente com clareza — **não digas que não o "
+        "encontraste, e não inventes o motivo**. Não prometas que fica livre. "
+        "A seguir oferece-te para pesquisar imóveis semelhantes."
+    )
 
 
 def _ficha_imovel(inputs: dict) -> str:
@@ -404,6 +442,8 @@ def _ficha_imovel(inputs: dict) -> str:
         r = resp.data[0] if resp.data else None
 
     if not r:
+        if ref and (estado := _estado_nao_publicado(ref)):
+            return estado
         alvo = ref or morada
         return f"Não encontrei nenhum imóvel disponível para '{alvo}'."
 
@@ -477,6 +517,11 @@ async def _link_imovel(inputs: dict, contexto: dict) -> str:
 
     imovel = await _run(_imovel_para_link, ref_pedida)
     if not imovel:
+        # A página do imóvel existe na mesma e mostra o distintivo RESERVADO,
+        # mas o link vai **com** a explicação, nunca sozinho: um link sem
+        # contexto para um imóvel reservado lê-se como oferta.
+        if estado := await _run(_estado_nao_publicado, ref_pedida):
+            return estado
         return f"Não encontrei nenhum imóvel disponível para '{ref_pedida}'."
 
     # A referência da base, não a que o modelo escreveu: é ela que entra no URL.
