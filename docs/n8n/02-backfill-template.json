@@ -77,30 +77,68 @@
     },
     {
       "parameters": {
+        "operation": "getAll",
+        "tableId": "imoveis",
+        "returnAll": false,
+        "limit": 1,
+        "filterType": "string",
+        "filterString": "=imovel_ref=eq.{{ $json.imovel_ref }}&select=titulo,natureza,quartos,area_util,area_bruta,area_terreno,freguesia,venda_preco,arrendamento_preco"
+      },
+      "id": "ler-imovel",
+      "name": "Ler imóvel",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "alwaysOutputData": true,
+      "position": [120, 380],
+      "notes": "O título e a descrição do imóvel do anúncio, para o nó `Resumo do imóvel` a seguir. Não há FK `leads`→`imoveis` (o PostgREST devolve PGRST200), portanto é uma consulta à parte — não dá para embeber no `select` do nó que lê as leads.\n\n`alwaysOutputData: true` é obrigatório e não é cosmético: uma referência sem linha em `imoveis` devolve zero itens e o ramo morre em silêncio. Pior do que não enviar — o item nunca chega ao `Esperar 5s`, logo NÃO volta ao ciclo, e o backfill fica pendurado nessa lead. Com a opção ligada sai um item vazio e o fallback do nó seguinte trata dele.\n\nNÃO se filtra por `publicado`: o interruptor \"publicar apesar de indisponível\" do eGO mantém anúncios a correr sobre imóveis reservados (FH2520, 27/08). Quem clica no anúncio merece resposta; o estado real é a Matilde que o diz a seguir.\n\n11 referências têm um espaço a sério (`FH2460 3C`). Se alguma falhar aqui, é o encoding do `filterString` — trocar este nó por um HTTP Request com `encodeURIComponent`, como no fluxo 01."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Resumo curto do imóvel para o parâmetro {{2}} do template da Meta.\n//\n// NÃO HÁ coluna de resumo na `imoveis` — procurada nas 64 colunas. Usa-se o\n// `titulo`, que é o que a agência escreveu para identificar o imóvel, e só\n// quando ele falta se compõe um a partir dos campos estruturados.\n//\n// A `descricao` não serve de rede: 1100-1300 caracteres com quebras de linha a\n// sério, e a Meta REJEITA parâmetros com quebras de linha — rejeita, não corta.\n\n// Máximo observado nos 54 publicados: 101. Não é o limite da Meta (sobram 849\n// para este parâmetro) — é o ponto a partir do qual o título deixa de\n// identificar e passa a ser parágrafo. Aí vale mais a rede, que é sempre curta.\nconst MAX_TITULO = 120;\n\nconst n = (v) => (v === 0 || v ? v : null);\n// A Meta recusa parâmetros com quebras de linha, tabs ou mais de 4 espaços\n// seguidos. Achatar não é cosmético: é o que faz o pedido passar.\nconst achatar = (t) => String(t || '').replace(/\\s+/g, ' ').trim();\n\n// ── a rede: campos estruturados, preenchidos em 54/54 ──────────────────\n// Tipologia. 17 dos 54 não têm `quartos`, e é correcto: 12 terrenos, 1 lote, 1\n// armazém e 2 prédios de investimento. Zero apartamentos ou moradias, portanto\n// omitir o T não esconde nada.\nconst tipo = [$json.natureza, n($json.quartos) ? 'T' + $json.quartos : null]\n  .filter(Boolean).join(' ');\n\n// `area_util` está a zero em 26; `area_bruta` recupera 15; os 11 que sobram são\n// terrenos, e aí a área que conta é a do terreno.\nconst area = n($json.area_util) || n($json.area_bruta) || n($json.area_terreno);\n\n// \"São Julião da Figueira da Foz\" é o nome oficial, mas a frase anterior já\n// disse Figueira da Foz. As outras oito freguesias não têm sufixo.\nconst zona = String($json.freguesia || '').replace(/\\s+d[ae]\\s+Figueira da Foz$/i, '').trim();\n\nconst preco = n($json.venda_preco) || n($json.arrendamento_preco);\nconst euros = preco ? String(preco).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ' ') + ' \\u20ac' : null;\n\nconst composto = [tipo, area ? area + ' m\\u00b2' : null, zona, euros].filter(Boolean).join(', ');\n\n// O título ganha: diz \"T3+1 duplex com jardim privativo e vistas de mar\", coisa\n// que nenhum campo estruturado sabe. O FH2298 não tem nenhum — é o caso para\n// que a rede existe.\nconst titulo = achatar($json.titulo);\nconst resumo = titulo && titulo.length <= MAX_TITULO ? titulo : composto;\n\nreturn { json: { resumo } };"
+      },
+      "id": "resumo-imovel",
+      "name": "Resumo do imóvel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        380
+      ],
+      "notes": "Escolhe o resumo curto: `titulo` quando existe e é curto, senão um composto dos campos estruturados. Nó de código e não expressão do Set porque são dois caminhos com fallbacks encadeados e formatação de milhares.\n\n`Run Once for Each Item` — no modo por lote, `$json` seria só o primeiro item.\n\nIdêntico nos fluxos 01 e 02; há teste que compara os dois, e outro que corre este JavaScript contra um espelho em Python sobre os 54 imóveis publicados."
+    },
+    {
+      "parameters": {
         "assignments": {
           "assignments": [
             {
               "id": "texto",
               "name": "texto_renderizado",
-              "value": "=Olá {{ $json.nome || 'boa tarde' }}, é da FigueiraHome. Recebemos o seu pedido de informação sobre imóveis na Figueira da Foz. Posso ajudá-lo com algumas opções?",
+              "value": "=Olá {{ ($('Uma de cada vez').item.json.nome || '').trim().split(' ')[0] || 'boa tarde' }},\nSou a Matilde, assistente virtual da FigueiraHome.\nRecebemos o seu interesse, através das redes sociais, no seguinte imóvel:\n{{ [$('Uma de cada vez').item.json.imovel_ref, $json.resumo].filter(Boolean).join(' — ') || 'um imóvel na Figueira da Foz' }}\nPosso ajudar com alguma informação?",
               "type": "string"
             },
             {
               "id": "e164",
               "name": "telefone_e164",
-              "value": "={{ $json.telefone.length === 9 ? '351' + $json.telefone : $json.telefone }}",
+              "value": "={{ $('Uma de cada vez').item.json.telefone.length === 9 ? '351' + $('Uma de cada vez').item.json.telefone : $('Uma de cada vez').item.json.telefone }}",
               "type": "string"
             },
             {
               "id": "nome",
               "name": "nome_lead",
-              "value": "={{ $json.nome || 'boa tarde' }}",
+              "value": "={{ ($('Uma de cada vez').item.json.nome || '').trim().split(' ')[0] || 'boa tarde' }}",
+              "type": "string"
+            },
+            {
+              "id": "imovel",
+              "name": "imovel_descrito",
+              "value": "={{ [$('Uma de cada vez').item.json.imovel_ref, $json.resumo].filter(Boolean).join(' — ') || 'um imóvel na Figueira da Foz' }}",
               "type": "string"
             },
             {
               "id": "leadid",
               "name": "lead_id",
-              "value": "={{ $json.id }}",
+              "value": "={{ $('Uma de cada vez').item.json.id }}",
               "type": "string"
             }
           ]
@@ -111,8 +149,8 @@
       "name": "Preparar texto e número",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [120, 380],
-      "notes": "`texto_renderizado` tem de ser IGUAL ao do fluxo 01 e ao template aprovado na Meta, com as variáveis já substituídas. É este texto que fica em `leads.template_enviado` e que o A1 lê como algo que já disse.\n\n`lead_id` viaja com o item de propósito: dentro de um ciclo, `$('Ler leads pendentes').item` refere-se ao item do lote actual e é fácil de enganar. Levar o id na mão evita a dúvida."
+      "position": [560, 380],
+      "notes": "`texto_renderizado` tem de ser IGUAL ao do fluxo 01 e ao template aprovado na Meta, com as variáveis já substituídas. É este texto que fica em `leads.template_enviado` e que o A1 lê como algo que já disse.\n\nO texto diz \"sou a Matilde\" DE PROPÓSITO: `engine.py:147` procura o nome dela no `template_enviado` gravado para decidir se a A1 se volta a apresentar. Tirar o nome daqui põe-na a dizer \"Sou a Matilde\" logo a seguir a uma mensagem que já o dizia.\n\nOs dois parâmetros do template são `nome_lead` e `imovel_descrito`, por esta ordem, e NENHUM pode sair vazio — a Cloud API recusa parâmetro vazio, o nó aborta e a lead fica por marcar. Daí os dois `||`.\n\n`imovel_descrito` junta ref e título com travessão em vez de irem em duas variáveis: assim degrada sozinho (só ref, só título, ou nenhum) sem partir a frase, e o template fica com 2 variáveis em vez de 3. O resumo vem já tratado do nó `Resumo do imóvel`. NUNCA pôr aqui a `imoveis.descricao` crua — tem 1100-1300 caracteres com `\\r\\n` lá dentro, e a Meta rejeita parâmetros com quebras de linha (o corpo também não passa dos 1024).\n\nA lead lê-se de `$('Uma de cada vez')` e não de `$json`: depois do nó `Ler imóvel`, `$json` é o imóvel. `lead_id` viaja com o item pela razão de sempre — dentro de um ciclo, `$('Ler leads pendentes').item` é fácil de enganar."
     },
     {
       "parameters": {
@@ -120,14 +158,15 @@
         "phoneNumberId": "={{ $env.META_PHONE_NUMBER_ID }}",
         "recipientPhoneNumber": "={{ $json.telefone_e164 }}",
         "messageType": "template",
-        "template": "NOME_DO_TEMPLATE_APROVADO|pt_PT",
+        "template": "figueirahome_apos_lead|pt_PT",
         "components": {
           "component": [
             {
               "type": "body",
               "bodyParameters": {
                 "parameter": [
-                  { "type": "text", "text": "={{ $json.nome_lead }}" }
+                  { "type": "text", "text": "={{ $json.nome_lead }}" },
+                  { "type": "text", "text": "={{ $json.imovel_descrito }}" }
                 ]
               }
             }
@@ -138,7 +177,7 @@
       "name": "WhatsApp: enviar template",
       "type": "n8n-nodes-base.whatsApp",
       "typeVersion": 1,
-      "position": [340, 380],
+      "position": [780, 380],
       "notes": "DOIS CAMPOS A ESCOLHER NA INTERFACE, não valem os que estão aqui:\n\n1. **Credencial** WhatsApp Business Cloud.\n2. **Template** — é uma lista carregada da tua conta Meta. O valor tem o formato `nome|idioma`; o que está aqui é um marcador.\n\nTem de sair do MESMO `phone_number_id` do fluxo 01, senão a resposta da lead nunca chega ao A1.\n\nO espaçamento entre mensagens NÃO se configura aqui — é o `Wait` no fim do ciclo."
     },
     {
@@ -161,7 +200,7 @@
       "name": "Supabase: marcar enviado",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
-      "position": [560, 380],
+      "position": [1000, 380],
       "notes": "Só depois do envio ter corrido bem — é o que torna a repetição segura: quem não foi marcado volta a aparecer na consulta da próxima corrida.\n\nNUNCA escrever `respondeu_em`: essa coluna é do backend e é o sinal de que a pessoa falou. Se o n8n a escrever, o follow-up deixa de saber quem respondeu."
     },
     {
@@ -173,7 +212,7 @@
       "name": "Esperar 5s",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [780, 380],
+      "position": [1220, 380],
       "notes": "5 s entre mensagens. Não é limite da Meta — 24 mensagens não a incomodam. É para veres as primeiras chegarem e teres tempo de parar a execução se estiverem erradas: às 24 leads, isto demora 2 minutos.\n\nDepois volta ao `Uma de cada vez`, que puxa a seguinte."
     },
     {
@@ -201,9 +240,15 @@
     },
     "Guardas": {
       "main": [
-        [{ "node": "Preparar texto e número", "type": "main", "index": 0 }],
+        [{ "node": "Ler imóvel", "type": "main", "index": 0 }],
         [{ "node": "Uma de cada vez", "type": "main", "index": 0 }]
       ]
+    },
+    "Ler imóvel": {
+      "main": [[{ "node": "Resumo do imóvel", "type": "main", "index": 0 }]]
+    },
+    "Resumo do imóvel": {
+      "main": [[{ "node": "Preparar texto e número", "type": "main", "index": 0 }]]
     },
     "Preparar texto e número": {
       "main": [[{ "node": "WhatsApp: enviar template", "type": "main", "index": 0 }]]

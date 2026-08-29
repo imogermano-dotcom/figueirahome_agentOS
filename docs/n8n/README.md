@@ -17,8 +17,17 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 ## Antes de importar
 
 **1. Template aprovado na Meta.** Mensagens iniciadas pelo negócio exigem um
-template pré-aprovado no Business Manager. Sem isso a Graph API recusa. O nome
-dele entra no nó *Meta: enviar template*, em `NOME_DO_TEMPLATE_APROVADO`.
+template pré-aprovado no Business Manager. Sem isso a Graph API recusa.
+
+| | |
+|---|---|
+| Nome | **`figueirahome_apos_lead`** |
+| Idioma | `pt_PT` |
+| Variáveis | 2 (`{{1}}` nome, `{{2}}` imóvel) |
+| Aprovado | 2026-08-28 |
+
+Já está nos dois ficheiros. Se o idioma tiver sido criado como `pt` ou `pt_BR` em
+vez de `pt_PT`, o envio falha com `132001` — trocar em ambos.
 
 **2. Credenciais no cofre do n8n, nunca no corpo dos nós.** Assim não aparecem
 em exports do workflow nem nos logs de execução.
@@ -111,13 +120,102 @@ Webhook aceita Header Auth; o Make manda o header.
      ```
      Boolean → is true. **Nunca por igualdade a uma frase** — ver a quarta
      armadilha.
-4. **Prepara** o texto renderizado e o número em E.164.
-5. **Envia** pela Graph API.
-6. **Marca** `template_enviado`, `template_enviado_em` e `estado='contactada'`.
+4. **Lê o imóvel** — `imoveis?imovel_ref=eq.<ref>&select=titulo,natureza,…`.
+   Consulta à parte porque **não há FK `leads`→`imoveis`** (o PostgREST responde
+   `PGRST200`), logo não dá para embeber no `select` do passo 2.
+5. **Resume o imóvel** — nó de código, ver a secção seguinte.
+6. **Prepara** o texto renderizado, os dois parâmetros e o número em E.164.
+7. **Envia** pela Graph API.
+8. **Marca** `template_enviado`, `template_enviado_em` e `estado='contactada'`.
 
 Se a Meta falhar, o nó aborta e a lead fica `nova` — a retentativa apanha-a.
 
-## Quatro armadilhas
+## O texto e os seus dois parâmetros
+
+```
+Olá {{1}},
+Sou a Matilde, assistente virtual da FigueiraHome.
+Recebemos o seu interesse, através das redes sociais, no seguinte imóvel:
+{{2}}
+Posso ajudar com alguma informação?
+```
+
+A segunda linha é **literalmente** a constante `APRESENTACAO_A1` do
+`assistants.py` — coincidência aproveitada, não acidente: é o que `engine.py:147`
+procura para decidir que a A1 não se volta a apresentar.
+
+| | conteúdo | fallback |
+|---|---|---|
+| `{{1}}` | **primeiro nome** da lead | `boa tarde` |
+| `{{2}}` | `imovel_ref` + resumo, unidos por ` — ` | `um imóvel na Figueira da Foz` |
+
+Renderizado a sério:
+
+> Olá Ana,
+> Sou a Matilde, assistente virtual da FigueiraHome.
+> Recebemos o seu interesse, através das redes sociais, no seguinte imóvel:
+> FH2572 — T4 na cidade em excelente estado com garagem
+> Posso ajudar com alguma informação?
+
+**Duas variáveis, não três.** A referência e o resumo vão juntos num só
+parâmetro, montado no nó `Set`. Assim degrada sozinho — só ref, só resumo, ou
+nenhum dos dois — sem partir a frase, e há menos uma variável a aprovar na Meta.
+
+**Nem o `{{1}}` nem o `{{2}}` podem sair vazios.** A Cloud API recusa parâmetro
+vazio; o nó aborta e a lead fica por marcar. Daí os dois fallbacks.
+
+### O resumo — nó de código `Resumo do imóvel`
+
+**Não existe coluna de resumo na `imoveis`** — procurada nas 64 colunas. Usa-se o
+**`titulo`**, que é o que a agência escreveu para identificar o imóvel e diz
+coisas que nenhum campo estruturado sabe: *"T3+1 duplex com jardim privativo e
+vistas de mar"*, *"Lote para Moradia, com vista de mar"*.
+
+Achatado numa linha antes de ir — a Meta **rejeita** parâmetros com quebras de
+linha, tabs ou mais de 4 espaços seguidos, e rejeita, não corta. É a mesma razão
+por que a **`descricao` não serve nem de rede**: 1100-1300 caracteres com quebras
+de linha a sério, e 28 das 54 passam do orçamento de 849.
+
+**A rede**, quando não há título ou ele passa dos 120 caracteres (máximo
+observado: 101), compõe-se dos campos estruturados:
+
+```
+{natureza} T{quartos}, {área} m², {freguesia}, {preço} €
+→ Moradia T8, 474 m², São Julião, 480 000 €
+```
+
+- **Tipologia** — 17 dos 54 não têm `quartos`, e é correcto: 12 terrenos, 1 lote,
+  1 armazém, 2 prédios de investimento. Zero apartamentos ou moradias, portanto
+  omitir o `T` não esconde nada.
+- **Área** — `area_util` (zero em 26) → `area_bruta` (recupera 15) →
+  `area_terreno` (os 11 restantes, todos terrenos).
+- **Freguesia** — sem o sufixo `da Figueira da Foz`: a frase anterior já o disse.
+  As outras oito (Buarcos, Lavos, Quiaios…) não têm sufixo e ficam intactas.
+- **Preço** — `venda_preco` → `arrendamento_preco`, com separador de milhares.
+
+Hoje a rede serve **um** imóvel: o `FH2298`, o único sem título — e sem descrição
+também, o que o tornava o buraco de qualquer abordagem baseada em prosa.
+
+O nó é **idêntico nos fluxos 01 e 02** e corre em `Run Once for Each Item` — no
+modo por lote, `$json` seria só o primeiro item.
+
+Medido a 2026-08-28, com o JavaScript do nó corrido em Node contra os **54
+imóveis publicados** e o texto contra as **232 leads com consentimento**: zero
+divergências face ao espelho em Python, zero parâmetros vazios, zero caracteres
+proibidos, resumo de 18-101 caracteres (mediana 47), corpo máximo de **280** de
+1024. Coberto por `backend/tests/test_template_meta.py`.
+
+**Não há saída ("se foi engano, ignore") nesta mensagem** — está só no `03`, para
+não convidar ao silêncio logo à primeira. Ver a decisão respectiva.
+
+Medido a 2026-08-28, com o JavaScript do nó corrido em Node contra os **54
+imóveis publicados** e o texto contra as **232 leads com consentimento**: zero
+parâmetros vazios, zero caracteres proibidos, resumo de 32-47 caracteres
+(mediana 39), corpo máximo de **228** de 1024. Coberto por
+`backend/tests/test_template_meta.py`, que compara o JavaScript do ficheiro com
+um espelho em Python.
+
+## Cinco armadilhas
 
 **O `template_enviado` tem de ser o texto renderizado**, com as variáveis já
 substituídas — não o nome do template nem `Olá {{1}}`. É esse texto que o
@@ -127,7 +225,23 @@ template, o A1 lê isso como algo que disse.
 **O texto vive em dois sítios**: aprovado na Meta, e copiado no nó *Preparar
 texto e número*. A Graph API recebe só os parâmetros, não devolve o texto final
 — a duplicação é inevitável. **Se mudares o template na Meta, muda aqui também**,
-senão o histórico do A1 passa a mentir.
+senão o histórico do A1 passa a mentir. E nos **dois** fluxos: o `01` e o `02`
+mandam a mesma frase, e há teste que os compara.
+
+**O texto tem de nomear a Matilde.** Não é estilo: `engine.py:147` faz
+`if NOME_A1.lower() in template.lower()` sobre o `template_enviado` gravado para
+decidir se a A1 se apresenta. Com o nome lá, cala-se; sem ele, apresenta-se. Tirar
+"sou a Matilde" do template põe-na a dizer "Sou a Matilde" logo a seguir a uma
+mensagem que já o dizia.
+
+**`alwaysOutputData: true` no nó *Ler imóvel*.** O n8n reparte um array JSON em
+itens, e uma referência sem linha em `imoveis` devolve `[]` — zero itens, o ramo
+morre em silêncio. No `01` a lead nunca recebe mensagem; no `02` é pior, porque o
+item não chega ao `Esperar 5s`, não volta ao ciclo, e o backfill fica pendurado.
+Com a opção ligada sai um item vazio e o fallback trata dele. E **não** se filtra
+por `publicado`: o interruptor "publicar apesar de indisponível" do eGO mantém
+anúncios a correr sobre imóveis reservados (FH2520, 27/08), e quem clica merece
+resposta — o estado real quem o diz a seguir é a Matilde.
 
 **Nunca escrever `respondeu_em`.** Essa coluna é do backend, e é o sinal de que a
 pessoa falou. Se o n8n a escrever, o follow-up deixa de saber quem respondeu.
@@ -185,7 +299,12 @@ ficheiro são marcadores:
 
 - a **credencial** de cada nó (Supabase API e WhatsApp Business Cloud);
 - o **template**, no nó da Meta. É uma lista carregada da conta, no formato
-  `nome|idioma`.
+  `nome|idioma`. O mesmo do fluxo 01, com os mesmos dois parâmetros.
+
+O nó *Ler imóvel* aqui é o nó nativo do Supabase, não HTTP Request. **11
+referências têm um espaço a sério** (`FH2460 3C`): se alguma falhar, é o encoding
+do `filterString` — trocar por um HTTP Request com `encodeURIComponent`, como no
+fluxo 01.
 
 **Antes de cada corrida, duas coisas a editar** no nó *Ler leads pendentes*:
 
@@ -281,6 +400,12 @@ duas vezes e parece um sistema avariado. Precisa de aprovação própria na Meta
 texto proposto dá uma saída explícita — *"se preferir, diga-nos só que não"* — e
 isso não é cortesia: uma resposta negativa faz a Matilde chamar `encerrar_lead`,
 e a pessoa sai da lista de vez em vez de ficar `sem_resposta` para sempre.
+
+**A saída vive só aqui, e de propósito.** A primeira mensagem chegou a ter
+*"se foi engano, pode ignorar esta mensagem"* e saiu: convidar ao silêncio logo
+à primeira é dar uma desculpa a quem ainda nem leu a proposta, e o silêncio é
+indistinguível de desinteresse. Às 48h já não é — quem não respondeu teve tempo,
+e aí a saída poupa-lhe a insistência e poupa-nos a lead morta na lista.
 
 **`sem_resposta` NÃO é um estado fechado.** Quer dizer "desistimos de insistir",
 não "não falar com esta pessoa". `guards._ESTADOS_LEAD_ABERTA` inclui-o: se

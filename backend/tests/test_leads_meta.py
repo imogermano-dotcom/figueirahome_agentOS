@@ -512,9 +512,18 @@ def test_apresenta_se_quando_o_template_nao_a_identificou(monkeypatch):
 
 
 def test_nao_repete_a_apresentacao_se_o_template_ja_a_fez(monkeypatch):
+    """O texto é o do template novo, tal e qual — ver `test_template_meta.py`.
+    Nomear a Matilde no template é o que desliga a apresentação da A1; se o
+    texto do n8n mudar e deixar cair o nome, ela volta a apresentar-se por cima
+    de uma mensagem que já o tinha feito."""
     perfil, _ = _contexto(monkeypatch, lead={
         "nome": "Isabel", "ficha": FICHA,
-        "template_enviado": "Olá Isabel, sou a Matilde, assistente virtual da FigueiraHome.",
+        "template_enviado": (
+            "Olá Isabel, sou a Matilde, assistente virtual da FigueiraHome.\n"
+            "Recebemos o seu interesse, através das redes sociais, no seguinte imóvel:\n"
+            "FH2572 — T4 na cidade em excelente estado com garagem\n"
+            "Posso ajudar com alguma informação?"
+        ),
     })
     assert "não voltes a apresentar-te" in perfil
     assert "Começa a tua resposta" not in perfil
