@@ -5,11 +5,9 @@
 ## O que é
 
 Plataforma de IA para agência imobiliária em Portugal:
-1. **Assistentes** — **A1 Vendedor "Matilde"** (compra/arrendamento) e **A2 Geral
-   "Maria"** (recepção e encaminhamento), em WhatsApp e no painel.
+1. **Assistentes** — **A1 "Matilde"** (compra/arrendamento) e **A2 "Maria"** (recepção e encaminhamento), em WhatsApp e no painel.
 2. **Agente de Voz** — atendimento telefónico (Telnyx). Bloqueado por credenciais.
-3. **Assistente Broker** — chat interno do corretor, com acesso de leitura à BD.
-4. **Painel de gestão** — React: clientes, imóveis, leads, métricas dos assistentes.
+3. **Assistente Broker** — chat interno do corretor, leitura da BD. **Painel** React: clientes, imóveis, leads, métricas.
 
 ## Stack
 
@@ -31,8 +29,8 @@ backend/app/
 │                      leads_meta (semeadura das leads da Meta — n8n)
 ├── landing/ ⑂       ← gerador.py (allowlist pública + hash + API) · templates/
 ├── agents/voice/    ← webhook Telnyx, audio_ws, save_call, claude_agent (só voz)
-├── agents/broker/   ← engine (motor único), assistants (registry), router, guards
-│                      (dedup + 80% + qualificação), custos, tools, conversation,
+├── agents/broker/   ← engine (motor único), assistants, router, guards (dedup +
+│                      80% + qualificação), custos, tools, conversation,
 │                      channels/whatsapp/ (webhook, meta_api, formatacao)
 ├── integrations/    ← egorealestate.py (cliente API), imoveis_sync.py (upsert + extras)
 ├── db/supabase_client.py  ← get_supabase() [dados] + get_supabase_auth() [só login]
@@ -46,70 +44,68 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 ## Estado actual — Handoff 2026-08-29
 
-1. **O WhatsApp esteve mudo de 24 a 29/08** por cartão expirado na WABA. Resolvido e verificado ponta a ponta. **45 leads pagas por reenviar** — ver a fase de hoje.
-2. **Os três fluxos do n8n estão por importar** — template `figueirahome_apos_lead`, nós nativos do Supabase e a guarda `contacto_humano_em`. O `03` também por correr.
-3. **Construtor de LPs** em standby (25/08): as LPs são feitas à parte.
+**Duas fases, ambas deployadas.** De manhã: o WhatsApp esteve mudo seis dias por
+um cartão expirado na WABA. De tarde: ao preparar o reenvio das 45 leads
+afectadas, o cruzamento com o eGO mostrou que **8 já eram clientes da casa e 4
+tinham processo aberto com uma consultora** — daí a `contacto_humano_em`. O que
+falta é fora do código: **três fluxos do n8n por importar** e **45 leads por
+reenviar** (prazo 23/09).
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-29 em `569b7fd` (`v55`, 512mb) — recibos de entrega da Meta, `link_imovel`, leads da Meta, qualificação, os três desfechos (`encerrar_lead`, `sem_resposta`, email da visita), visitas virtuais (`0028`), apresentação da Matilde, notificações Graph (inertes sem credenciais). **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-08-29 em `be18602` (**`v56`**, 512mb) — recibos de entrega da Meta, `contacto_humano` no `PUT /api/leads`, `link_imovel`, leads da Meta, qualificação, os três desfechos (`encerrar_lead`, `sem_resposta`, email da visita), visitas virtuais (`0028`), notificações Graph (inertes sem credenciais). **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
-| Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
+| Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
 | Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: entram no backoffice com a mesma conta, e juntos a 18/08 deram OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
+| n8n (`01`/`02`/`03`) | ⚠️ **por importar**. Até lá sai o texto antigo, sem imóvel e sem guarda |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
-### Fase de hoje — seis dias mudos por um cartão expirado (2026-08-29)
+### Fases de hoje (2026-08-29) — 207 testes
 
-**Ninguém respondeu à Matilde de 24 a 29/08 e lemos isso como desinteresse.** As
-mensagens não chegavam: o cartão do método de pagamento da WABA expirou, e o erro
-**`131042`** da Meta **aceita a mensagem, devolve `200 accepted` e falha a entrega
-sem tocar na *quality rating***. Nada avisou porque o webhook lia só
-`value["messages"]` e deitava fora `value["statuses"]` (sent/delivered/read/failed).
+**1. Seis dias mudos por um cartão expirado.** Ninguém respondia à Matilde desde
+24/08 e lemos isso como desinteresse: as mensagens não chegavam. O erro
+**`131042`** da Meta **aceita a mensagem, devolve `200 accepted` e falha a
+entrega sem tocar na *quality rating***. Invisível porque o webhook lia só
+`value["messages"]` e deitava fora `value["statuses"]`. Corte limpo — 22
+templates a 23/08 → 5 respostas; 45 desde 24/08 → **zero** — com tudo a verde.
+Corrigido (`_registar_estado`) e verificado ponta a ponta.
 
-Corte limpo: **22 templates a 23/08 → 5 respostas; 45 desde 24/08 → zero.** Todos
-os indicadores estavam verdes — GREEN, CONNECTED, LIVE. Diagnóstico pela contagem
-de recibos: 1 por envio = falha; 3 = `sent`+`delivered`+`read`. Verificado ponta
-a ponta a 29/08. **207 testes.**
+**2. `contacto_humano_em` (`0032`) — a Matilde não escreve por cima da
+consultora.** Marcada no painel (caixa no modal de Leads + `responsavel` +
+distintivo na tabela). Trava os **três** fluxos do n8n; **não** trava a Matilde a
+responder a quem escreve. Os três nós do `01` que falavam com o PostgREST por
+HTTP passaram a nó nativo do Supabase, e o fluxo `03` **nunca teria corrido** —
+ligação para `"…às 10h"`, nó chamado `"…às 12h"`. Detalhe em `docs/fases/`:
+`incidente-whatsapp-mudo-2026-08-29.md`, `contacto-humano-{plano,resumo}.md`.
 
-**Antes de reenviar, cruzaram-se as 45 com o eGO** (por telefone): **8 já lá
-estavam, 4 com oportunidade ACTIVA** e uma mexida *depois* da lead. Daí a
-`0032`/`contacto_humano_em` — marcada no painel, trava os três fluxos do n8n,
-**não** trava a Matilde a responder. Falta a volta às consultoras e marcar as 5.
-Prazo **23/09** para reenviar as restantes; também aberto `name_status:
-DECLINED`, o `01` com 12h de atraso, e o `logging.basicConfig`. **Detalhe:
-`docs/fases/incidente-whatsapp-mudo-2026-08-29.md` e `contacto-humano-plano.md`.**
+### Fases anteriores — deployadas, detalhe em `docs/fases/`
 
-### Fases anteriores — deployadas
-
-**Template com o imóvel (28/08)**: `figueirahome_apos_lead`, 2 variáveis, nomeia
-a Matilde e o imóvel; ref + resumo num só parâmetro, resumo = `titulo` com os
-campos estruturados como rede — `docs/n8n/README.md`. **"Publicar apesar de
-indisponível" (27/08)**: interruptor no eGO que mantém o imóvel na Web API depois
-de indisponível; cai a premissa de que "a API só devolve publicados" e **nenhum
-dos 104 campos o denuncia** — `_existing_ego_ids` passa a filtrar `publicado=true`
+**Template com o imóvel (28/08)**: `figueirahome_apos_lead`, ref + resumo num só
+parâmetro, resumo = `titulo` com os campos estruturados como rede. **"Publicar
+apesar de indisponível" (27/08)**: interruptor do eGO que mantém o imóvel na Web
+API depois de indisponível; cai a premissa de que "a API só devolve publicados" e
+**nenhum dos 104 campos o denuncia** — `_existing_ego_ids` filtra `publicado=true`
 (senão o sync criava **51 tarefas falsas**). **Link da LP (25/08)**:
-`link_imovel`, só o link. **Desfechos da §2.2 (23/08)**: `encerrar_lead`; `0030` +
-fluxo `03` às **12h** Lisboa, **por correr**. **Visitas do eGO (`0023`, 15/08)**:
-uma oportunidade só guardava 1 visita; tabela `visitas` própria e aditiva.
-**Landing pages**: as páginas estão no ar em `imoveis.figueirahome.pt`, feitas
-fora deste repositório; o construtor (`feat/landing-pages`, `/lp/*`) está **parado
-por decisão do cliente** — `docs/fases/landing-pages-resumo.md`, `0020` por correr.
+`link_imovel`. **Desfechos §2.2 (23/08)**: `encerrar_lead`, `0030`, fluxo `03`.
+**Visitas do eGO (`0023`, 15/08)**: tabela própria e aditiva. **Landing pages**:
+no ar em `imoveis.figueirahome.pt`, feitas fora deste repositório; o construtor
+(`feat/landing-pages`, `/lp/*`) **parado por decisão do cliente**, `0020` por correr.
 
 ### Invariantes que não são óbvias a ler o código
 
 - ⚠️ **`flyctl deploy` envia a árvore de trabalho, não o HEAD**, e o `.dockerignore` não exclui as landing pages: **fazer merge do `feat/landing-pages` antes de correr a `0020` põe `/lp/*` a dar 500**.
 - **Features do imóvel ≠ zona envolvente** nas `FeatureTags` do eGO: `SWIMMING_POOLS`/`PROPERTY_NEAR_GARDENS` são "há na zona"; as do imóvel são `PROPERTY_HAS_POOL`/`PROPERTY_HAS_GARDEN`. A tag errada põe o A1 a afirmar ao comprador o que o imóvel não tem.
-- **Upsert por lotes do PostgREST**: uma chave presente num só registo vira coluna e escreve NULL em todos os outros. Omitir a chave não protege — custou 40 coordenadas. Esparsos saem por `_map_extras`, UPDATE linha a linha.
-- **`latitude`/`longitude` só com `HasGPSLocation=true`** (13/55): sem o flag o eGO devolve o centróide da zona — 42 imóveis em 10 pontos, 19 no mesmo. A guarda vive no `_gps`, mas a chave tem de ser escrita pelo **`_map_property`**: no `_map_extras`, que filtra nulos, impedia escrever e nunca apagava — 40 linhas ficaram com o centróide até 2026-08-18.
+- **Upsert por lotes do PostgREST**: uma chave presente num só registo vira coluna e escreve NULL em todos os outros. Omitir a chave não protege — custou 40 coordenadas. Esparsos saem por `_map_extras`, UPDATE linha a linha. **`latitude`/`longitude` só com `HasGPSLocation=true`** (13/55): sem o flag o eGO devolve o centróide da zona (42 imóveis em 10 pontos). A guarda vive no `_gps`, mas a chave tem de ser escrita pelo **`_map_property`** — no `_map_extras`, que filtra nulos, impedia escrever e nunca apagava.
 - **O eGO demora ~10 min** a expor um imóvel novo na Web API. **Prompt caching a 67%** — "Servido de cache" a zero havendo turnos multiplica o custo por 10.
 - **Três allowlists são fronteiras de segurança**, todas com teste: `_TOOLS_INPUT_SEGURO`, `gerador.CAMPOS_PUBLICOS`, `_FEATURE_BOOLS`. **A quarta não se vê em Python**: o consentimento de WhatsApp vem de um *trigger* na base (`tgr_normaliza_aceita_whatsapp`, `0031`, vivo desde 20/08).
 - **O repo não é a fonte de verdade única do esquema** — 59 entradas em `supabase_migrations` vieram da interface do Supabase. **`db push` proibido** (a `0001` aborta); CLI só de leitura. `supabase migration list` antes de confiar no `database-schema.md`.
 - **MQL = orçamento + zona + tipo de interesse** (`guards.lead_qualificada`). **Imóveis contam-se por `publicado` (53)**, não `disponibilidade`. **A lead responde na 1.ª hora ou nunca** (16 de 17 reais, máx. 1,3 h) e **13 das 17 conversas foram ao fim-de-semana** — a premissa das 48h do follow-up não está confirmada.
 - **Visitas de um imóvel contam-se por `visitas.visita_imovel_ref`**, nunca por `oportunidades.imovel_ref` — a segunda é o imóvel da *oportunidade* e perde quem visitou vindo de outra (FH2571: 7 contra 4). O painel não mostra visitas do eGO; `visitas_pendentes` no Dashboard vem de `agente_tarefas`.
 - **`200 accepted` da Graph API NÃO é entrega.** É "aceite para envio". A entrega só se sabe pelos `statuses` do webhook, e o n8n marca `template_enviado_em` com base no 200 — durante 6 dias marcou 45 leads como contactadas que nunca receberam nada. Quando a Matilde emudecer, **ver a faturação da WABA antes de culpar o conteúdo**.
+- **O n8n não valida nada do que lá se escreve.** Um nome de coluna trocado no `filterString` devolve linhas a mais em silêncio (daí as guardas repetidas no `IF`), e uma ligação apontada a um nó que não existe importa-se sem aviso e nunca dispara — foi assim que o fluxo `03` ficou desde 23/08 ligado a nada. `test_n8n_guardas.py` lê os JSON e verifica ambas.
 - **WhatsApp não lê Markdown** — `channels/whatsapp/formatacao.py`, ponto único de saída. **Sem gráficos de evolução nem de receita** — os dados mentiriam (`dashboard-plano.md`).
 - **Página ≠ OG tags em `imoveis.figueirahome.pt`.** O SPA renderiza os 54 publicados (lê a nossa `imoveis` por `eq`); o **prerender** só serve OG tags a bots, e só para refs simples. `curl` não distingue as duas e leva a concluir "não existe" — ir ao browser. Faltar prerender é cosmético: cartão genérico, link a funcionar. **`preview_url` é `false` por omissão na Cloud API** — sem a chave o WhatsApp mostra o URL cru e nem lê as OG tags; falha em silêncio (200, entregue) e custou um deploy. Tem teste.
 
@@ -121,9 +117,10 @@ da consultora. `get_supabase()` = dados, `get_supabase_auth()` = login.
 **Migrations corridas à mão pelo utilizador** no editor SQL — explicar antes.
 Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para aqui
 convergiram as outras, `0029` deu-lhe `origem`), `agente_leads` (morta desde
-2026-08-18, por apagar) e `leads_angariacao` (79, Make + consultora).
+18/08, por apagar) e `leads_angariacao` (79, Make + consultora).
 **`oportunidades`/`contactos` são de fora do repo** — o portal do Miguel lê-as, e
-desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
+desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`. São o **único
+sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 ### Ambiente local
 
@@ -133,21 +130,18 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 | Item | Estado |
 |---|---|
-| `AUTOMACAO_SECRET` | ⬜ **já não bloqueia** — o fluxo não passa por endpoint nosso (`0024`). Só é preciso se se voltar a semear |
 | **Portal do Miguel** | ⚠️ ainda em vigor, lê o mesmo Supabase. **Bloqueia a `0022`**: se usar a chave `anon`, apertar o RLS de `contactos`/`imoveis`/`oportunidades` parte-o. Confirmar a chave antes de correr |
-| `whatsapp_permissao` a `True` em **3 de 79** | ⚠️ é o gate do template; se o Make não o marcar à entrada, não sai template e não há A1 |
-| Formulário de venda do Meta Lead Ads | ⚠️ não existe ainda; os alias em `_ALIAS_FICHA` são palpites tirados do de angariação |
+| `whatsapp_permissao` a `True` em **3 de 79** | ⚠️ é o gate do template; sem o Make a marcá-lo à entrada, não sai template e não há A1. **Formulário de venda do Meta Lead Ads** ainda não existe: os alias em `_ALIAS_FICHA` são palpites tirados do de angariação |
 | Telnyx — credenciais e número PT +351 | ❌ bloqueia a voz · ~3459 linhas `fonte='manual'` de origem desconhecida: parado a pedido do utilizador |
 
 ### Próximos passos
 
-0. **Reenviar as 45 leads** (ver a fase de hoje) — prazo 23/09. Antes: data exacta no Insights **e** a volta às consultoras, marcando `contacto_humano_em` nas 5 do shortlist (o `02` salta-as sozinho). Depois: **`name_status: DECLINED`** e o **atraso de 12h do `01`**.
-1. **Importar os três fluxos** no n8n — até lá sai o texto antigo, sem o imóvel, e sem a guarda do contacto humano. Todos com **nó nativo do Supabase**: escolher a credencial *Supabase API* em cada um (3+3+2 nós). ⚠️ O `Ler imóvel` do `01` perdeu o `encodeURIComponent` na passagem a nativo — **testar com uma lead do `FH2460 3C`** (11 das 54 refs têm espaço). Depois **correr o `03`** (template nos nós, phone id `925368620661613`), **à mão com `Limit=5`**, trigger desligado; contagem de controlo no `docs/n8n/README.md`, e confirmar que os 5 ficaram `sem_resposta` com `follow_up_em`.
+0. **Importar os três fluxos** no n8n. Credencial *Supabase API* em cada nó (3+3+2) e o template do follow-up no `03`. ⚠️ **Testar o `01` com uma lead do `FH2460 3C`**: perdeu o `encodeURIComponent` e 11 das 54 refs têm espaço — falha em silêncio, o `{{2}}` sai sem resumo. Depois **correr o `03` à mão com `Limit=5`**, trigger desligado (phone id `925368620661613`); contagem de controlo no `docs/n8n/README.md`, e confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e os outros intactos.
+1. **Reenviar as 45 leads** — prazo **23/09**, depois caem na Maria sem contexto. Antes: a **volta à Alexandra e à Alexsandra** (quais das 8 já foram contactadas → marcar `contacto_humano_em` no painel, o `02` salta-as sozinho) **e** a data exacta no WhatsApp Manager → Insights. Depois: **`name_status: DECLINED`**, o **atraso de 12h do `01`** e o `logging.basicConfig(level=INFO)` no `main.py` (sem ele só o ERROR das falhas se vê).
 2. **"Validar CRM"** no painel, uma passagem manual — resolve os 12 imóveis em limbo desde 04/08.
 3. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
-4. **Retomar o construtor de LPs** quando o cliente decidir as alterações. Nessa altura: **apagar `agente_leads`** e **actualizar `landing.py:223`**, o único escritor que sobrou — sem isso o merge ressuscita a tabela morta.
-5. **Passagem automática ao eGO** (precisa da chave de integração) · **A3/A4 e sub-fluxos SC/FP** (adiados; `agente_clientes` sem coluna `agente`) · **lembretes 24h/48h** (precisam de scheduler).
-6. **Dados a montante**: `responsavel` com "Internet" (892), 8432 sem `data_criacao_iso`, `valor_negocio` quase vazio. Recuperação do histórico de visitas (export com período largo).
+4. **Retomar o construtor de LPs** quando o cliente decidir. Nessa altura: **apagar `agente_leads`** e **actualizar `landing.py:223`**, o único escritor que sobrou — sem isso o merge ressuscita a tabela morta.
+5. **Passagem automática ao eGO** (precisa da chave de integração) · **A3/A4 e sub-fluxos SC/FP** (adiados; `agente_clientes` sem coluna `agente`) · **lembretes 24h/48h** (scheduler) · **dados a montante**: `responsavel` com "Internet" (892), 8432 sem `data_criacao_iso`, `valor_negocio` quase vazio, histórico de visitas por recuperar.
 
 ## Decisões arquitecturais
 
@@ -163,7 +157,8 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Leads da Meta: semear a conversa, não mexer no router** — a resposta a um template é "Sim"/"Olá", que `_A1_RE` não apanha. A thread nasce com `agente='a1_vendedor'`; alargar o regex mandaria para o A1 toda a gente que diz "olá".
 - **`load_conversation` procura por variantes do número** — a Meta manda `351…`, a semeadura guarda 9 dígitos. Com `.eq()` exacto a thread nunca era encontrada e a funcionalidade parecia instalada sem fazer nada.
 - **Qualificação: regra única em `guards.py`, dois gatilhos** — `find_or_create_cliente` (escrita de cliente) e `promover_se_qualificada` (fim de turno). Sem o segundo, a lead cujo formulário já traz o MQL nunca era promovida. `nova` só conta como "respondeu" no segundo.
-- **Desfecho de conversa ≠ qualificação** — os três da spec §2.2 entram **ao lado** do MQL, não por cima. **`engano` fecha** (sai de `_ESTADOS_LEAD_ABERTA`, entra em `ESTADOS_FECHADOS`); **`sem_resposta` fica ABERTO** apesar do nome — quem responde tarde tem de manter a Matilde e o `imovel_ref`. Detecção do engano por **tool**, escrita em código; o travão do follow-up é a **coluna `follow_up_em`**, nunca o estado (o estado é editável no painel).
+- **Desfecho de conversa ≠ qualificação** — os três da spec §2.2 entram **ao lado** do MQL, não por cima. **`engano` fecha** (sai de `_ESTADOS_LEAD_ABERTA`, entra em `ESTADOS_FECHADOS`); **`sem_resposta` fica ABERTO** apesar do nome — quem responde tarde tem de manter a Matilde e o `imovel_ref`. Detecção do engano por **tool**, escrita em código.
+- **Os travões de envio são colunas, nunca o estado** — `follow_up_em` (`0030`) e `contacto_humano_em` (`0032`). O estado é editável no painel **e** reescrito pelo n8n a cada passo, portanto não segura nada. O `contacto_humano_em` trava só o que **nós** iniciamos; a Matilde responde na mesma a quem escreve. O painel manda um **booleano** e o servidor carimba: com um `datetime`, o `exclude_none` do `atualizar_lead` deixava marcar e não deixava desmarcar.
 - **Visitas em tabela própria (`visitas`, `0023`)** — em colunas de `oportunidades` cabia 1 por oportunidade e o eGO dá uma linha por visita. `oportunidades` fica intacta: o portal do Miguel lê-a.
 - **Segredo próprio para automações** (`X-Automacao-Secret`) — Make e n8n não têm de poder disparar syncs do eGO; segredo vazio nunca autentica.
 - **Refs duplicadas do eGO desempatam por data de alteração**, não pela ordem da lista — a ordem escolhia a cópia por preencher (FH2460 4D gravava piso 0 num 4.º andar).
@@ -173,7 +168,10 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 
 ## Bugs conhecidos
 
-- **`agente_leads` ainda existe**, agora vazia de uso — nada lhe escreve nem lê desde 2026-08-18. Só desaparece a confusão quando for apagada (Próximos passos 4).
+- ⚠️ **O `Ler imóvel` do `01` pode partir em refs com espaço** (`FH2460 3C`, 11 das 54). Perdeu o `encodeURIComponent` ao passar a nó nativo; falha em silêncio — o `{{2}}` sai só com a ref, sem resumo. **Por verificar.** Correcção: HTTP Request com `encodeURIComponent` só nesse nó.
+- **O `01` dispara ~12h depois da lead entrar**, desde 28/08 — em rajada de manhã em vez de na hora. Como **16 das 17 respostas reais vieram na 1.ª hora**, isto sozinho chega para matar a conversão. Por investigar nas execuções do n8n.
+- **Sem `logging.basicConfig`**: a raiz fica em `WARNING`. O `ERROR` das falhas de entrega aparece; `sent`/`delivered`/`read` são invisíveis e só se inferem contando recibos.
+- **`agente_leads` ainda existe**, vazia de uso desde 2026-08-18 — a confusão só acaba quando for apagada (Próximos passos 4).
 - **Dedup de clientes sob carga**: teste falhou e voltou a passar com o mesmo código. Se aparecerem duplicados em produção, é por aqui.
 - **Agente de voz** (bloqueado por Telnyx, não se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2 s sem VAD.
 
@@ -195,8 +193,8 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 1. Ler `docs/PRD.md` antes de feature nova; `docs/database-schema.md` antes de
    tocar na DB; `docs/api-spec.md` antes de criar/alterar endpoints;
    `docs/decisoes.md` antes de contrariar uma decisão.
-2. **Fase nova → `planeamento-fases.md`. Plano antes de código. Sempre.** Uma
-   fase de cada vez; primeira resposta = plano, nunca código directo.
-3. Manter este ficheiro actualizado após cada fase. **Limite: 200 linhas** — o
-   histórico vai para `docs/fases/`, as decisões para `docs/decisoes.md`.
+2. **Fase nova → plano em `docs/fases/<nome>-plano.md`, resumo em `-resumo.md`.
+   Plano antes de código, sempre.** Uma fase de cada vez; 1.ª resposta = plano.
+3. Manter este ficheiro actualizado. **Limite: 200 linhas** — o histórico vai
+   para `docs/fases/`, as decisões para `docs/decisoes.md`.
 4. Nunca inventar credenciais.
