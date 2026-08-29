@@ -26,80 +26,79 @@ Plataforma de IA para agência imobiliária em Portugal:
 ```
 backend/app/
 ├── main.py · config.py (pydantic-settings: SUPABASE_*, EGOREALESTATE_*, AUTOMACAO_SECRET)
-├── api/             ← clientes, imoveis, imoveis_sync, oportunidades_sync, leads, tarefas,
-│                      config, dashboard, broker, agentes, landing ⑂ (/lp/* + painel),
+├── api/             ← clientes, imoveis, imoveis_sync, oportunidades_sync, leads,
+│                      tarefas, config, dashboard, broker, agentes, landing ⑂,
 │                      leads_meta (semeadura das leads da Meta — n8n)
 ├── landing/ ⑂       ← gerador.py (allowlist pública + hash + API) · templates/
-├── agents/
-│   ├── voice/       ← webhook Telnyx, audio_ws, save_call, claude_agent (só voz)
-│   └── broker/      ← engine (motor único), assistants (registry), router, guards
+├── agents/voice/    ← webhook Telnyx, audio_ws, save_call, claude_agent (só voz)
+├── agents/broker/   ← engine (motor único), assistants (registry), router, guards
 │                      (dedup + 80% + qualificação), custos, tools, conversation,
-│                      channels/whatsapp/
+│                      channels/whatsapp/ (webhook, meta_api, formatacao)
 ├── integrations/    ← egorealestate.py (cliente API), imoveis_sync.py (upsert + extras)
 ├── db/supabase_client.py  ← get_supabase() [dados] + get_supabase_auth() [só login]
 └── models/          ← Pydantic (imovel, cliente, lead, tarefa, ...)
 
-frontend/src/  App.jsx · lib/ · components/ (Layout, Sidebar, AgenteMetricas,
-  AgenteConversas, Barras, LandingPagesTab ⑂, ui.jsx ⑂) · pages/ (Dashboard,
-  Clientes, Imoveis, Leads, Chat, AgenteConfig, Config)
+frontend/src/  App.jsx · lib/ · components/ (Layout, Sidebar, AgenteMetricas, · AgenteConversas, Barras, LandingPagesTab ⑂, ui.jsx ⑂) · pages/ (Dashboard,  · Clientes, Imoveis, Leads, Chat, AgenteConfig, Config)
 scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 ```
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-08-25
+## Estado actual — Handoff 2026-08-29
 
-1. **Leads da Meta** ao vivo; desfechos da §2.2 e `link_imovel` deployados
-   (`v50`). Falta correr o fluxo `03` no n8n.
-2. **Construtor de LPs** no ramo `feat/landing-pages`, standby (25/08): as LPs
-   são feitas à parte, e há alterações a fazer antes.
+1. **O WhatsApp esteve mudo de 24 a 29/08** por cartão expirado na WABA. Resolvido e verificado ponta a ponta. **45 leads pagas por reenviar** — ver a fase de hoje.
+2. **Template novo** `figueirahome_apos_lead` aprovado; `01`/`02` actualizados mas **por importar** no n8n, e o `03` por correr.
+3. **Construtor de LPs** em standby (25/08): as LPs são feitas à parte.
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-25 em `645f587` (`v50`, 512mb) — `link_imovel`, leads da Meta, qualificação, os três desfechos (`encerrar_lead`, `sem_resposta`, email da visita), visitas virtuais (`0028`), apresentação da Matilde, notificações Graph (inertes sem credenciais). **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ deployado 2026-08-29 em `569b7fd` (`v55`, 512mb) — recibos de entrega da Meta, `link_imovel`, leads da Meta, qualificação, os três desfechos (`encerrar_lead`, `sem_resposta`, email da visita), visitas virtuais (`0028`), apresentação da Matilde, notificações Graph (inertes sem credenciais). **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ deployado 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
-| Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: ambos entram no backoffice com a mesma conta, e correram juntos a 08-18 com OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
+| Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: entram no backoffice com a mesma conta, e juntos a 18/08 deram OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
-### Fase de hoje — "publicar apesar de indisponível" (2026-08-27)
+### Fase de hoje — seis dias mudos por um cartão expirado (2026-08-29)
 
-Interruptor por imóvel no eGO que o mantém no site **e na Web API** depois de
-ficar indisponível; activado no `FH2520` (Reservado). Cai a premissa de que "a
-API só devolve publicados" — a 27/08 devolvia 55 Disponível + 1 Reservado + 1
-Vendido, e **nenhum dos 104 campos denuncia o interruptor**. Correcções:
-`_existing_ego_ids` filtra por `publicado=true` (senão o sync criava **51 tarefas
-falsas**), e `ficha_imovel`/`link_imovel` dizem *"está RESERVADO"* em vez de
-adivinhar — mediu-se *"pode ter sido vendido"* sobre um reservado. **147 testes.**
+**Ninguém respondeu à Matilde de 24 a 29/08 e lemos isso como desinteresse.** As
+mensagens não chegavam: o cartão do método de pagamento da WABA expirou, e o erro
+**`131042`** da Meta **aceita a mensagem, devolve `200 accepted` e falha a entrega
+sem tocar na *quality rating***. Nada avisou porque o webhook lia só
+`value["messages"]` e deitava fora `value["statuses"]` (sent/delivered/read/failed).
+
+Corte limpo: **22 templates a 23/08 → 5 respostas; 45 desde 24/08 → zero.** Todos
+os indicadores estavam verdes — `quality_rating` GREEN, `status` CONNECTED,
+`account_mode` LIVE. Diagnóstico pela contagem de recibos: 1 por envio = falha;
+3 = `sent`+`delivered`+`read`. Verificado ponta a ponta a 29/08. **187 testes.**
+
+**Por fazer, com prazo 23/09** (`_JANELA_LEAD_DIAS = 30`, depois caem na Maria sem
+contexto): reenviar as **45 leads**, que o `02` não apanha (filtra `is.null`) e a
+quem o `03` mandaria follow-up de uma conversa que não houve. Também aberto:
+`name_status: DECLINED`, o `01` com 12h de atraso, e o `logging.basicConfig`.
+**Detalhe completo: `docs/fases/incidente-whatsapp-mudo-2026-08-29.md`.**
 
 ### Fases anteriores — deployadas
 
-**Link da LP (25/08)**: tool `link_imovel`, só o link — a página já tem fotos e
-vídeo. `imoveis.figueirahome.pt/<ref>`, ref por `quote()` (11 têm espaço).
-**Desfechos da §2.2 (23/08)**: `encerrar_lead`; `0030` + o fluxo `03` às **12h**
-Lisboa (as 10h eram palpite, os dados dão 12/15/16h), 35 elegíveis, **por
-correr**; a visita avisa por email e a Matilde propõe horários.
-
-### Visitas do eGO — `0023` aplicada, scraper deployado 2026-08-15
-
-Uma oportunidade só guardava **1 visita** (o eGO dá uma linha por visita e o
-`setdefault` em `group()` ficava com a primeira). Tabela `visitas` própria,
-aditiva — `oportunidades` fica intacta por causa do portal do Miguel.
-
-### Landing pages — existem; o construtor está em standby
-
-As páginas por imóvel **já estão no ar** em `imoveis.figueirahome.pt`, feitas
-fora deste repositório, e a A1 manda-as. O construtor do ramo
-`feat/landing-pages` (`/lp/*`) fica **parado por decisão do cliente**. Detalhe em
-`docs/fases/landing-pages-resumo.md`; `0020` por correr, zero gerações.
-⚠️ **`flyctl deploy` envia a árvore de trabalho, não o HEAD** e o `.dockerignore`
-não exclui as landing pages: **merge antes da `0020` põe `/lp/*` a dar 500**.
+**Template com o imóvel (28/08)**: `figueirahome_apos_lead`, 2 variáveis, nomeia
+a Matilde e o imóvel; ref + resumo num só parâmetro, resumo = `titulo` com os
+campos estruturados como rede — `docs/n8n/README.md`. **"Publicar apesar de
+indisponível" (27/08)**: interruptor no eGO que mantém o imóvel na Web API depois
+de indisponível; cai a premissa de que "a API só devolve publicados" e **nenhum
+dos 104 campos o denuncia** — `_existing_ego_ids` passa a filtrar `publicado=true`
+(senão o sync criava **51 tarefas falsas**). **Link da LP (25/08)**:
+`link_imovel`, só o link. **Desfechos da §2.2 (23/08)**: `encerrar_lead`; `0030` +
+fluxo `03` às **12h** Lisboa, **por correr**. **Visitas do eGO (`0023`, 15/08)**:
+uma oportunidade só guardava 1 visita; tabela `visitas` própria e aditiva.
+**Landing pages**: as páginas estão no ar em `imoveis.figueirahome.pt`, feitas
+fora deste repositório; o construtor (`feat/landing-pages`, `/lp/*`) está **parado
+por decisão do cliente** — `docs/fases/landing-pages-resumo.md`, `0020` por correr.
 
 ### Invariantes que não são óbvias a ler o código
 
+- ⚠️ **`flyctl deploy` envia a árvore de trabalho, não o HEAD**, e o `.dockerignore` não exclui as landing pages: **fazer merge do `feat/landing-pages` antes de correr a `0020` põe `/lp/*` a dar 500**.
 - **Features do imóvel ≠ zona envolvente** nas `FeatureTags` do eGO: `SWIMMING_POOLS`/`PROPERTY_NEAR_GARDENS` são "há na zona"; as do imóvel são `PROPERTY_HAS_POOL`/`PROPERTY_HAS_GARDEN`. A tag errada põe o A1 a afirmar ao comprador o que o imóvel não tem.
 - **Upsert por lotes do PostgREST**: uma chave presente num só registo vira coluna e escreve NULL em todos os outros. Omitir a chave não protege — custou 40 coordenadas. Esparsos saem por `_map_extras`, UPDATE linha a linha.
 - **`latitude`/`longitude` só com `HasGPSLocation=true`** (13/55): sem o flag o eGO devolve o centróide da zona — 42 imóveis em 10 pontos, 19 no mesmo. A guarda vive no `_gps`, mas a chave tem de ser escrita pelo **`_map_property`**: no `_map_extras`, que filtra nulos, impedia escrever e nunca apagava — 40 linhas ficaram com o centróide até 2026-08-18.
@@ -108,6 +107,7 @@ não exclui as landing pages: **merge antes da `0020` põe `/lp/*` a dar 500**.
 - **O repo não é a fonte de verdade única do esquema** — 59 entradas em `supabase_migrations` vieram da interface do Supabase. **`db push` proibido** (a `0001` aborta); CLI só de leitura. `supabase migration list` antes de confiar no `database-schema.md`.
 - **MQL = orçamento + zona + tipo de interesse** (`guards.lead_qualificada`). **Imóveis contam-se por `publicado` (53)**, não `disponibilidade`. **A lead responde na 1.ª hora ou nunca** (16 de 17 reais, máx. 1,3 h) e **13 das 17 conversas foram ao fim-de-semana** — a premissa das 48h do follow-up não está confirmada.
 - **Visitas de um imóvel contam-se por `visitas.visita_imovel_ref`**, nunca por `oportunidades.imovel_ref` — a segunda é o imóvel da *oportunidade* e perde quem visitou vindo de outra (FH2571: 7 contra 4). O painel não mostra visitas do eGO; `visitas_pendentes` no Dashboard vem de `agente_tarefas`.
+- **`200 accepted` da Graph API NÃO é entrega.** É "aceite para envio". A entrega só se sabe pelos `statuses` do webhook, e o n8n marca `template_enviado_em` com base no 200 — durante 6 dias marcou 45 leads como contactadas que nunca receberam nada. Quando a Matilde emudecer, **ver a faturação da WABA antes de culpar o conteúdo**.
 - **WhatsApp não lê Markdown** — `channels/whatsapp/formatacao.py`, ponto único de saída. **Sem gráficos de evolução nem de receita** — os dados mentiriam (`dashboard-plano.md`).
 - **Página ≠ OG tags em `imoveis.figueirahome.pt`.** O SPA renderiza os 54 publicados (lê a nossa `imoveis` por `eq`); o **prerender** só serve OG tags a bots, e só para refs simples. `curl` não distingue as duas e leva a concluir "não existe" — ir ao browser. Faltar prerender é cosmético: cartão genérico, link a funcionar. **`preview_url` é `false` por omissão na Cloud API** — sem a chave o WhatsApp mostra o URL cru e nem lê as OG tags; falha em silêncio (200, entregue) e custou um deploy. Tem teste.
 
@@ -125,7 +125,7 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **147**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **187**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -139,9 +139,9 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 ### Próximos passos
 
-0. **Reconfirmar no WhatsApp** depois do `preview_url` e da reversão da regra `FH\d+`. Nas 16 refs com sufixo o cartão sai genérico (falta-lhes prerender, não página) — se o cliente quiser o cartão certo, é pedido a quem faz o site.
-1. **Correr o fluxo `03`**: importar o `03-follow-up-48h.json` (credenciais + template nos nós, phone id `925368620661613`), **à mão com `Limit=5`**, trigger desligado. Contagem de controlo no `docs/n8n/README.md`; a seguir confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e que os outros não foram tocados.
-2. **Validar em produção**: "Validar CRM" no painel (resolve os 12 imóveis em limbo) e uma lead de teste ponta a ponta.
+0. **Reenviar as 45 leads** (ver a fase de hoje) — prazo 23/09. Antes: data exacta no Insights. Depois: **`name_status: DECLINED`** e o **atraso de 12h do `01`**.
+1. **Importar os `01`/`02` novos** no n8n — até lá sai o texto antigo, sem o imóvel. Depois **correr o fluxo `03`**: importar o `03-follow-up-48h.json` (credenciais + template nos nós, phone id `925368620661613`), **à mão com `Limit=5`**, trigger desligado. Contagem de controlo no `docs/n8n/README.md`; a seguir confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e que os outros não foram tocados.
+2. **"Validar CRM"** no painel, uma passagem manual — resolve os 12 imóveis em limbo desde 04/08.
 3. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
 4. **Retomar o construtor de LPs** quando o cliente decidir as alterações. Nessa altura: **apagar `agente_leads`** e **actualizar `landing.py:223`**, o único escritor que sobrou — sem isso o merge ressuscita a tabela morta.
 5. **Passagem automática ao eGO** (precisa da chave de integração) · **A3/A4 e sub-fluxos SC/FP** (adiados; `agente_clientes` sem coluna `agente`) · **lembretes 24h/48h** (precisam de scheduler).
