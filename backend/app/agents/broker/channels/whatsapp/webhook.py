@@ -26,6 +26,28 @@ async def verify_webhook(
     raise HTTPException(status_code=403, detail="Token de verificação inválido.")
 
 
+def _registar_estado(estado: dict) -> None:
+    """Recibo de entrega da Meta: `sent` → `delivered` → `read`, ou `failed`.
+
+    Só log, de propósito: sem tabela nova, sem migration. O que faltava era
+    conseguir ver, não conseguir consultar histórico. Se um dia isto tiver de
+    responder a "quantas falharam esta semana", aí sim vale uma tabela.
+    """
+    qual = estado.get("status")
+    destino = estado.get("recipient_id")
+    if qual == "failed":
+        erro = (estado.get("errors") or [{}])[0]
+        logger.error(
+            "WhatsApp NAO ENTREGUE a %s — codigo %s: %s | %s",
+            destino,
+            erro.get("code"),
+            erro.get("title") or erro.get("message"),
+            (erro.get("error_data") or {}).get("details"),
+        )
+    else:
+        logger.info("WhatsApp %s -> %s", qual, destino)
+
+
 @router.post("/webhook/whatsapp")
 async def receive_message(request: Request, background_tasks: BackgroundTasks):
     body_bytes = await request.body()
@@ -54,8 +76,16 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
     for e in entry:
         for change in e.get("changes", []):
             value = change.get("value", {})
-            messages = value.get("messages", [])
-            for msg in messages:
+
+            # A Meta manda os recibos de entrega aqui, NÃO em `messages`. Foram
+            # ignorados até 2026-08-29, e isso deixou-nos cegos: a 29/08 uma
+            # mensagem de teste teve `200 accepted` da Graph API e nunca chegou
+            # ao telefone. `accepted` quer dizer "aceite para envio", não
+            # "entregue" — a diferença entre as duas só aparece aqui.
+            for estado in value.get("statuses", []):
+                _registar_estado(estado)
+
+            for msg in value.get("messages", []):
                 if msg.get("type") != "text":
                     # Ignorar imagens, áudio, etc.
                     continue
