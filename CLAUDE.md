@@ -47,7 +47,7 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 ## Estado actual — Handoff 2026-08-29
 
 1. **O WhatsApp esteve mudo de 24 a 29/08** por cartão expirado na WABA. Resolvido e verificado ponta a ponta. **45 leads pagas por reenviar** — ver a fase de hoje.
-2. **Template novo** `figueirahome_apos_lead` aprovado; `01`/`02` actualizados mas **por importar** no n8n, e o `03` por correr.
+2. **Os três fluxos do n8n estão por importar** — template `figueirahome_apos_lead`, nós nativos do Supabase e a guarda `contacto_humano_em`. O `03` também por correr.
 3. **Construtor de LPs** em standby (25/08): as LPs são feitas à parte.
 
 ### Produção
@@ -70,15 +70,17 @@ sem tocar na *quality rating***. Nada avisou porque o webhook lia só
 `value["messages"]` e deitava fora `value["statuses"]` (sent/delivered/read/failed).
 
 Corte limpo: **22 templates a 23/08 → 5 respostas; 45 desde 24/08 → zero.** Todos
-os indicadores estavam verdes — `quality_rating` GREEN, `status` CONNECTED,
-`account_mode` LIVE. Diagnóstico pela contagem de recibos: 1 por envio = falha;
-3 = `sent`+`delivered`+`read`. Verificado ponta a ponta a 29/08. **187 testes.**
+os indicadores estavam verdes — GREEN, CONNECTED, LIVE. Diagnóstico pela contagem
+de recibos: 1 por envio = falha; 3 = `sent`+`delivered`+`read`. Verificado ponta
+a ponta a 29/08. **207 testes.**
 
-**Por fazer, com prazo 23/09** (`_JANELA_LEAD_DIAS = 30`, depois caem na Maria sem
-contexto): reenviar as **45 leads**, que o `02` não apanha (filtra `is.null`) e a
-quem o `03` mandaria follow-up de uma conversa que não houve. Também aberto:
-`name_status: DECLINED`, o `01` com 12h de atraso, e o `logging.basicConfig`.
-**Detalhe completo: `docs/fases/incidente-whatsapp-mudo-2026-08-29.md`.**
+**Antes de reenviar, cruzaram-se as 45 com o eGO** (por telefone): **8 já lá
+estavam, 4 com oportunidade ACTIVA** e uma mexida *depois* da lead. Daí a
+`0032`/`contacto_humano_em` — marcada no painel, trava os três fluxos do n8n,
+**não** trava a Matilde a responder. Falta a volta às consultoras e marcar as 5.
+Prazo **23/09** para reenviar as restantes; também aberto `name_status:
+DECLINED`, o `01` com 12h de atraso, e o `logging.basicConfig`. **Detalhe:
+`docs/fases/incidente-whatsapp-mudo-2026-08-29.md` e `contacto-humano-plano.md`.**
 
 ### Fases anteriores — deployadas
 
@@ -125,7 +127,7 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **187**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **207**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -139,8 +141,8 @@ desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`.
 
 ### Próximos passos
 
-0. **Reenviar as 45 leads** (ver a fase de hoje) — prazo 23/09. Antes: data exacta no Insights. Depois: **`name_status: DECLINED`** e o **atraso de 12h do `01`**.
-1. **Importar os `01`/`02` novos** no n8n — até lá sai o texto antigo, sem o imóvel. Depois **correr o fluxo `03`**: importar o `03-follow-up-48h.json` (credenciais + template nos nós, phone id `925368620661613`), **à mão com `Limit=5`**, trigger desligado. Contagem de controlo no `docs/n8n/README.md`; a seguir confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e que os outros não foram tocados.
+0. **Reenviar as 45 leads** (ver a fase de hoje) — prazo 23/09. Antes: data exacta no Insights **e** a volta às consultoras, marcando `contacto_humano_em` nas 5 do shortlist (o `02` salta-as sozinho). Depois: **`name_status: DECLINED`** e o **atraso de 12h do `01`**.
+1. **Importar os três fluxos** no n8n — até lá sai o texto antigo, sem o imóvel, e sem a guarda do contacto humano. Todos com **nó nativo do Supabase**: escolher a credencial *Supabase API* em cada um (3+3+2 nós). ⚠️ O `Ler imóvel` do `01` perdeu o `encodeURIComponent` na passagem a nativo — **testar com uma lead do `FH2460 3C`** (11 das 54 refs têm espaço). Depois **correr o `03`** (template nos nós, phone id `925368620661613`), **à mão com `Limit=5`**, trigger desligado; contagem de controlo no `docs/n8n/README.md`, e confirmar que os 5 ficaram `sem_resposta` com `follow_up_em`.
 2. **"Validar CRM"** no painel, uma passagem manual — resolve os 12 imóveis em limbo desde 04/08.
 3. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
 4. **Retomar o construtor de LPs** quando o cliente decidir as alterações. Nessa altura: **apagar `agente_leads`** e **actualizar `landing.py:223`**, o único escritor que sobrou — sem isso o merge ressuscita a tabela morta.

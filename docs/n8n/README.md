@@ -32,27 +32,31 @@ vez de `pt_PT`, o envio falha com `132001` — trocar em ambos.
 **2. Credenciais no cofre do n8n, nunca no corpo dos nós.** Assim não aparecem
 em exports do workflow nem nos logs de execução.
 
-**Supabase → credencial *Custom Auth*** (não *Header Auth*: essa só aceita um
-par nome/valor, e o PostgREST quer dois):
-
-```json
-{
-  "headers": {
-    "apikey": "<SERVICE_ROLE_KEY>",
-    "Authorization": "Bearer <SERVICE_ROLE_KEY>"
-  }
-}
-```
-
-Nos nós HTTP: *Authentication* → Generic Credential Type → Custom Auth.
+**Supabase → credencial *Supabase API*** (*Host* + *Service Role Secret*).
+**Os três fluxos usam o nó nativo `Supabase`** — escolher a credencial em cada
+nó ao importar. São 3 nós no `01`, 3 no `02`, 2 no `03`.
 
 Tem de ser a **`service_role`**: `leads` tem RLS com política `to authenticated`
 apenas, e a `anon` não lê nem escreve lá. Consequência a ter presente — é mais um
 sítio com a chave que ignora o RLS em toda a base, além do Make.
 
-Alternativa: o nó nativo **Supabase** (credencial *Host* + *Service Role
-Secret*), trocando os dois nós HTTP por *Get a row* e *Update a row*. Trata dos
-headers sozinho; é menos explícito sobre o que vai no pedido.
+> **O `01` falava por HTTP até 2026-08-29**, com `$env.SUPABASE_URL` e uma
+> credencial *Custom Auth* de dois cabeçalhos (`apikey` + `Authorization`, que a
+> *Header Auth* não consegue dar). Passou a nativo por três razões, e nenhuma é
+> arrumação: o URL da base deixa de ser uma segunda configuração a manter a par
+> da credencial; o `template_enviado` deixa de precisar de `JSON.stringify()`
+> (num corpo montado à mão, um título com aspas partia o JSON); e os três fluxos
+> passam a ler-se da mesma maneira. **Se voltares a ver um nó HTTP a apontar ao
+> `/rest/v1/`, há teste que falha** (`test_n8n_guardas.py`).
+>
+> ⚠️ **Custo real da troca, num sítio só:** o `Ler imóvel` do `01` encodava a
+> referência com `encodeURIComponent`, e **11 das 54 referências têm um espaço a
+> sério** (`FH2460 3C`). O nó nativo não expõe onde encodar — o `filterString` é
+> repartido por `&` e entregue ao cliente HTTP, que encoda sozinho; encodar à
+> mão daria `%2520`. O `02` corre assim desde 28/08 sem se saber de falha, mas
+> **isto não está verificado**: testar com uma lead do `FH2460 3C`. Sintoma se
+> falhar: `{{2}}` sai só com a ref, sem resumo. Correcção: voltar a pôr um HTTP
+> Request com `encodeURIComponent` **só nesse nó**.
 
 **Meta → *Header Auth*** com `Authorization` = `Bearer <META_WHATSAPP_TOKEN>`.
 Se usares o nó nativo do WhatsApp, é a credencial dele (token + Business Account
@@ -245,6 +249,30 @@ resposta — o estado real quem o diz a seguir é a Matilde.
 
 **Nunca escrever `respondeu_em`.** Essa coluna é do backend, e é o sinal de que a
 pessoa falou. Se o n8n a escrever, o follow-up deixa de saber quem respondeu.
+**Nem `contacto_humano_em`**, que é do painel: o n8n lê-a e mais nada — se a
+escrevesse, apagava o próprio travão. Há teste.
+
+**Não escrever por cima de uma consultora.** `contacto_humano_em` (migration
+`0032`) marca as leads em que uma pessoa já pegou. **Os três fluxos a
+respeitam** — nenhuma mensagem que nós iniciemos sai para quem já está a ser
+tratado. Do cruzamento de 29/08: das 45 leads por reenviar, 8 já existiam no eGO
+e 4 tinham oportunidade **activa** com consultora atribuída.
+
+No `02` e no `03` vai no `filterString` **e** no `IF`; no `01` **só no `IF`**, e
+a diferença não é descuido. Lá a lead é procurada por `meta_lead_id`: filtrar na
+consulta devolveria zero linhas para uma lead marcada, o nó morria antes das
+guardas, e o resultado ficava indistinguível de "lead não encontrada". Saltar
+tem de ser decisão do `IF`, onde se vê na execução qual das condições falhou.
+
+A guarda no `01` **não estava planeada** — o raciocínio era que uma lead acabada
+de criar não teve tempo de ser tocada. Entrou por causa do atraso: desde 28/08 o
+`01` dispara ~12h depois da lead entrar, e meio dia chega e sobra para uma
+consultora pegar no telefone. Corrigido o atraso, a guarda fica: custa nada e
+fecha a janela.
+
+Nada disto trava a Matilde a **responder**. Se a pessoa escrever, a assistente
+responde na mesma — calar-se aí punha o cliente a falar para o vazio, e a
+conversa é dela, que a consultora não vê.
 
 **O consentimento reconhece-se pelo prefixo, nunca por igualdade.** O valor de
 `ficha.aceita_whatsapp` mudou de `sim,_aceito_receber_informações_pelo_whatsapp`
@@ -281,6 +309,7 @@ outra pessoa controla é uma bomba com temporizador. `startsWith('sim')` aguenta
 | `template_enviado`, `template_enviado_em`, `estado='contactada'` | **n8n** (fluxos 01 e 02) |
 | `estado='sem_resposta'`, `follow_up_em` | **n8n** (fluxo 03) |
 | `respondeu_em`, `conversa_id` | backend, quando a lead fala |
+| `contacto_humano_em`, `responsavel`, `notas` | **painel**, quando uma consultora marca que já falou. O n8n só lê |
 | `estado='qualificada'`, `qualificada_em` | backend, quando o MQL fica completo |
 | `estado='engano'` / `'sem_interesse'` | backend, quando a Matilde chama `encerrar_lead` |
 

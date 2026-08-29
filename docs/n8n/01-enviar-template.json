@@ -17,24 +17,19 @@
     },
     {
       "parameters": {
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "meta_lead_id", "value": "=eq.{{ $json.body.meta_lead_id }}" },
-            { "name": "select", "value": "id,tipo,estado,nome,telefone,email,ficha,template_enviado_em,imovel_ref" }
-          ]
-        },
-        "options": {}
+        "operation": "getAll",
+        "tableId": "leads",
+        "returnAll": false,
+        "limit": 1,
+        "filterType": "string",
+        "filterString": "=meta_lead_id=eq.{{ $json.body.meta_lead_id }}&select=id,tipo,estado,nome,telefone,email,ficha,template_enviado_em,imovel_ref,contacto_humano_em"
       },
       "id": "ler-lead",
       "name": "Ler lead no Supabase",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
       "position": [-240, 300],
-      "notes": "Fonte de verdade é a base, não o corpo do webhook."
+      "notes": "Fonte de verdade é a base, não o corpo do webhook.\n\nCredencial: **Supabase API** (host + service_role) — escolher na interface. Era um HTTP Request com `$env.SUPABASE_URL` + Header Auth até 2026-08-29; o nó nativo tira o URL e o cabeçalho de dentro do fluxo e põe-nos na credencial, que é onde pertencem.\n\nFiltro em modo **String** e não Manual, como nos fluxos 02 e 03: o Manual não escreve `select=`, e sem `select` o nó devolve a linha inteira — incluindo `template_enviado`, que são centenas de caracteres por item.\n\n`contacto_humano_em` vem no `select` para o nó `Guardas` o poder ler. NÃO entra no `filterString` de propósito: uma lead marcada devolveria ZERO linhas, o nó morria antes das guardas e o resultado seria indistinguível de \"lead não encontrada\". Saltar é decisão do `IF`, onde se vê."
     },
     {
       "parameters": {
@@ -60,6 +55,11 @@
               "leftValue": "={{ ($json.ficha?.aceita_whatsapp || '').trim().toLowerCase().startsWith('sim') }}",
               "rightValue": "",
               "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            },
+            {
+              "leftValue": "={{ $json.contacto_humano_em }}",
+              "rightValue": "",
+              "operator": { "type": "object", "operation": "empty", "singleValue": true }
             }
           ],
           "combinator": "and"
@@ -71,30 +71,24 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [-20, 300],
-      "notes": "1) só compra/arrendamento — angariação segue o fluxo humano. 2) tem telefone. 3) template_enviado_em vazio: idempotência, o Make pode repetir o webhook. 4) consentimento de WhatsApp.\n\nA 1ª usa `includes()` e Boolean/is true, e NÃO `contains` com \"compra,arrendamento\" do lado direito: o `contains` pergunta se o lado ESQUERDO contém o direito, ou seja se \"compra\" contém \"compra,arrendamento\" — nunca. Falhou assim ao vivo a 2026-08-16.\n\nA 4ª reconhece o consentimento pelo PREFIXO, nunca por igualdade a uma frase. O valor de ficha.aceita_whatsapp passou de \"sim,_aceito_receber_informações_pelo_whatsapp\" para \"SIM\" por volta de 2026-08-20, e o filtro pinado à frase antiga deixou de deixar passar seja quem for: a 20/08, 26 leads consentiram e 2 foram contactadas. Lista branca — o que não começa por \"sim\" não recebe, incluindo campo vazio ou em falta."
+      "notes": "1) só compra/arrendamento — angariação segue o fluxo humano. 2) tem telefone. 3) template_enviado_em vazio: idempotência, o Make pode repetir o webhook. 4) consentimento de WhatsApp. 5) ninguém da equipa falou com esta lead.\n\nA 5ª (`contacto_humano_em` vazio, migration 0032) NÃO estava no plano deste fluxo, e a razão para a acrescentar é o atraso: desde 28/08 o `01` dispara ~12h depois da lead entrar, não na hora. Meia dia chega e sobra para uma consultora pegar no telefone — e aí a Matilde entrava por cima, exactamente o que a coluna existe para evitar. Se o atraso for corrigido, a guarda fica na mesma: custa nada e deixa de haver janela.\n\nA 1ª usa `includes()` e Boolean/is true, e NÃO `contains` com \"compra,arrendamento\" do lado direito: o `contains` pergunta se o lado ESQUERDO contém o direito, ou seja se \"compra\" contém \"compra,arrendamento\" — nunca. Falhou assim ao vivo a 2026-08-16.\n\nA 4ª reconhece o consentimento pelo PREFIXO, nunca por igualdade a uma frase. O valor de ficha.aceita_whatsapp passou de \"sim,_aceito_receber_informações_pelo_whatsapp\" para \"SIM\" por volta de 2026-08-20, e o filtro pinado à frase antiga deixou de deixar passar seja quem for: a 20/08, 26 leads consentiram e 2 foram contactadas. Lista branca — o que não começa por \"sim\" não recebe, incluindo campo vazio ou em falta."
     },
     {
       "parameters": {
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/imoveis",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "imovel_ref", "value": "=eq.{{ encodeURIComponent($json.imovel_ref || '') }}" },
-            { "name": "select", "value": "titulo,natureza,quartos,area_util,area_bruta,area_terreno,freguesia,venda_preco,arrendamento_preco" },
-            { "name": "limit", "value": "1" }
-          ]
-        },
-        "options": {}
+        "operation": "getAll",
+        "tableId": "imoveis",
+        "returnAll": false,
+        "limit": 1,
+        "filterType": "string",
+        "filterString": "=imovel_ref=eq.{{ $json.imovel_ref }}&select=titulo,natureza,quartos,area_util,area_bruta,area_terreno,freguesia,venda_preco,arrendamento_preco"
       },
       "id": "ler-imovel",
       "name": "Ler imóvel",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
       "alwaysOutputData": true,
       "position": [200, 220],
-      "notes": "O título e a descrição do imóvel do anúncio, para o nó `Resumo do imóvel` a seguir. Não há FK `leads`→`imoveis` (PostgREST devolve PGRST200), portanto é um pedido à parte — não dá para embeber no `select` do nó anterior.\n\n`encodeURIComponent` porque 11 referências têm um espaço a sério (`FH2460 3C`); cru, o PostgREST parte o filtro.\n\n`alwaysOutputData: true` é obrigatório e não é cosmético: o n8n reparte um array JSON em itens, e uma referência sem linha em `imoveis` devolve `[]` — ou seja ZERO itens, o ramo morre em silêncio e a lead nunca recebe mensagem nenhuma. Com a opção ligada sai um item vazio e o fallback do nó seguinte trata dele.\n\nNÃO se filtra por `publicado`: o interruptor \"publicar apesar de indisponível\" do eGO mantém anúncios a correr sobre imóveis reservados (FH2520, 27/08). Quem clica no anúncio merece resposta, mesmo que o imóvel já não esteja à venda — quem trata disso a seguir é a Matilde, com o estado real."
+      "notes": "O título e a descrição do imóvel do anúncio, para o nó `Resumo do imóvel` a seguir. Não há FK `leads`→`imoveis` (PostgREST devolve PGRST200), portanto é um pedido à parte — não dá para embeber no `select` do nó anterior.\n\n⚠️ **A REFERÊNCIA VAI CRUA, e isto é o único ponto que a passagem a nó nativo mudou.** Era um HTTP Request com `encodeURIComponent($json.imovel_ref)`, porque **11 das 54 referências têm um espaço a sério** (`FH2460 3C`) e cru, no URL, o PostgREST parte o filtro. O nó nativo não expõe onde encodar: o `filterString` é repartido por `&` e entregue ao cliente HTTP, que encoda os valores sozinho — e encodar aqui à mão daria `%2520`. Fica igual ao fluxo 02, que corre assim desde 28/08.\n\nSe esta for a linha que falha, o sintoma é resumo vazio (só a ref no `{{2}}`) numa lead cuja referência tenha espaço, e a correcção é voltar a pôr um HTTP Request com `encodeURIComponent` só neste nó. **Testar com uma lead do FH2460 3C antes de confiar.**\n\n`alwaysOutputData: true` é obrigatório e não é cosmético: o n8n reparte um array JSON em itens, e uma referência sem linha em `imoveis` devolve `[]` — ou seja ZERO itens, o ramo morre em silêncio e a lead nunca recebe mensagem nenhuma. Com a opção ligada sai um item vazio e o fallback do nó seguinte trata dele.\n\nNÃO se filtra por `publicado`: o interruptor \"publicar apesar de indisponível\" do eGO mantém anúncios a correr sobre imóveis reservados (FH2520, 27/08). Quem clica no anúncio merece resposta, mesmo que o imóvel já não esteja à venda — quem trata disso a seguir é a Matilde, com o estado real."
     },
     {
       "parameters": {
@@ -170,27 +164,26 @@
     },
     {
       "parameters": {
-        "method": "PATCH",
-        "url": "={{ $env.SUPABASE_URL }}/rest/v1/leads",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "id", "value": "=eq.{{ $('Ler lead no Supabase').item.json.id }}" }
+        "operation": "update",
+        "tableId": "leads",
+        "filterType": "string",
+        "filterString": "=id=eq.{{ $('Ler lead no Supabase').item.json.id }}",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            { "fieldId": "template_enviado", "fieldValue": "={{ $('Preparar texto e número').item.json.texto_renderizado }}" },
+            { "fieldId": "template_enviado_em", "fieldValue": "={{ $now.toISO() }}" },
+            { "fieldId": "estado", "fieldValue": "contactada" },
+            { "fieldId": "atualizado_em", "fieldValue": "={{ $now.toISO() }}" }
           ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"template_enviado\": {{ JSON.stringify($('Preparar texto e número').item.json.texto_renderizado) }},\n  \"template_enviado_em\": \"{{ $now.toISO() }}\",\n  \"estado\": \"contactada\",\n  \"atualizado_em\": \"{{ $now.toISO() }}\"\n}",
-        "options": {}
+        }
       },
       "id": "marcar-enviado",
       "name": "Supabase: marcar enviado",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
       "position": [1080, 220],
-      "notes": "Só depois do envio ter corrido bem. Se a Meta falhar, o nó anterior aborta e a lead fica `nova` — a retentativa apanha-a. NUNCA escrever respondeu_em: essa é do backend."
+      "notes": "Só depois do envio ter corrido bem. Se a Meta falhar, o nó anterior aborta e a lead fica `nova` — a retentativa apanha-a. NUNCA escrever respondeu_em: essa é do backend.\n\nIgual ao nó do fluxo 02, campo a campo. Era um PATCH em HTTP Request com o corpo montado à mão, onde o `template_enviado` tinha de levar `JSON.stringify()` — um texto com aspas ou uma quebra de linha partia o JSON do corpo. Nos `fieldValues` do nó nativo o valor é um campo, não texto dentro de um documento, e o problema deixa de existir.\n\nNÃO escreve `contacto_humano_em`: essa é do painel, escrita por uma pessoa. O n8n só a lê."
     }
   ],
   "connections": {

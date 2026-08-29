@@ -271,8 +271,9 @@ create table leads (
   meta_created_at timestamptz,
   imovel_ref      text,                            -- sem FK: pode citar imóvel ainda por sincronizar
   ficha           jsonb not null default '{}'::jsonb,
-  responsavel     text,
+  responsavel     text,                            -- quem da equipa lhe pegou; sem escritor até 2026-08-29
   notas           text,
+  contacto_humano_em timestamptz,                   -- 0032. Uma PESSOA falou com ela. Trava os envios do n8n (fluxos 01/02/03); não trava a Matilde a responder
   cliente_id      uuid references agente_clientes(id) on delete set null,
   conversa_id     uuid references agente_conversas(id) on delete set null,
   qualificada_em  timestamptz,

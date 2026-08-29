@@ -64,12 +64,24 @@ class LeadCreate(LeadBase):
 
 
 class LeadUpdate(LeadBase):
-    pass
+    # Booleano e não o carimbo `contacto_humano_em` (migration 0032), por duas
+    # razões independentes:
+    #
+    # 1. `atualizar_lead` faz `model_dump(exclude_none=True)` — um None nunca
+    #    chega à base. Com um campo `datetime`, marcar funcionava e DESMARCAR
+    #    não, e uma consultora marcada por engano ficava marcada para sempre.
+    #    `False` não é `None`: sobrevive ao filtro e limpa a coluna.
+    # 2. A hora é do servidor. O browser não tem de decidir quando é agora.
+    #
+    # Só no update: uma lead que nasce já contactada por uma pessoa não passa
+    # por esta página.
+    contacto_humano: Optional[bool] = None
 
 
 class Lead(LeadBase):
     id: UUID
     criado_em: datetime
     atualizado_em: datetime
+    contacto_humano_em: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

@@ -117,6 +117,13 @@ async def atualizar_lead(lead_id: UUID, body: LeadUpdate):
         data = body.model_dump(exclude_none=True)
         if "cliente_id" in data:
             data["cliente_id"] = str(data["cliente_id"])
+        # `contacto_humano` é um botão, não uma coluna: tem de sair do payload
+        # (o PostgREST devolve PGRST204 por uma coluna que não existe) e virar
+        # carimbo. `False` chega aqui porque `exclude_none` só corta `None` —
+        # é o que permite DESMARCAR uma lead marcada por engano.
+        marca = data.pop("contacto_humano", None)
+        if marca is not None:
+            data["contacto_humano_em"] = _now() if marca else None
         data["atualizado_em"] = _now()
         return get_supabase().table(TABLE).update(data).eq("id", str(lead_id)).execute()
 

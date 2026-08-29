@@ -17,14 +17,14 @@
         "returnAll": false,
         "limit": 5,
         "filterType": "string",
-        "filterString": "template_enviado_em=is.null&tipo=in.(compra,arrendamento)&telefone=not.is.null&ficha->>aceita_whatsapp=ilike.sim*&criado_em=gte.2026-08-20&order=criado_em.asc"
+        "filterString": "template_enviado_em=is.null&tipo=in.(compra,arrendamento)&telefone=not.is.null&ficha->>aceita_whatsapp=ilike.sim*&contacto_humano_em=is.null&criado_em=gte.2026-08-20&order=criado_em.asc"
       },
       "id": "ler-pendentes",
       "name": "Ler leads pendentes",
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [-540, 300],
-      "notes": "Credencial: Supabase API (host + service_role).\n\nFiltro em modo **String** e não Manual: o manual não deixa escrever `ficha->>aceita_whatsapp`, que é uma chave dentro de jsonb.\n\nOs quatro filtros são as guardas do fluxo 01 aplicadas já na consulta:\n\n- `template_enviado_em=is.null` — idempotência. É isto que impede mandar duas vezes a quem já recebeu, e o que torna seguro repetir este fluxo.\n- `tipo=in.(compra,arrendamento)` — angariação segue o fluxo humano.\n- `telefone=not.is.null`.\n- `ficha->>aceita_whatsapp=ilike.sim*` — consentimento por PREFIXO. No PostgREST o wildcard do `ilike` é `*`, não `%`. Nunca igualdade a uma frase: o valor passou de 'sim,_aceito_receber_informações_pelo_whatsapp' para 'SIM' a 2026-08-20, e o filtro pinado à frase antiga deixou 24 leads sem mensagem.\n\n`criado_em=gte.` é a janela — EDITAR a cada corrida. `Limit=5` é o travão: correr, conferir os 5, e só depois subir. A 2026-08-21 havia 24 elegíveis de 20/08 e 121 no total desde 13/08."
+      "notes": "Credencial: Supabase API (host + service_role).\n\nFiltro em modo **String** e não Manual: o manual não deixa escrever `ficha->>aceita_whatsapp`, que é uma chave dentro de jsonb.\n\nOs quatro filtros são as guardas do fluxo 01 aplicadas já na consulta:\n\n- `template_enviado_em=is.null` — idempotência. É isto que impede mandar duas vezes a quem já recebeu, e o que torna seguro repetir este fluxo.\n- `tipo=in.(compra,arrendamento)` — angariação segue o fluxo humano.\n- `telefone=not.is.null`.\n- `ficha->>aceita_whatsapp=ilike.sim*` — consentimento por PREFIXO. No PostgREST o wildcard do `ilike` é `*`, não `%`. Nunca igualdade a uma frase: o valor passou de 'sim,_aceito_receber_informações_pelo_whatsapp' para 'SIM' a 2026-08-20, e o filtro pinado à frase antiga deixou 24 leads sem mensagem.\n- `contacto_humano_em=is.null` — ninguém da equipa falou com esta lead (migration 0032). É o que impede a Matilde de escrever por cima de uma consultora a meio de um processo. Do cruzamento de 29/08: das 45 leads por reenviar, 8 já existiam no eGO e 4 tinham oportunidade ACTIVA com consultora atribuída.\n\n`criado_em=gte.` é a janela — EDITAR a cada corrida. `Limit=5` é o travão: correr, conferir os 5, e só depois subir. A 2026-08-21 havia 24 elegíveis de 20/08 e 121 no total desde 13/08."
     },
     {
       "parameters": {
@@ -62,6 +62,11 @@
               "leftValue": "={{ ($json.ficha?.aceita_whatsapp || '').trim().toLowerCase().startsWith('sim') }}",
               "rightValue": "",
               "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            },
+            {
+              "leftValue": "={{ $json.contacto_humano_em }}",
+              "rightValue": "",
+              "operator": { "type": "object", "operation": "empty", "singleValue": true }
             }
           ],
           "combinator": "and"
@@ -73,7 +78,7 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [-100, 380],
-      "notes": "Repetidas de propósito, apesar de a consulta já filtrar. São a mesma coisa dita duas vezes: um erro no `filterString` — um nome de coluna trocado, um `is.null` que vira texto — não dá erro nenhum, o PostgREST devolve linhas a mais em silêncio. Aqui a mensagem só sai se as quatro forem verdade sobre a linha que chegou.\n\nO ramo **falso** volta ao ciclo: a lead é saltada, não interrompe o resto."
+      "notes": "Repetidas de propósito, apesar de a consulta já filtrar. São a mesma coisa dita duas vezes: um erro no `filterString` — um nome de coluna trocado, um `is.null` que vira texto — não dá erro nenhum, o PostgREST devolve linhas a mais em silêncio. Aqui a mensagem só sai se as cinco forem verdade sobre a linha que chegou.\n\nA 5ª (`contacto_humano_em` vazio) é a que trava o envio a quem já está a ser tratado por uma pessoa. Note-se que a consulta é feita UMA vez e o ciclo pode demorar minutos: se alguém marcar uma lead a meio da corrida, é aqui — e só aqui — que isso é apanhado.\n\nO ramo **falso** volta ao ciclo: a lead é saltada, não interrompe o resto."
     },
     {
       "parameters": {

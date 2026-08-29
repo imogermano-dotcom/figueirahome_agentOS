@@ -70,7 +70,7 @@ export default function Leads() {
   const [estadoFiltro, setEstadoFiltro] = useState('')
   const [origemFiltro, setOrigemFiltro] = useState('')
   const [modal, setModal] = useState(null)
-  const [form, setForm] = useState({ estado: 'nova', notas: '' })
+  const [form, setForm] = useState({ estado: 'nova', notas: '', responsavel: '', contacto_humano: false })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -86,7 +86,17 @@ export default function Leads() {
 
   useEffect(() => { load() }, [estadoFiltro, origemFiltro])
 
-  function openEdit(lead) { setForm({ estado: lead.estado||'nova', notas: lead.notas||'' }); setModal(lead) }
+  // `contacto_humano` é booleano e a coluna é um carimbo: o modal lê o carimbo
+  // e manda a intenção. Quem decide a hora é o servidor (`api/leads.py`).
+  function openEdit(lead) {
+    setForm({
+      estado: lead.estado || 'nova',
+      notas: lead.notas || '',
+      responsavel: lead.responsavel || '',
+      contacto_humano: !!lead.contacto_humano_em,
+    })
+    setModal(lead)
+  }
 
   async function handleSave(e) {
     e.preventDefault(); setSaving(true)
@@ -157,6 +167,12 @@ export default function Leads() {
                       só telefone
                     </span>
                   )}
+                  {lead.contacto_humano_em && (
+                    <span title={`Contactada por ${lead.responsavel || 'uma consultora'} a ${formatDate(lead.contacto_humano_em)}. Os envios automáticos estão travados.`}
+                      className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                      consultora
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-zinc-400">{lead.telefone_display || '—'}</td>
                 <td className="px-4 py-3 text-zinc-500 text-xs">{lead.origem || '—'}</td>
@@ -192,6 +208,31 @@ export default function Leads() {
               <label className="block text-xs font-medium text-zinc-400 mb-1.5 uppercase tracking-wide">Notas</label>
               <textarea className={inputCls} rows={3} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} />
             </div>
+
+            {/* Trava os envios que NÓS iniciamos — o template do fluxo 02 e o
+                follow-up do 03. Não trava a Matilde a responder a quem escreve:
+                a conversa é dela, e calá-la punha o cliente a falar para o vazio. */}
+            <div className="rounded-xl border border-white/5 bg-zinc-800/40 p-4 space-y-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" checked={form.contacto_humano}
+                  onChange={e => setForm(f => ({ ...f, contacto_humano: e.target.checked }))}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-600 bg-zinc-800 text-violet-500 focus:ring-violet-500 focus:ring-offset-0 accent-violet-500" />
+                <span className="text-sm text-zinc-200">
+                  Contactada por uma consultora
+                  <span className="block text-xs text-zinc-500 mt-0.5">
+                    A Matilde deixa de lhe enviar mensagens. Continua a responder se a pessoa escrever.
+                  </span>
+                </span>
+              </label>
+              {form.contacto_humano && (
+                <input className={inputCls} placeholder="Quem falou com ela"
+                  value={form.responsavel} onChange={e => setForm(f => ({ ...f, responsavel: e.target.value }))} />
+              )}
+              {modal.contacto_humano_em && (
+                <p className="text-xs text-zinc-500">Marcada a {formatDate(modal.contacto_humano_em)}.</p>
+              )}
+            </div>
+
             <div className="flex justify-end gap-3 pt-2">
               <button type="button" onClick={() => setModal(null)} className="text-sm text-zinc-500 hover:text-zinc-300 transition-colors">Cancelar</button>
               <button type="submit" disabled={saving} className="bg-gradient-to-r from-blue-600 to-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg disabled:opacity-50 transition-all">
