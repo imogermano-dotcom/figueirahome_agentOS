@@ -284,7 +284,7 @@ def _pesquisar_imoveis(filtros: dict) -> str:
 def _consulta_imoveis(filtros: dict) -> str:
     q = get_supabase().table("imoveis").select(
         "imovel_ref,natureza,quartos,area_util,venda_preco,arrendamento_preco,"
-        "concelho,freguesia,zona,descricao"
+        "concelho,freguesia,zona,descricao,estado,jardim,terraco,varanda"
     )
 
     # `publicado` é GENERATED (migration 0008): disponibilidade + ref + preço > 0
@@ -335,8 +335,16 @@ def _consulta_imoveis(filtros: dict) -> str:
             f"{r['area_util']}m²" if r.get("area_util") else "",
             preco,
             r.get("freguesia") or r.get("concelho", ""),
+            r.get("estado") or "",
         ]
         linhas.append(" | ".join(p for p in partes if p))
+
+        # Não filtramos por isto na query — jardim=true só em 1/54 publicados,
+        # provável falta de dado (FeatureTags) e não ausência real. Mostrar em
+        # vez de filtrar deixa o modelo dizer a verdade sem esconder imóveis.
+        features = [n for n, v in (("jardim", r.get("jardim")), ("terraço", r.get("terraco")), ("varanda", r.get("varanda"))) if v]
+        if features:
+            linhas.append(f"  Tem: {', '.join(features)}")
         if r.get("descricao"):
             linhas.append(f"  {r['descricao'][:120]}")
 
