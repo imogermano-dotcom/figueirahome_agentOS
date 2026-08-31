@@ -60,7 +60,7 @@ antes do reenvio. Continua a faltar, fora do código: **importar `02`/`03`** e
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-08-29 em `be18602` (**`v56`**, 512mb) — recibos de entrega da Meta, `contacto_humano` no `PUT /api/leads`, `link_imovel`, leads da Meta, qualificação, os três desfechos (`encerrar_lead`, `sem_resposta`, email da visita), visitas virtuais (`0028`), notificações Graph (inertes sem credenciais). **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-08-29 em `be18602` (**`v56`**, 512mb) — recibos de entrega da Meta, `contacto_humano` no `PUT /api/leads`, `link_imovel`, leads da Meta, qualificação, os três desfechos (`encerrar_lead`, `sem_resposta`, email da visita), visitas virtuais (`0028`), notificações Resend (inertes sem credenciais). **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |

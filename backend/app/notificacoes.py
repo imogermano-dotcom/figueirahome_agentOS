@@ -5,24 +5,20 @@ Antes disto, uma lead qualificada e um escalamento acabavam ambos numa linha em
 qualificou às 23h ficava lá até alguém reparar. Uma lead imobiliária é
 perecível; a tarefa continua a ser o registo, isto é o toque no ombro.
 
-**Microsoft Graph, não SMTP** (decidido 2026-08-16). O correio da agência é
-Microsoft 365, e a Microsoft está a extinguir o SMTP AUTH no Exchange Online —
-construir em cima dele era garantir que se refazia isto mais tarde. A Graph é o
-caminho suportado. Sem dependências novas: `httpx` já cá estava.
+**Resend, não Microsoft Graph** (revisto 2026-08-31 — ver docs/decisoes.md). O
+Graph chegou a ser configurado mas nunca teve credenciais em produção; Resend
+é mais simples (API key estática, sem OAuth) para o mesmo caso de uso.
 
-Três decisões que se mantêm da versão SMTP:
+Duas decisões que se mantêm de antes:
 
-* **Uma só função pública.** Trocar de canal — foi o que aconteceu — mexe aqui e
-  em mais lado nenhum. Os dois sítios que notificam não souberam da mudança.
-* **Síncrona.** Ambos os chamadores já correm dentro de executores; uma versão
-  async obrigava a contorções nos dois.
-* **Nunca levanta.** Corre depois de a resposta já ter ido para o cliente.
-  Falhar a enviar um aviso não pode derrubar uma conversa nem impedir a tarefa
-  de ser criada — a tarefa é a rede de segurança do email, não o contrário.
+* **Uma só função pública.** Trocar de canal — já aconteceu uma vez — mexe
+  aqui e em mais lado nenhum. Os dois sítios que notificam não sabem do canal.
+* **Síncrona e nunca levanta.** Ambos os chamadores já correm dentro de
+  executores; falhar a enviar um aviso não pode derrubar uma conversa nem
+  impedir a tarefa de ser criada — a tarefa é a rede de segurança do email.
 """
 
 import logging
-import time
 
 import httpx
 
@@ -31,11 +27,6 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 15  # o envio não pode prender o turno; falhar depressa e seguir
-
-# Token de client credentials, válido ~1h. Sem cache era um pedido de token por
-# cada aviso — o dobro das chamadas e do tempo, para nada.
-_token: dict = {"valor": None, "expira_em": 0.0}
-_MARGEM = 60  # renovar antes de expirar, para não apanhar a fronteira
 
 
 def destinatarios() -> list[str]:
@@ -90,39 +81,12 @@ def _consultor_do_imovel(imovel_ref: str) -> tuple[str | None, str]:
 
 
 def configurado() -> bool:
-    """Sem app registada ou sem destinatário, as notificações estão desligadas.
+    """Sem API key ou sem destinatário, as notificações estão desligadas.
 
     Estado normal e não erro: permite ter isto em produção antes de existirem
     credenciais, e ligar sem novo deploy.
     """
-    return bool(
-        settings.graph_tenant_id
-        and settings.graph_client_id
-        and settings.graph_client_secret
-        and settings.graph_remetente
-        and destinatarios()
-    )
-
-
-def _obter_token() -> str:
-    if _token["valor"] and time.time() < _token["expira_em"]:
-        return _token["valor"]
-
-    resp = httpx.post(
-        f"https://login.microsoftonline.com/{settings.graph_tenant_id}/oauth2/v2.0/token",
-        data={
-            "client_id": settings.graph_client_id,
-            "client_secret": settings.graph_client_secret,
-            "scope": "https://graph.microsoft.com/.default",
-            "grant_type": "client_credentials",
-        },
-        timeout=_TIMEOUT,
-    )
-    resp.raise_for_status()
-    dados = resp.json()
-    _token["valor"] = dados["access_token"]
-    _token["expira_em"] = time.time() + dados.get("expires_in", 3600) - _MARGEM
-    return _token["valor"]
+    return bool(settings.resend_api_key and settings.resend_remetente and destinatarios())
 
 
 def notificar(assunto: str, corpo: str, imovel_ref: str | None = None) -> None:
@@ -134,7 +98,7 @@ def notificar(assunto: str, corpo: str, imovel_ref: str | None = None) -> None:
     sistema ignorou alguém.
     """
     if not configurado():
-        logger.debug("Notificações desligadas (sem app Graph ou destinatário).")
+        logger.debug("Notificações desligadas (sem API key do Resend ou destinatário).")
         return
 
     para = list(destinatarios())
@@ -149,66 +113,50 @@ def notificar(assunto: str, corpo: str, imovel_ref: str | None = None) -> None:
 
     try:
         resp = httpx.post(
-            f"https://graph.microsoft.com/v1.0/users/{settings.graph_remetente}/sendMail",
-            headers={"Authorization": f"Bearer {_obter_token()}"},
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {settings.resend_api_key}"},
             json={
-                "message": {
-                    "subject": assunto,
-                    "body": {"contentType": "Text", "content": corpo},
-                    "toRecipients": [{"emailAddress": {"address": e}} for e in para],
-                },
-                # Não guardar em Enviados: são avisos de máquina, e enchiam a
-                # caixa de quem envia sem acrescentar nada.
-                "saveToSentItems": False,
+                "from": settings.resend_remetente,
+                "to": para,
+                "subject": assunto,
+                "text": corpo,
             },
             timeout=_TIMEOUT,
         )
         resp.raise_for_status()
         logger.info("Notificação enviada: %s", assunto)
     except httpx.HTTPStatusError as e:
-        # O corpo da Graph diz o que falhou (permissão em falta, mailbox sem
-        # licença, remetente inexistente); sem ele o diagnóstico é adivinhar.
+        # O corpo do Resend diz o que falhou (domínio não verificado, remetente
+        # inválido); sem ele o diagnóstico é adivinhar.
         logger.error(
             "Falha ao notificar (%s): HTTP %s — %s",
             assunto, e.response.status_code, e.response.text[:300],
         )
-        _token["valor"] = None  # pode ser token inválido; forçar renovação
     except Exception:
         logger.exception("Falha ao notificar (%s) — a tarefa fica na mesma.", assunto)
 
 
 def demo() -> None:
     """Auto-verificação das guardas. `python -m app.notificacoes` de `backend/`"""
-    original = (
-        settings.graph_tenant_id, settings.graph_client_id,
-        settings.graph_client_secret, settings.graph_remetente,
-        settings.notificacoes_para,
-    )
+    original = (settings.resend_api_key, settings.resend_remetente, settings.notificacoes_para)
     try:
-        settings.graph_tenant_id = settings.graph_client_id = ""
-        settings.graph_client_secret = settings.graph_remetente = ""
+        settings.resend_api_key = settings.resend_remetente = ""
         settings.notificacoes_para = ""
         assert configurado() is False
         notificar("x", "y")  # não pode levantar nem gerar tráfego
 
-        settings.graph_tenant_id = "t"
-        settings.graph_client_id = "c"
-        settings.graph_client_secret = "s"
-        settings.graph_remetente = "avisos@exemplo.pt"
+        settings.resend_api_key = "k"
+        settings.resend_remetente = "avisos@exemplo.pt"
         assert configurado() is False, "sem destinatário continua desligado"
 
         settings.notificacoes_para = " a@b.pt ,, c@d.pt "
         assert destinatarios() == ["a@b.pt", "c@d.pt"], destinatarios()
         assert configurado() is True
 
-        # Tenant inexistente: tem de falhar em silêncio, não rebentar.
-        settings.graph_tenant_id = "tenant-que-nao-existe.invalido"
+        # Sem rede/chave real: tem de falhar em silêncio, não rebentar.
         notificar("teste", "corpo")
     finally:
-        (settings.graph_tenant_id, settings.graph_client_id,
-         settings.graph_client_secret, settings.graph_remetente,
-         settings.notificacoes_para) = original
-        _token["valor"], _token["expira_em"] = None, 0.0
+        settings.resend_api_key, settings.resend_remetente, settings.notificacoes_para = original
 
     print("notificacoes OK")
 
