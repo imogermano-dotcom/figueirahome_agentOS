@@ -42,14 +42,19 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-08-29
+## Estado actual — Handoff 2026-08-30
 
-**Duas fases, ambas deployadas.** De manhã: o WhatsApp esteve mudo seis dias por
-um cartão expirado na WABA. De tarde: ao preparar o reenvio das 45 leads
-afectadas, o cruzamento com o eGO mostrou que **8 já eram clientes da casa e 4
-tinham processo aberto com uma consultora** — daí a `contacto_humano_em`. O que
-falta é fora do código: **três fluxos do n8n por importar** e **45 leads por
-reenviar** (prazo 23/09).
+**Sem código novo — sessão de teste e documentação.** `01` validado em
+produção ponta a ponta (ref normal e ref com espaço `FH2460 3C`, envio,
+resposta do A1, guarda de orçamento). No `03`, achado bug de timestamp: o
+`.toISO()` do Luxon dá offset local (`+02:00`), o `+` vira espaço na query
+string, PostgREST rejeita — fix `.toUTC().toISO()` documentado, por aplicar.
+Falta decidir se o `03` leva chão de data (`criado_em gte.`) como o `02`, para
+não sobrepor o backlog com o reenvio manual das 45 leads. Duas leads de teste
+ficaram na BD (`teste-manual-001`/`002`, telefone real do utilizador) — limpar
+antes do reenvio. Continua a faltar, fora do código: **importar `02`/`03`** e
+**reenviar as 45 leads** (prazo 23/09). Detalhe completo:
+`docs/fases/handoff-2026-08-30-resumo.md`.
 
 ### Produção
 
@@ -60,28 +65,18 @@ reenviar** (prazo 23/09).
 | Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
 | Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: entram no backoffice com a mesma conta, e juntos a 18/08 deram OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
-| n8n (`01`/`02`/`03`) | ⚠️ **por importar**. Até lá sai o texto antigo, sem imóvel e sem guarda |
+| n8n `01` | ✅ importado, publicado, **testado em produção 29/08** (ver acima) |
+| n8n `02`/`03` | ⚠️ **por importar/publicar**. `03` tem bug de timestamp identificado, fix documentado no `docs/n8n/README.md`, não aplicado |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
-### Fases de hoje (2026-08-29) — 207 testes
+### Fases anteriores (29/08 e antes) — deployadas, detalhe em `docs/fases/`
 
-**1. Seis dias mudos por um cartão expirado.** Ninguém respondia à Matilde desde
-24/08 e lemos isso como desinteresse: as mensagens não chegavam. O erro
-**`131042`** da Meta **aceita a mensagem, devolve `200 accepted` e falha a
-entrega sem tocar na *quality rating***. Invisível porque o webhook lia só
-`value["messages"]` e deitava fora `value["statuses"]`. Corte limpo — 22
-templates a 23/08 → 5 respostas; 45 desde 24/08 → **zero** — com tudo a verde.
-Corrigido (`_registar_estado`) e verificado ponta a ponta.
-
-**2. `contacto_humano_em` (`0032`) — a Matilde não escreve por cima da
-consultora.** Marcada no painel (caixa no modal de Leads + `responsavel` +
-distintivo na tabela). Trava os **três** fluxos do n8n; **não** trava a Matilde a
-responder a quem escreve. Os três nós do `01` que falavam com o PostgREST por
-HTTP passaram a nó nativo do Supabase, e o fluxo `03` **nunca teria corrido** —
-ligação para `"…às 10h"`, nó chamado `"…às 12h"`. Detalhe em `docs/fases/`:
-`incidente-whatsapp-mudo-2026-08-29.md`, `contacto-humano-{plano,resumo}.md`.
-
-### Fases anteriores — deployadas, detalhe em `docs/fases/`
+**Incidente do WhatsApp mudo e `contacto_humano_em` (29/08)**: seis dias sem
+respostas por um cartão expirado na WABA (erro `131042` da Meta, `200
+accepted` mas sem entrega) — invisível porque o webhook só lia
+`value["messages"]`. Corrigido e verificado. A trava `contacto_humano_em`
+(`0032`) impede o n8n de escrever por cima de uma consultora já em contacto.
+Detalhe: `incidente-whatsapp-mudo-2026-08-29.md`, `contacto-humano-resumo.md`.
 
 **Template com o imóvel (28/08)**: `figueirahome_apos_lead`, ref + resumo num só
 parâmetro, resumo = `titulo` com os campos estruturados como rede. **"Publicar
@@ -136,7 +131,7 @@ sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 ### Próximos passos
 
-0. **Importar os três fluxos** no n8n. Credencial *Supabase API* em cada nó (3+3+2) e o template do follow-up no `03`. ⚠️ **Testar o `01` com uma lead do `FH2460 3C`**: perdeu o `encodeURIComponent` e 11 das 54 refs têm espaço — falha em silêncio, o `{{2}}` sai sem resumo. Depois **correr o `03` à mão com `Limit=5`**, trigger desligado (phone id `925368620661613`); contagem de controlo no `docs/n8n/README.md`, e confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e os outros intactos.
+0. **Importar `02`/`03`** no n8n (`01` já feito e testado). Credencial *Supabase API* em cada nó. No `03`: aplicar `.toUTC().toISO()` no nó *Ler leads pendentes* (bug do timestamp, ver acima) e **decidir se leva chão de data** (`criado_em gte.<data>`, como o `02`) antes de correr — sem chão apanha todo o backlog desde sempre, incluindo o buraco dos 6 dias mudos. Depois **correr à mão com `Limit=5`**, trigger desligado (phone id `925368620661613`); contagem de controlo no `docs/n8n/README.md`, confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e os outros intactos. Antes disso, **apagar as leads de teste** `teste-manual-001`/`002`.
 1. **Reenviar as 45 leads** — prazo **23/09**, depois caem na Maria sem contexto. Antes: a **volta à Alexandra e à Alexsandra** (quais das 8 já foram contactadas → marcar `contacto_humano_em` no painel, o `02` salta-as sozinho) **e** a data exacta no WhatsApp Manager → Insights. Depois: **`name_status: DECLINED`**, o **atraso de 12h do `01`** e o `logging.basicConfig(level=INFO)` no `main.py` (sem ele só o ERROR das falhas se vê).
 2. **"Validar CRM"** no painel, uma passagem manual — resolve os 12 imóveis em limbo desde 04/08.
 3. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
@@ -168,7 +163,10 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 
 ## Bugs conhecidos
 
-- ⚠️ **O `Ler imóvel` do `01` pode partir em refs com espaço** (`FH2460 3C`, 11 das 54). Perdeu o `encodeURIComponent` ao passar a nó nativo; falha em silêncio — o `{{2}}` sai só com a ref, sem resumo. **Por verificar.** Correcção: HTTP Request com `encodeURIComponent` só nesse nó.
+- **`03`: timestamp com offset local rebenta o filtro** — `.toISO()` do Luxon
+  dá `+02:00`; o `+` vira espaço na query string, PostgREST rejeita. Fix
+  pronto (`.toUTC().toISO()`), por aplicar e publicar. Falta ainda decidir se
+  leva chão de data (ver Próximos passos 0).
 - **O `01` dispara ~12h depois da lead entrar**, desde 28/08 — em rajada de manhã em vez de na hora. Como **16 das 17 respostas reais vieram na 1.ª hora**, isto sozinho chega para matar a conversão. Por investigar nas execuções do n8n.
 - **Sem `logging.basicConfig`**: a raiz fica em `WARNING`. O `ERROR` das falhas de entrega aparece; `sent`/`delivered`/`read` são invisíveis e só se inferem contando recibos.
 - **`agente_leads` ainda existe**, vazia de uso desde 2026-08-18 — a confusão só acaba quando for apagada (Próximos passos 4).

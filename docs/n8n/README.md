@@ -49,14 +49,16 @@ sítio com a chave que ignora o RLS em toda a base, além do Make.
 > passam a ler-se da mesma maneira. **Se voltares a ver um nó HTTP a apontar ao
 > `/rest/v1/`, há teste que falha** (`test_n8n_guardas.py`).
 >
-> ⚠️ **Custo real da troca, num sítio só:** o `Ler imóvel` do `01` encodava a
-> referência com `encodeURIComponent`, e **11 das 54 referências têm um espaço a
-> sério** (`FH2460 3C`). O nó nativo não expõe onde encodar — o `filterString` é
-> repartido por `&` e entregue ao cliente HTTP, que encoda sozinho; encodar à
-> mão daria `%2520`. O `02` corre assim desde 28/08 sem se saber de falha, mas
-> **isto não está verificado**: testar com uma lead do `FH2460 3C`. Sintoma se
-> falhar: `{{2}}` sai só com a ref, sem resumo. Correcção: voltar a pôr um HTTP
-> Request com `encodeURIComponent` **só nesse nó**.
+> ⚠️ **Custo real da troca, num sítio só, temido mas não confirmado:** o
+> `Ler imóvel` do `01` encodava a referência com `encodeURIComponent`, e **11
+> das 54 referências têm um espaço a sério** (`FH2460 3C`). O nó nativo não
+> expõe onde encodar — o `filterString` é repartido por `&` e entregue ao
+> cliente HTTP, que encoda sozinho; encodar à mão daria `%2520`.
+>
+> **Verificado em produção a 2026-08-29**: `POST /webhook/lead-nova` com uma
+> lead a apontar para `FH2460 3C` → `200 OK`, `template_enviado` renderizado
+> com ref **e** resumo (`FH2460 3C — Apartamentos novos na Quinta de Santa
+> Maria`). Nó nativo lida bem com o espaço. **Não é bug** — fechado.
 
 **Meta → *Header Auth*** com `Authorization` = `Bearer <META_WHATSAPP_TOKEN>`.
 Se usares o nó nativo do WhatsApp, é a credencial dele (token + Business Account
@@ -129,7 +131,10 @@ Webhook aceita Header Auth; o Make manda o header.
    `PGRST200`), logo não dá para embeber no `select` do passo 2.
 5. **Resume o imóvel** — nó de código, ver a secção seguinte.
 6. **Prepara** o texto renderizado, os dois parâmetros e o número em E.164.
-7. **Envia** pela Graph API.
+7. **Envia** pelo nó nativo **WhatsApp Business Cloud**, não HTTP Request — a
+   credencial é a dele (token + phone number ID), não `META_WHATSAPP_TOKEN` na
+   URL. O `01-enviar-template.json` do repo ainda mostra `httpRequest` neste
+   nó (`Meta: enviar template`): desactualizado, corrigir ao reimportar.
 8. **Marca** `template_enviado`, `template_enviado_em` e `estado='contactada'`.
 
 Se a Meta falhar, o nó aborta e a lead fica `nova` — a retentativa apanha-a.
@@ -331,9 +336,9 @@ ficheiro são marcadores:
   `nome|idioma`. O mesmo do fluxo 01, com os mesmos dois parâmetros.
 
 O nó *Ler imóvel* aqui é o nó nativo do Supabase, não HTTP Request. **11
-referências têm um espaço a sério** (`FH2460 3C`): se alguma falhar, é o encoding
-do `filterString` — trocar por um HTTP Request com `encodeURIComponent`, como no
-fluxo 01.
+referências têm um espaço a sério** (`FH2460 3C`) — verificado em produção via
+o `01` (mesmo nó): o nativo lida bem com o espaço, não é preciso trocar por
+HTTP Request.
 
 **Antes de cada corrida, duas coisas a editar** no nó *Ler leads pendentes*:
 
@@ -409,8 +414,14 @@ follow_up_em=is.null
 estado=in.(nova,contactada)
 telefone=not.is.null
 ficha->>aceita_whatsapp=ilike.sim*
-template_enviado_em=lt.{{ $now.minus(48, 'hours').toISO() }}
+template_enviado_em=lt.{{ $now.minus(48, 'hours').toUTC().toISO() }}
 ```
+
+**`.toUTC()` antes do `.toISO()`, sempre.** Sem ele o Luxon dá o offset local
+(`+02:00`); o `+` no `filterString` vai por query string e é lido como espaço
+— PostgREST recebe `"...223 02:00"` e rejeita: *"invalid input syntax for
+type timestamp with time zone"*. Apanhado em produção a 2026-08-29 a testar o
+`03`. `Z` no fim em vez de `+02:00` evita o caracter todo.
 
 **`follow_up_em` é o travão, e é a razão de ser da `0030`.** Sem ele um
 *Schedule Trigger* diário reenvia a mesma mensagem à mesma pessoa todos os dias
