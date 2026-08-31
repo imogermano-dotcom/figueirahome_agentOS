@@ -1,13 +1,18 @@
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.agents.broker.engine import responder
+from app.api.deps import require_auth
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api")
+# Sem isto, `agente` no corpo do pedido dava a qualquer chamador não
+# autenticado acesso directo ao assistente `broker` — que tem `consultar_*`,
+# a leitura da base de clientes/leads. Achado a 2026-08-31, corrigido no
+# mesmo commit: nenhum código a chamar isto de fora do painel autenticado.
+router = APIRouter(prefix="/api", dependencies=[Depends(require_auth)])
 
 
 class BrokerChatRequest(BaseModel):
