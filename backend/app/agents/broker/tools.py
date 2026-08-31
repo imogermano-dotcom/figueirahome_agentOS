@@ -12,17 +12,22 @@ import re
 from datetime import date
 from urllib.parse import quote
 
+from anthropic import AsyncAnthropic
+
 from app.agents.broker.guards import (
     encerrar_lead_do_telefone,
     find_or_create_cliente,
     normalizar_telefone,
     visita_permitida,
 )
+from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.models.lead import ESTADOS_FECHADOS
 from app.notificacoes import notificar
 
 logger = logging.getLogger(__name__)
+
+_anthropic = AsyncAnthropic(api_key=settings.anthropic_api_key)
 
 _CAMPOS_FICHA = (
     "imovel_ref,natureza,titulo,quartos,casas_banho,area_util,venda_preco,"
@@ -548,7 +553,54 @@ async def _link_imovel(inputs: dict, contexto: dict) -> str:
     )
 
 
+_CAMPOS_MQL_TOOL = ("tipo_interesse", "orcamento", "zona_preferida")
+
+_EXTRAIR_MQL_TOOLS = [
+    {
+        "name": "extrair_mql",
+        "description": "Extrai do resumo os dados de qualificação do cliente, se lá estiverem.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tipo_interesse": {"type": "string", "enum": ["compra", "arrendamento", "venda", "outro"]},
+                "orcamento": {"type": "number", "description": "Orçamento em euros"},
+                "zona_preferida": {"type": "string"},
+            },
+        },
+    }
+]
+
+
+async def _extrair_mql_do_resumo(resumo: str) -> dict:
+    """O A1 às vezes escreve tipo/orçamento/zona em prosa no `resumo` e deixa os
+    campos estruturados a null — quebra silenciosamente `guards.lead_qualificada`,
+    que só olha aos campos, nunca ao texto. Uma segunda chamada, pequena e forçada
+    por tool, para recuperar o que já foi dito em vez de perder a qualificação."""
+    try:
+        resp = await _anthropic.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=256,
+            system="Extrai dados de qualificação de um resumo de conversa imobiliária. Só o que estiver explícito — não inventes.",
+            messages=[{"role": "user", "content": resumo}],
+            tools=_EXTRAIR_MQL_TOOLS,
+            tool_choice={"type": "any"},
+        )
+    except Exception:
+        logger.exception("Erro a extrair MQL do resumo")
+        return {}
+    for block in resp.content:
+        if block.type == "tool_use" and block.name == "extrair_mql":
+            return block.input
+    return {}
+
+
 async def _guardar_dados_cliente(inputs: dict, contexto: dict) -> str:
+    if inputs.get("resumo") and any(not inputs.get(c) for c in _CAMPOS_MQL_TOOL):
+        extraidos = await _extrair_mql_do_resumo(inputs["resumo"])
+        for campo in _CAMPOS_MQL_TOOL:
+            if not inputs.get(campo) and extraidos.get(campo):
+                inputs[campo] = extraidos[campo]
+
     cliente = await find_or_create_cliente(
         nome=inputs.get("nome"),
         telefone=inputs.get("telefone") or contexto.get("telefone"),
