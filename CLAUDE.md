@@ -42,25 +42,22 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-08-30
+## Estado actual — Handoff 2026-08-31
 
-**Sem código novo — sessão de teste e documentação.** `01` validado em
-produção ponta a ponta (ref normal e ref com espaço `FH2460 3C`, envio,
-resposta do A1, guarda de orçamento). No `03`, achado bug de timestamp: o
-`.toISO()` do Luxon dá offset local (`+02:00`), o `+` vira espaço na query
-string, PostgREST rejeita — fix `.toUTC().toISO()` documentado, por aplicar.
-Falta decidir se o `03` leva chão de data (`criado_em gte.`) como o `02`, para
-não sobrepor o backlog com o reenvio manual das 45 leads. Duas leads de teste
-ficaram na BD (`teste-manual-001`/`002`, telefone real do utilizador) — limpar
-antes do reenvio. Continua a faltar, fora do código: **importar `02`/`03`** e
-**reenviar as 45 leads** (prazo 23/09). Detalhe completo:
-`docs/fases/handoff-2026-08-30-resumo.md`.
+**Auditoria à última conversa real do A1** (Filipa Pedro/FH2581) achou e
+corrigiu 4 bugs: pesquisa ignorava estado/features; MQL perdido quando o
+modelo só escrevia prosa (5/9 clientes); notificações inertes (Graph →
+**Resend**, testado); e o mais sério, **tarefas duplicadas por falta de
+dedupe de `message_id`** no webhook do WhatsApp (Meta reentrega,
+reprocessávamos do zero). 5 commits, `v57`→`v62`. 34/271 leads já tinham
+notas prévias no eGO. Handoff de 30/08 inalterado — falta tudo (`02`/`03`,
+reenvio das 45). Detalhe: `docs/fases/handoff-2026-08-31-resumo.md`.
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-08-29 em `be18602` (**`v56`**, 512mb) — recibos de entrega da Meta, `contacto_humano` no `PUT /api/leads`, `link_imovel`, leads da Meta, qualificação, os três desfechos (`encerrar_lead`, `sem_resposta`, email da visita), visitas virtuais (`0028`), notificações Resend (inertes sem credenciais). **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-08-31 em `0bc54c4` (**`v62`**, 512mb) — tudo do `v56` (recibos de entrega, `contacto_humano`, `link_imovel`, leads da Meta, qualificação, desfechos, visitas virtuais) **mais** pesquisa com estado/features, MQL recuperado do resumo, notificações **Resend activas**, dedupe de mensagens WhatsApp (`0033`). **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
@@ -69,21 +66,23 @@ antes do reenvio. Continua a faltar, fora do código: **importar `02`/`03`** e
 | n8n `02`/`03` | ⚠️ **por importar/publicar**. `03` tem bug de timestamp identificado, fix documentado no `docs/n8n/README.md`, não aplicado |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
-### Fases anteriores (29/08 e antes) — deployadas, detalhe em `docs/fases/`
+### Fases anteriores (30/08 e antes) — deployadas, detalhe em `docs/fases/`
+
+**Teste do `01` e bug de timestamp do `03` (30/08)**: `01` validado em
+produção; `03` tem `.toISO()` do Luxon a dar offset local que o PostgREST
+rejeita — fix `.toUTC().toISO()` documentado, **por aplicar no n8n**.
 
 **Incidente do WhatsApp mudo e `contacto_humano_em` (29/08)**: seis dias sem
-respostas por um cartão expirado na WABA (erro `131042` da Meta, `200
-accepted` mas sem entrega) — invisível porque o webhook só lia
-`value["messages"]`. Corrigido e verificado. A trava `contacto_humano_em`
-(`0032`) impede o n8n de escrever por cima de uma consultora já em contacto.
-Detalhe: `incidente-whatsapp-mudo-2026-08-29.md`, `contacto-humano-resumo.md`.
+respostas por um cartão expirado na WABA (`200 accepted` sem entrega),
+invisível porque o webhook só lia `value["messages"]`. Corrigido. A trava
+`contacto_humano_em` (`0032`) impede o n8n de escrever por cima de uma
+consultora já em contacto.
 
 **Template com o imóvel (28/08)**: `figueirahome_apos_lead`, ref + resumo num só
-parâmetro, resumo = `titulo` com os campos estruturados como rede. **"Publicar
-apesar de indisponível" (27/08)**: interruptor do eGO que mantém o imóvel na Web
-API depois de indisponível; cai a premissa de que "a API só devolve publicados" e
-**nenhum dos 104 campos o denuncia** — `_existing_ego_ids` filtra `publicado=true`
-(senão o sync criava **51 tarefas falsas**). **Link da LP (25/08)**:
+parâmetro. **"Publicar apesar de indisponível" (27/08)**: interruptor do eGO
+mantém o imóvel na Web API depois de indisponível — **nenhum dos 104 campos
+o denuncia** — `_existing_ego_ids` filtra `publicado=true` (senão o sync
+criava **51 tarefas falsas**). **Link da LP (25/08)**:
 `link_imovel`. **Desfechos §2.2 (23/08)**: `encerrar_lead`, `0030`, fluxo `03`.
 **Visitas do eGO (`0023`, 15/08)**: tabela própria e aditiva. **Landing pages**:
 no ar em `imoveis.figueirahome.pt`, feitas fora deste repositório; o construtor
@@ -119,7 +118,7 @@ sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **207**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **217**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -172,6 +171,9 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **`agente_leads` ainda existe**, vazia de uso desde 2026-08-18 — a confusão só acaba quando for apagada (Próximos passos 4).
 - **Dedup de clientes sob carga**: teste falhou e voltou a passar com o mesmo código. Se aparecerem duplicados em produção, é por aqui.
 - **Agente de voz** (bloqueado por Telnyx, não se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2 s sem VAD.
+
+*Fechados em 31/08 (pesquisa sem estado/features, MQL perdido em prosa,
+notificações inertes, tarefas duplicadas): ver Estado actual, acima.*
 
 ## Convenções
 
