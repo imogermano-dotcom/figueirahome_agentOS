@@ -91,6 +91,19 @@ degrada para o comportamento actual. Este é o achado mais sério da sessão:
 sistémico, toca produção desde pelo menos 06/08, não só visitas — qualquer
 tool chamada pela Matilde podia duplicar-se.
 
+### 6. Suite de testes disparava email real (achado depois do handoff escrito, `d5df83b`)
+
+O utilizador recebeu um email real de "Lead qualificada — Isabel Braga" que
+ninguém mandou de propósito. Causa: `test_promocao_nao_repete`
+(`test_leads_meta.py`, pré-existente) chama `guards.promover_se_qualificada`
+sem mockar `notificar` nem as settings — inofensivo enquanto o `.env` não
+tinha credenciais Resend, mas assim que ficaram preenchidas (item 3, mesma
+sessão), qualquer `pytest -q` completo mandava um email real ao director
+com os dados fictícios do teste. Fix: `tests/conftest.py`, fixture
+`autouse` que zera `resend_api_key`/`resend_remetente`/`notificacoes_para`
+antes de cada teste — nenhum teste volta a poder disparar tráfego real por
+omissão.
+
 ## Achado sem fix (investigação, não código)
 
 **Cruzamento leads × notas do eGO** (por telefone, via `oportunidades`):
