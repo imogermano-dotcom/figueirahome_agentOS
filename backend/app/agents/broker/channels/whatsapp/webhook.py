@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -8,6 +9,7 @@ from app.agents.broker.channels.whatsapp.meta_api import mark_as_read, send_text
 from app.agents.broker.engine import responder
 from app.agents.broker.guards import agente_de_lead
 from app.config import settings
+from app.db.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +103,34 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
     return {"status": "ok"}
 
 
+def _ja_processada(message_id: str) -> bool:
+    """`INSERT ... ON CONFLICT DO NOTHING`, não "ler depois escrever": entre as
+    duas há uma janela onde duas reentregas quase simultâneas passam ambas. A
+    UNIQUE em `message_id` torna a verificação atómica.
+
+    A Meta garante "at least once" e reenvia o mesmo webhook em falhas
+    transitórias — sem isto, a reentrega reprocessa a mensagem do zero e
+    duplica o que as tools escrevem (achado em produção: visitas e leads
+    qualificadas duplicadas, sempre 30-65s de diferença entre cópias).
+    """
+    if not message_id:
+        return False
+    try:
+        resp = (
+            get_supabase().table("agente_mensagens_processadas")
+            .upsert({"message_id": message_id}, on_conflict="message_id", ignore_duplicates=True)
+            .execute()
+        )
+        return not resp.data
+    except Exception:
+        logger.exception("Falha a verificar dedupe de %s — a processar na mesma.", message_id)
+        return False
+
+
 async def _handle_message(from_number: str, message_id: str, text: str) -> None:
+    if await asyncio.get_event_loop().run_in_executor(None, _ja_processada, message_id):
+        logger.info("Mensagem %s já processada — reentrega da Meta, a ignorar.", message_id)
+        return
     try:
         await mark_as_read(message_id)
         # Normalmente sem `agente=`: o router decide e a escolha fica colada à
