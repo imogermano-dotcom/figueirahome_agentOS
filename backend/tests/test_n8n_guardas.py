@@ -122,5 +122,21 @@ def test_o_supabase_e_sempre_no_nativo(ficheiro):
         )
 
 
+def test_o_03_nao_tem_o_bug_do_offset_local():
+    """`.toISO()` sozinho dá o offset local (+02:00); o `+` na query string vira
+    espaço e o PostgREST rejeita ("invalid input syntax for type timestamp with
+    time zone"). Apanhado em produção a 2026-08-29. `.toUTC()` antes resolve."""
+    leitura = _no(_fluxo("03-follow-up-48h.json"), "Ler leads sem resposta")
+    assert ".toUTC().toISO()" in leitura["parameters"]["filterString"]
+
+
+def test_o_03_tem_o_template_de_followup_preenchido():
+    """Ficou `NOME_DO_TEMPLATE_FOLLOWUP` de marcador até 2026-08-31 — importar
+    assim falha ao carregar o template na Meta."""
+    envio = _no(_fluxo("03-follow-up-48h.json"), "WhatsApp: enviar follow-up")
+    assert envio["parameters"]["template"] != "NOME_DO_TEMPLATE_FOLLOWUP|pt_PT"
+    assert "|" in envio["parameters"]["template"]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

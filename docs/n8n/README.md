@@ -12,7 +12,7 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 |---|---|---|
 | `01-enviar-template.json` | envia o template e marca a lead | pronto a importar |
 | `02-backfill-template.json` | recupera quem ficou sem mensagem (manual) | pronto a importar |
-| `03-follow-up-48h.json` | segunda tentativa a quem não respondeu (diário) | pronto a importar — precisa da migration `0030` |
+| `03-follow-up-48h.json` | segunda tentativa a quem não respondeu (diário) | pronto a importar — migration `0030` já corrida, template `figueirahome_follow_\|pt_PT` preenchido (2026-08-31), chão de data `criado_em gte.2026-08-26` para a primeira corrida |
 
 ## Antes de importar
 
@@ -399,8 +399,7 @@ respondeu tarde, nunca. O follow-up pode valer como segundo toque a quem ignorou
 o primeiro, mas isso ainda não está demonstrado. A corrida com `Limit=5` é a
 medição, não uma formalidade: se as 5 não responderem, a hipótese cai.
 
-**Precisa da migration `0030`** (`leads.follow_up_em`). Sem a coluna o filtro
-`follow_up_em=is.null` não bate e o PostgREST devolve erro.
+**Precisa da migration `0030`** (`leads.follow_up_em`) — **já corrida**.
 
 Mesma cadeia do `02` — nós nativos, `Split In Batches` (1) → envia → marca →
 `Wait 5s` → volta ao ciclo — com o `Disparo manual` trocado por `Schedule
@@ -409,6 +408,7 @@ Trigger` e outra consulta.
 ### A consulta
 
 ```
+criado_em=gte.2026-08-26T00:00:00Z   -- chão da 1.ª corrida, tirar depois
 respondeu_em=is.null
 follow_up_em=is.null
 estado=in.(nova,contactada)

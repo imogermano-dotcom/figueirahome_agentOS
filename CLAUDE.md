@@ -63,7 +63,7 @@ reenvio das 45). Detalhe: `docs/fases/handoff-2026-08-31-resumo.md`.
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
 | Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: entram no backoffice com a mesma conta, e juntos a 18/08 deram OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
 | n8n `01` | ✅ importado, publicado, **testado em produção 29/08** (ver acima) |
-| n8n `02`/`03` | ⚠️ **por importar/publicar**. `03` tem bug de timestamp identificado, fix documentado no `docs/n8n/README.md`, não aplicado |
+| n8n `02`/`03` | ⚠️ **por importar/publicar**. `03` pronto: timestamp corrigido, template `figueirahome_follow_\|pt_PT` preenchido, chão `criado_em gte.2026-08-26` para a 1.ª corrida |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
 ### Fases anteriores (30/08 e antes) — deployadas, detalhe em `docs/fases/`
@@ -130,7 +130,7 @@ sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 ### Próximos passos
 
-0. **Importar `02`/`03`** no n8n (`01` já feito e testado). Credencial *Supabase API* em cada nó. No `03`: aplicar `.toUTC().toISO()` no nó *Ler leads pendentes* (bug do timestamp, ver acima) e **decidir se leva chão de data** (`criado_em gte.<data>`, como o `02`) antes de correr — sem chão apanha todo o backlog desde sempre, incluindo o buraco dos 6 dias mudos. Depois **correr à mão com `Limit=5`**, trigger desligado (phone id `925368620661613`); contagem de controlo no `docs/n8n/README.md`, confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e os outros intactos. Antes disso, **apagar as leads de teste** `teste-manual-001`/`002`.
+0. **Importar `02`/`03`** no n8n (`01` já feito e testado). Credencial *Supabase API* em cada nó. `03` já tem o timestamp corrigido e o template `figueirahome_follow_|pt_PT` preenchidos (31/08), com chão `criado_em gte.2026-08-26` para não apanhar o buraco dos 6 dias mudos. **Correr à mão com `Limit=5`**, trigger desligado (phone id `925368620661613`); contagem de controlo no `docs/n8n/README.md`, confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e os outros intactos. Antes disso, **apagar as leads de teste** `teste-manual-001`/`002`.
 1. **Reenviar as 45 leads** — prazo **23/09**, depois caem na Maria sem contexto. Antes: a **volta à Alexandra e à Alexsandra** (quais das 8 já foram contactadas → marcar `contacto_humano_em` no painel, o `02` salta-as sozinho) **e** a data exacta no WhatsApp Manager → Insights. Depois: **`name_status: DECLINED`**, o **atraso de 12h do `01`** e o `logging.basicConfig(level=INFO)` no `main.py` (sem ele só o ERROR das falhas se vê).
 2. **"Validar CRM"** no painel, uma passagem manual — resolve os 12 imóveis em limbo desde 04/08.
 3. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
@@ -162,10 +162,6 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 
 ## Bugs conhecidos
 
-- **`03`: timestamp com offset local rebenta o filtro** — `.toISO()` do Luxon
-  dá `+02:00`; o `+` vira espaço na query string, PostgREST rejeita. Fix
-  pronto (`.toUTC().toISO()`), por aplicar e publicar. Falta ainda decidir se
-  leva chão de data (ver Próximos passos 0).
 - **O `01` dispara ~12h depois da lead entrar**, desde 28/08 — em rajada de manhã em vez de na hora. Como **16 das 17 respostas reais vieram na 1.ª hora**, isto sozinho chega para matar a conversão. Por investigar nas execuções do n8n.
 - **Sem `logging.basicConfig`**: a raiz fica em `WARNING`. O `ERROR` das falhas de entrega aparece; `sent`/`delivered`/`read` são invisíveis e só se inferem contando recibos.
 - **`agente_leads` ainda existe**, vazia de uso desde 2026-08-18 — a confusão só acaba quando for apagada (Próximos passos 4).
@@ -173,7 +169,8 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Agente de voz** (bloqueado por Telnyx, não se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2 s sem VAD.
 
 *Fechados em 31/08 (pesquisa sem estado/features, MQL perdido em prosa,
-notificações inertes, tarefas duplicadas): ver Estado actual, acima.*
+notificações inertes, tarefas duplicadas, timestamp do `03`): ver Estado
+actual, acima.*
 
 ## Convenções
 
