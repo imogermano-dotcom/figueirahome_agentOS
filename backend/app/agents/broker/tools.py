@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 from anthropic import AsyncAnthropic
 
+from app.agents.broker.assistants import A1, A2, BROKER, NOME_A1
 from app.agents.broker.guards import (
     encerrar_lead_do_telefone,
     find_or_create_cliente,
@@ -762,6 +763,11 @@ async def _encerrar_lead(inputs: dict, contexto: dict) -> str:
     return "Registado. Despede-te com uma frase curta e não faças mais perguntas."
 
 
+# Nome que aparece nos emails de notificação — `contexto["agente"]` é o id
+# interno (`a1_vendedor`), ilegível para quem recebe o aviso.
+_NOME_AGENTE = {A1: NOME_A1, A2: "Maria", BROKER: "Broker"}
+
+
 async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
     telefone = normalizar_telefone(inputs.get("telefone") or contexto.get("telefone"))
     nome = inputs.get("nome")
@@ -799,11 +805,12 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
     # O assistente acabou de prometer ao cliente que alguém entra em contacto.
     # Se isso ficar só numa linha do painel, a promessa depende de o corretor
     # abrir o painel. `notificar` engole os próprios erros — ver notificacoes.py.
+    agente = _NOME_AGENTE.get(contexto.get("agente"), contexto.get("agente") or "assistente")
     await _run(
         notificar,
         f"{prefixo}Escalado pelo assistente — {motivo}",
         "\n".join(p for p in (
-            f"O {contexto.get('agente') or 'assistente'} escalou uma conversa em {contexto.get('canal', '?')}.",
+            f"A assistente {agente} escalou uma conversa em {contexto.get('canal', '?')}.",
             "",
             f"Contacto: {nome or '—'} — {telefone or '—'}",
             f"Motivo:   {motivo}",
