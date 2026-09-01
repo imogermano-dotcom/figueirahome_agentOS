@@ -5,7 +5,7 @@
 ## O que é
 
 Plataforma de IA para agência imobiliária em Portugal:
-1. **Assistentes** — **A1 "Matilde"** (compra/arrendamento) e **A2 "Maria"** (recepção e encaminhamento), em WhatsApp e no painel.
+1. **Assistentes** — **A1 "Matilde"** (compra/arrendamento) e **A2 "Maria"** (recepção e encaminhamento), em WhatsApp, no painel e no site público (`figueirahome.pt`).
 2. **Agente de Voz** — atendimento telefónico (Telnyx). Bloqueado por credenciais.
 3. **Assistente Broker** — chat interno do corretor, leitura da BD. **Painel** React: clientes, imóveis, leads, métricas.
 
@@ -42,22 +42,21 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-08-31
+## Estado actual — Handoff 2026-09-01
 
-**Auditoria à última conversa real do A1** (Filipa Pedro/FH2581) achou e
-corrigiu 4 bugs: pesquisa ignorava estado/features; MQL perdido quando o
-modelo só escrevia prosa (5/9 clientes); notificações inertes (Graph →
-**Resend**, testado); e o mais sério, **tarefas duplicadas por falta de
-dedupe de `message_id`** no webhook do WhatsApp (Meta reentrega,
-reprocessávamos do zero). 5 commits, `v57`→`v62`. 34/271 leads já tinham
-notas prévias no eGO. Handoff de 30/08 inalterado — falta tudo (`02`/`03`,
-reenvio das 45). Detalhe: `docs/fases/handoff-2026-08-31-resumo.md`.
+**Chat público novo no `figueirahome.pt`**: endpoint `/api/site/chat` +
+widget `docs/site-chat/widget.js` — zero alterações ao motor, routing e
+qualificação já eram agnósticos de canal. Confirmado ao vivo (Maria e
+Matilde, correctas). Pelo caminho, corrigido um **furo real em produção**:
+`/api/broker/chat` sem `require_auth` dava acesso não autenticado ao
+`broker` (`v63`, deployado). Chat do site testado, **por deployar**.
+Detalhe: `docs/fases/webchat-site-resumo.md`.
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-08-31 em `0bc54c4` (**`v62`**, 512mb) — tudo do `v56` (recibos de entrega, `contacto_humano`, `link_imovel`, leads da Meta, qualificação, desfechos, visitas virtuais) **mais** pesquisa com estado/features, MQL recuperado do resumo, notificações **Resend activas**, dedupe de mensagens WhatsApp (`0033`). **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-01 em `v63` (`0dd95a7`, 512mb) — `require_auth` em `/api/broker/chat`. `/api/site/chat` pronto, **por deployar**. **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
@@ -66,17 +65,19 @@ reenvio das 45). Detalhe: `docs/fases/handoff-2026-08-31-resumo.md`.
 | n8n `02`/`03` | ⚠️ **por importar/publicar**. `03` pronto: timestamp corrigido, template `figueirahome_follow_\|pt_PT` preenchido, chão `criado_em gte.2026-08-26` para a 1.ª corrida |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
-### Fases anteriores (30/08 e antes) — deployadas, detalhe em `docs/fases/`
+### Fases anteriores (31/08 e antes) — deployadas, detalhe em `docs/fases/`
 
-**Teste do `01` e bug de timestamp do `03` (30/08)**: `01` validado em
-produção; `03` tem `.toISO()` do Luxon a dar offset local que o PostgREST
-rejeita — fix `.toUTC().toISO()` documentado, **por aplicar no n8n**.
+**Auditoria à última conversa real do A1 (31/08)**: Filipa Pedro/FH2581,
+4 bugs — pesquisa sem estado/features, MQL perdido em prosa, notificações
+inertes (Graph→Resend), **tarefas duplicadas por falta de dedupe de
+`message_id`** no webhook (Meta reentrega). 34/271 leads já tinham notas
+prévias no eGO.
 
-**Incidente do WhatsApp mudo e `contacto_humano_em` (29/08)**: seis dias sem
-respostas por um cartão expirado na WABA (`200 accepted` sem entrega),
-invisível porque o webhook só lia `value["messages"]`. Corrigido. A trava
-`contacto_humano_em` (`0032`) impede o n8n de escrever por cima de uma
-consultora já em contacto.
+**Teste do `01` (30/08)**: validado em produção. **Incidente do WhatsApp
+mudo (29/08)**: seis dias sem respostas por um cartão expirado na WABA
+(`200 accepted` sem entrega), invisível porque o webhook só lia
+`value["messages"]`. Corrigido. `contacto_humano_em` (`0032`) impede o n8n
+de escrever por cima de uma consultora já em contacto.
 
 **Template com o imóvel (28/08)**: `figueirahome_apos_lead`, ref + resumo num só
 parâmetro. **"Publicar apesar de indisponível" (27/08)**: interruptor do eGO
@@ -118,7 +119,7 @@ sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **217**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **226**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -143,7 +144,7 @@ sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 na área respectiva — quase todas registam uma tentativa que já falhou ao vivo.
 
 - **Um motor, N assistentes** — nunca N cópias do loop. A3/A4 = entrada no dict + linha em `agente_config`, que é **a tabela de assistentes** (acrescentar = INSERT, não deploy).
-- **Subconjunto de tools por assistente é fronteira de segurança**, não organização (`consultar_*` só no `broker`).
+- **Subconjunto de tools por assistente é fronteira de segurança**, não organização (`consultar_*` só no `broker`). **Nunca deixar o `agente` vir do pedido num endpoint sem auth** — foi assim que `/api/broker/chat` deu acesso não autenticado ao `broker` até 31/08 (`v63`); o endpoint público do site (`/api/site/chat`) nunca aceita esse campo.
 - **Router por regex, não por LLM**; routing **sticky** em `agente_conversas.agente`, sentido único A2→A1.
 - **Regras que não podem falhar vivem em `guards.py`** (dedup + 80%), nunca no prompt. **Dedup: o nome é sempre tentado**, aceite só quando nada contradiz (`_compativel`).
 - **Fallback de tipologia dentro da tool** — o modelo perdia moradias T2 ao traduzir "T2"→`natureza`. **Tool forcing** na iteração 0 quando `_SEARCH_RE` bate; sem ele Claude prometia callbacks.

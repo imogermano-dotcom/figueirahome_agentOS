@@ -192,8 +192,10 @@ ASSISTENTES: dict[str, dict] = {
 }
 
 # Voz responde em áudio: frases curtas. Web é o painel do corretor, tolera
-# respostas estruturadas mais longas.
-MAX_TOKENS = {"whatsapp": 512, "web": 1024}
+# respostas estruturadas mais longas. Site é o visitante público do
+# figueirahome.pt — ecrã pequeno, tolera menos que o painel mas mais que o
+# WhatsApp.
+MAX_TOKENS = {"whatsapp": 512, "web": 1024, "site": 768}
 
 MENSAGEM_INATIVO = (
     "De momento não estou disponível. Um consultor entrará em contacto consigo."

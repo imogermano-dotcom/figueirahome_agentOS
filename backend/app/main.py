@@ -11,6 +11,7 @@ from app.api.imoveis_sync import router as imoveis_sync_router
 from app.api.leads import router as leads_router
 from app.api.leads_meta import router as leads_meta_router
 from app.api.oportunidades_sync import router as oportunidades_sync_router
+from app.api.site_chat import router as site_chat_router
 from app.api.tarefas import router as tarefas_router
 from app.api.agentes import router as agentes_router
 from app.api.config import router as config_router
@@ -26,7 +27,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.environment == "development" else [settings.frontend_url],
+    allow_origins=["*"] if settings.environment == "development" else [
+        settings.frontend_url,
+        "https://figueirahome.pt",
+        "https://www.figueirahome.pt",
+    ],
     allow_origin_regex=r"https://[a-z0-9]+\.figueirahome-agentos\.pages\.dev" if settings.environment == "production" else None,
     allow_credentials=True,
     allow_methods=["*"],
@@ -37,6 +42,7 @@ app.include_router(voice_webhook_router)
 app.include_router(audio_ws_router)
 app.include_router(whatsapp_router)
 app.include_router(broker_chat_router)
+app.include_router(site_chat_router)  # chat público do figueirahome.pt, sem auth de propósito
 app.include_router(clientes_router)
 app.include_router(imoveis_router)
 app.include_router(imoveis_sync_router)
