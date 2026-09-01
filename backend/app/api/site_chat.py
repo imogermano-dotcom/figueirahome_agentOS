@@ -1,8 +1,9 @@
 """Chat público do figueirahome.pt — visitante anónimo, sem login.
 
-Único endpoint 100% público e sem segredo nenhum (nem `X-Automacao-Secret`
-nem `require_auth`): qualquer pessoa na internet pode chamá-lo. Duas decisões
-vêm directamente disso — ver `docs/fases/webchat-site-plano.md`:
+Sem `require_auth` (é para visitante anónimo) nem `X-Automacao-Secret` — mas
+não é "sem segredo nenhum": `require_widget_key` (2026-09-01) exige
+`X-Widget-Key`, enviado pelo Worker que faz proxy do widget, não pelo
+browser do visitante. Três decisões, ver `docs/fases/webchat-site-plano.md`:
 
 1. Sem campo `agente` no pedido. `api/broker.py` teve `require_auth`
    acrescentado a 2026-08-31 precisamente porque deixava o chamador escolher
@@ -10,20 +11,24 @@ vêm directamente disso — ver `docs/fases/webchat-site-plano.md`:
    `consultar_clientes`/`consultar_leads`. Aqui o router decide sempre.
 2. Limite de tamanho e de pedidos por participante: sem isto, tráfego
    avulso esgota crédito da API Anthropic à conta da agência.
+3. `X-Widget-Key`: CORS trava o browser, não trava um `curl` directo à
+   internet. A chave é a segunda camada, contra bots genéricos — não contra
+   alguém disposto a ler o Worker.
 """
 
 import logging
 import time
 from collections import deque
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.agents.broker.engine import responder
+from app.api.deps import require_widget_key
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/site")
+router = APIRouter(prefix="/api/site", dependencies=[Depends(require_widget_key)])
 
 _MAX_MENSAGEM = 2000
 _JANELA_SEGUNDOS = 300

@@ -21,3 +21,13 @@ def _sem_credenciais_reais_de_notificacao(monkeypatch):
     monkeypatch.setattr(settings, "resend_api_key", "")
     monkeypatch.setattr(settings, "resend_remetente", "")
     monkeypatch.setattr(settings, "notificacoes_para", "")
+
+
+WIDGET_CHAT_SECRET_DE_TESTE = "segredo-de-teste"
+
+
+@pytest.fixture(autouse=True)
+def _widget_chat_secret_de_teste(monkeypatch):
+    """Chave fixa e conhecida, nunca a real do Fly -- `test_site_chat.py` usa
+    esta constante para montar o header `X-Widget-Key` esperado."""
+    monkeypatch.setattr(settings, "widget_chat_secret", WIDGET_CHAT_SECRET_DE_TESTE)

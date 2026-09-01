@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     resend_remetente: str = ""       # remetente verificado no domínio Resend
     notificacoes_para: str = ""
 
+    # Chat do site (figueirahome.pt) -- chave partilhada com o Worker que faz
+    # proxy do widget (header X-Widget-Key). Vazio = nenhum pedido passa
+    # (ver require_widget_key em api/deps.py) -- ao contrário do Resend, aqui
+    # "sem configurar" nunca pode significar "endpoint público aberto".
+    widget_chat_secret: str = ""
+
     # App
     app_base_url: str = "http://localhost:8000"
     frontend_url: str = "http://localhost:5173"

@@ -41,6 +41,27 @@ async def require_sync_access(
     return await require_auth(authorization)
 
 
+async def require_widget_key(x_widget_key: str = Header(default="")) -> None:
+    """Chave partilhada do widget do site (`figueirahome.pt`), enviada pelo
+    Worker que faz proxy do chat público -- camada extra sobre o CORS, porque
+    um `fetch`/`curl` directo ignora CORS por completo.
+
+    É defesa por obscuridade e sabe-se disso: a chave vive num Worker que o
+    utilizador controla, não no browser do visitante, mas quem tiver o
+    segredo (ou o adivinhar) passa. O objectivo é travar bots genéricos a
+    varrer `/api/site/chat` na internet, não um atacante dedicado.
+
+    `hmac.compare_digest` e não `==`: evita side-channel por tempo de
+    comparação. Segredo vazio falha sempre — nunca "por configurar" pode
+    valer como "aberto a todos", ao contrário do Resend (`notificacoes.py`),
+    que é opcional e degrada em silêncio.
+    """
+    if not settings.widget_chat_secret or not hmac.compare_digest(
+        x_widget_key, settings.widget_chat_secret
+    ):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
 async def require_automacao_access(
     authorization: str = Header(None),
     x_automacao_secret: str = Header(None, alias="X-Automacao-Secret"),
