@@ -49,14 +49,15 @@ widget `docs/site-chat/widget.js` — zero alterações ao motor, routing e
 qualificação já eram agnósticos de canal. Confirmado ao vivo (Maria e
 Matilde, correctas). Pelo caminho, corrigido um **furo real em produção**:
 `/api/broker/chat` sem `require_auth` dava acesso não autenticado ao
-`broker` (`v63`, deployado). Chat do site testado, **por deployar**.
-Detalhe: `docs/fases/webchat-site-resumo.md`.
+`broker` (`v63`). Chat do site deployado e confirmado em produção (`v64`).
+Falta só colar o `widget.js` no `figueirahome.pt`. Detalhe:
+`docs/fases/webchat-site-resumo.md`.
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-01 em `v63` (`0dd95a7`, 512mb) — `require_auth` em `/api/broker/chat`. `/api/site/chat` pronto, **por deployar**. **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-01 em `v64` (`03714e4`, 512mb) — `require_auth` em `/api/broker/chat` (`v63`) + `/api/site/chat` público (`v64`), ambos confirmados com `curl`. **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
