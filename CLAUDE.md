@@ -44,20 +44,20 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 ## Estado actual — Handoff 2026-09-01
 
-**Chat público novo no `figueirahome.pt`**: endpoint `/api/site/chat` +
-widget `docs/site-chat/widget.js` — zero alterações ao motor, routing e
-qualificação já eram agnósticos de canal. Confirmado ao vivo (Maria e
-Matilde, correctas). Pelo caminho, corrigido um **furo real em produção**:
-`/api/broker/chat` sem `require_auth` dava acesso não autenticado ao
-`broker` (`v63`). Chat do site deployado e confirmado em produção (`v64`).
-Falta só colar o `widget.js` no `figueirahome.pt`. Detalhe:
-`docs/fases/webchat-site-resumo.md`.
+**Chat público novo no `figueirahome.pt`**: `/api/site/chat` + widget
+`docs/site-chat/widget.js`, zero alterações ao motor (routing/qualificação
+já eram agnósticos de canal). Segunda camada `X-Widget-Key` sobre o CORS
+(`require_widget_key`, `api/deps.py` — CORS não trava um `curl` directo).
+Pelo caminho, corrigido um **furo real em produção**: `/api/broker/chat`
+sem `require_auth` dava acesso não autenticado ao `broker` (`v63`→`v66`).
+Falta colar o `widget.js` no site, apontado ao Worker do utilizador.
+Detalhe: `docs/fases/webchat-site-resumo.md`.
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-01 em `v64` (`03714e4`, 512mb) — `require_auth` em `/api/broker/chat` (`v63`) + `/api/site/chat` público (`v64`), ambos confirmados com `curl`. **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-01 em `v66` (`a6a9b5f`, 512mb) — `require_auth` em `/api/broker/chat` (`v63`), `/api/site/chat` (`v64`) + `X-Widget-Key` (`v66`, `WIDGET_CHAT_SECRET`), todos confirmados com `curl`. **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
@@ -77,8 +77,8 @@ prévias no eGO.
 **Teste do `01` (30/08)**: validado em produção. **Incidente do WhatsApp
 mudo (29/08)**: seis dias sem respostas por um cartão expirado na WABA
 (`200 accepted` sem entrega), invisível porque o webhook só lia
-`value["messages"]`. Corrigido. `contacto_humano_em` (`0032`) impede o n8n
-de escrever por cima de uma consultora já em contacto.
+`value["messages"]`. `contacto_humano_em` (`0032`) impede o n8n de escrever
+por cima de uma consultora já em contacto.
 
 **Template com o imóvel (28/08)**: `figueirahome_apos_lead`, ref + resumo num só
 parâmetro. **"Publicar apesar de indisponível" (27/08)**: interruptor do eGO
