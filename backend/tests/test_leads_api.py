@@ -89,6 +89,10 @@ class _Q:
     def limit(self, *a, **k):
         return self
 
+    def update(self, dados):
+        self.estado.setdefault("updates", []).append((self.tabela, dados))
+        return self
+
     def execute(self):
         return SimpleNamespace(data=self._abertas)
 
@@ -102,7 +106,7 @@ def _fake(monkeypatch, alvo, abertas=None):
 
 def test_assistente_escreve_em_leads_com_origem(monkeypatch):
     estado = _fake(monkeypatch, tools)
-    tools._criar_lead_se_preciso("cli-1", "quer T2 em Buarcos")
+    tools._criar_lead_se_preciso({"id": "cli-1"}, "quer T2 em Buarcos")
 
     assert estado["inserts"] == [("leads", {
         "cliente_id": "cli-1", "estado": "nova",
@@ -111,16 +115,31 @@ def test_assistente_escreve_em_leads_com_origem(monkeypatch):
 
 
 def test_assistente_nao_reabre_lead_ja_aberta(monkeypatch):
-    estado = _fake(monkeypatch, tools, abertas=[{"id": "lead-1"}])
-    tools._criar_lead_se_preciso("cli-1", "resumo")
+    """Já ligada ao cliente certo -- nem insert, nem update."""
+    estado = _fake(monkeypatch, tools, abertas=[{"id": "lead-1", "cliente_id": "cli-1"}])
+    tools._criar_lead_se_preciso({"id": "cli-1"}, "resumo")
     assert estado["inserts"] == []
+    assert estado.get("updates") is None
+
+
+def test_assistente_liga_cliente_a_lead_da_meta_em_vez_de_duplicar(monkeypatch):
+    """O bug real (2026-09-02, Carla Emeleana): uma lead da Meta nasce sem
+    `cliente_id` (só o ganha quando `_promover_lead` qualifica o MQL por
+    completo). Sem procurar por telefone/email, uma segunda lead nascia
+    sempre que uma conversa fechava com `tipo_interesse` preenchido. Agora
+    encontra a lead antiga e liga o `cliente_id`, em vez de duplicar."""
+    estado = _fake(monkeypatch, tools, abertas=[{"id": "lead-meta-1", "cliente_id": None}])
+    tools._criar_lead_se_preciso({"id": "cli-1", "telefone": "912345678"}, "resumo")
+
+    assert estado["inserts"] == []
+    assert estado["updates"] == [("leads", {"cliente_id": "cli-1"})]
 
 
 def test_dedup_do_assistente_usa_o_vocabulario_novo(monkeypatch):
     """Com `fechado`/`perdido` (masculino, de `agente_leads`) o filtro deixava
     de excluir seja o que for e criava uma lead por conversa."""
     estado = _fake(monkeypatch, tools)
-    tools._criar_lead_se_preciso("cli-1", "resumo")
+    tools._criar_lead_se_preciso({"id": "cli-1"}, "resumo")
     assert estado["excluidos"] == list(ESTADOS_FECHADOS)
     assert all(e in ESTADOS for e in estado["excluidos"])
 

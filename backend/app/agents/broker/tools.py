@@ -18,7 +18,9 @@ from app.agents.broker.assistants import A1, A2, BROKER, NOME_A1
 from app.agents.broker.guards import (
     encerrar_lead_do_telefone,
     find_or_create_cliente,
+    normalizar_email,
     normalizar_telefone,
+    variantes_telefone,
     visita_permitida,
 )
 from app.config import settings
@@ -620,26 +622,48 @@ async def _guardar_dados_cliente(inputs: dict, contexto: dict) -> str:
         return "Dados registados nesta conversa."
 
     if inputs.get("tipo_interesse"):
-        await _run(_criar_lead_se_preciso, cliente["id"], inputs.get("resumo"))
+        await _run(_criar_lead_se_preciso, cliente, inputs.get("resumo"))
     return "Dados guardados com sucesso."
 
 
-def _criar_lead_se_preciso(cliente_id: str, resumo: str | None) -> None:
-    """Uma lead aberta por cliente. Escreve em `leads` desde 2026-08-18 —
-    `agente_leads` deixou de ser usada (ver `api/leads.py`)."""
+def _criar_lead_se_preciso(cliente: dict, resumo: str | None) -> None:
+    """Uma lead aberta por pessoa — nunca duas para o mesmo contacto.
+
+    Bug real (2026-09-02): procurava lead aberta só por `cliente_id`, e uma
+    lead vinda do funil da Meta nasce sem `cliente_id` — só o ganha quando
+    `_promover_lead` qualifica o MQL por completo, o que a maioria nunca
+    atinge. Resultado: uma pessoa que já tinha uma lead `contactada` do
+    próprio anúncio ganhava uma segunda, à parte, sempre que uma conversa
+    fechava com `tipo_interesse` preenchido — confirmado com a Carla Emeleana
+    (lead de 22/08 por `meta_lead_id`, `cliente_id` nulo; segunda lead criada
+    a 01/09 sem que a primeira fosse vista). Agora procura por telefone/email
+    primeiro, como `_procurar_cliente` — e liga o `cliente_id` à lead que já
+    existe em vez de duplicar.
+    """
     supabase = get_supabase()
-    aberto = (
-        supabase.table("leads")
-        .select("id")
-        .eq("cliente_id", cliente_id)
-        .not_.in_("estado", list(ESTADOS_FECHADOS))
-        .limit(1)
-        .execute()
+    telefone = normalizar_telefone(cliente.get("telefone"))
+    email = normalizar_email(cliente.get("email"))
+    cliente_id = cliente.get("id")
+
+    def _aberta(coluna: str, valores) -> dict | None:
+        q = supabase.table("leads").select("id,cliente_id").not_.in_("estado", list(ESTADOS_FECHADOS))
+        q = q.in_(coluna, valores) if isinstance(valores, list) else q.eq(coluna, valores)
+        dados = q.limit(1).execute().data
+        return dados[0] if dados else None
+
+    aberta = (
+        (telefone and _aberta("telefone", variantes_telefone(telefone)))
+        or (email and _aberta("email", email))
+        or _aberta("cliente_id", cliente_id)
     )
-    if not aberto.data:
-        supabase.table("leads").insert(
-            {"cliente_id": cliente_id, "estado": "nova", "origem": "assistente", "notas": resumo}
-        ).execute()
+    if aberta:
+        if not aberta.get("cliente_id"):
+            supabase.table("leads").update({"cliente_id": cliente_id}).eq("id", aberta["id"]).execute()
+        return
+
+    supabase.table("leads").insert(
+        {"cliente_id": cliente_id, "estado": "nova", "origem": "assistente", "notas": resumo}
+    ).execute()
 
 
 def _preco_do_imovel(ref: str) -> dict | None:
