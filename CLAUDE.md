@@ -48,7 +48,7 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 só procurava por `cliente_id` — uma lead da Meta nasce sem ele, e nascia
 segunda lead sempre que a mesma pessoa voltava a falar. Caso real (Carla
 Emeleana) ligado e fundido à mão. Agora procura telefone→email→cliente_id
-e liga em vez de duplicar. **Por deployar**. `docs/fases/dedupe-leads-resumo.md`.
+e liga em vez de duplicar. Deployado (`v68`). `docs/fases/dedupe-leads-resumo.md`.
 
 **Ontem (01/09)**: lead sem contacto pelo site — `find_or_create_cliente`
 exige agora telefone ou email, não só nome. Deployado (`v67`, detalhe em
@@ -58,7 +58,7 @@ exige agora telefone ou email, não só nome. Deployado (`v67`, detalhe em
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ⚠️ fix do dedupe de leads pronto e testado — **por commit/push/deploy**. Produção em `v67`: `require_auth`, `/api/site/chat`, `X-Widget-Key`, gate de contacto do `find_or_create_cliente`. **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-02 em `v68` — dedupe de leads por telefone/email, `require_auth`, `/api/site/chat`, `X-Widget-Key`, gate de contacto do `find_or_create_cliente`. **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
