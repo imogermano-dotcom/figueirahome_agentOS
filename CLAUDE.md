@@ -44,15 +44,20 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 ## Estado actual — Handoff 2026-09-02
 
-**Lead duplicada por falta de dedupe por telefone/email**: `_criar_lead_se_preciso`
-só procurava por `cliente_id` — uma lead da Meta nasce sem ele, e nascia
-segunda lead sempre que a mesma pessoa voltava a falar. Caso real (Carla
-Emeleana) ligado e fundido à mão. Agora procura telefone→email→cliente_id
-e liga em vez de duplicar. Deployado (`v68`). `docs/fases/dedupe-leads-resumo.md`.
+Chat público novo no `figueirahome.pt`, uma fuga de segurança real fechada
+pelo caminho, e dois bugs de leads em produção corrigidos (achados a
+responder a perguntas directas do utilizador). Seis deploys (`v63`→`v68`).
+Detalhe completo: `docs/fases/handoff-2026-09-02-resumo.md`.
 
-**Ontem (01/09)**: lead sem contacto pelo site — `find_or_create_cliente`
-exige agora telefone ou email, não só nome. Deployado (`v67`, detalhe em
-`docs/fases/webchat-site-resumo.md`).
+- **Furo**: `/api/broker/chat` sem `require_auth` dava acesso não
+  autenticado ao `broker` (`consultar_clientes`/`consultar_leads`) — fechado.
+- **Chat do site**: `/api/site/chat` + widget, `X-Widget-Key` sobre o
+  CORS — deployado; falta colar o `widget.js` no site.
+- **Lead sem contacto**: `find_or_create_cliente` aceitava nome sozinho —
+  exige agora telefone ou email.
+- **Lead duplicada**: dedupe só via `cliente_id` deixava nascer segunda
+  lead para quem já tinha uma da Meta — agora procura telefone→email
+  primeiro; caso real (Carla Emeleana) corrigido à mão na BD.
 
 ### Produção
 
@@ -63,34 +68,20 @@ exige agora telefone ou email, não só nome. Deployado (`v67`, detalhe em
 | Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
 | Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: entram no backoffice com a mesma conta, e juntos a 18/08 deram OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
-| n8n `01` | ✅ importado, publicado, **testado em produção 29/08** (ver acima) |
+| n8n `01` | ✅ importado, publicado, **testado em produção 29/08** — `handoff-2026-08-30-resumo.md` |
 | n8n `02`/`03` | ⚠️ **por importar/publicar**. `03` pronto: timestamp corrigido, template `figueirahome_follow_\|pt_PT` preenchido, chão `criado_em gte.2026-08-26` para a 1.ª corrida |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
-### Fases anteriores (31/08 e antes) — deployadas, detalhe em `docs/fases/`
+### Fases anteriores — deployadas, detalhe em `docs/fases/`
 
-**Chat público no `figueirahome.pt` (01/09)**: `/api/site/chat` + widget,
-`X-Widget-Key` sobre o CORS (`v66`). Corrigido um furo real: `/api/broker/chat`
-sem `require_auth` dava acesso não autenticado ao `broker` (`v63`).
-
-**Auditoria à última conversa real do A1 (31/08)**: Filipa Pedro/FH2581, 4 bugs — pesquisa sem estado/features, MQL perdido em prosa, notificações
-inertes (Graph→Resend), tarefas duplicadas por dedupe de `message_id` em falta (Meta reentrega). 34/271 leads já tinham notas prévias no eGO.
-
-**Teste do `01` (30/08)**: validado em produção. **Incidente do WhatsApp
-mudo (29/08)**: seis dias sem respostas por um cartão expirado na WABA
-(`200 accepted` sem entrega), invisível porque o webhook só lia
-`value["messages"]`. `contacto_humano_em` (`0032`) impede o n8n de escrever
-por cima de uma consultora já em contacto.
-
-**Template com o imóvel (28/08)**: `figueirahome_apos_lead`, ref + resumo num só
-parâmetro. **"Publicar apesar de indisponível" (27/08)**: interruptor do eGO
-mantém o imóvel na Web API depois de indisponível — **nenhum dos 104 campos
-o denuncia** — `_existing_ego_ids` filtra `publicado=true` (senão o sync
-criava **51 tarefas falsas**). **Link da LP (25/08)**:
-`link_imovel`. **Desfechos §2.2 (23/08)**: `encerrar_lead`, `0030`, fluxo `03`.
-**Visitas do eGO (`0023`, 15/08)**: tabela própria e aditiva. **Landing pages**:
-no ar em `imoveis.figueirahome.pt`, feitas fora deste repositório; o construtor
-(`feat/landing-pages`, `/lp/*`) **parado por decisão do cliente**, `0020` por correr.
+- **Chat do site, furo do `/api/broker/chat` (01/09)** — `webchat-site-resumo.md`
+- **Auditoria ao A1, 4 bugs — pesquisa, MQL, notificações, dedupe WhatsApp (31/08)** — `handoff-2026-08-31-resumo.md`
+- **Teste do `01` em produção (30/08)** — `handoff-2026-08-30-resumo.md`
+- **WhatsApp mudo 6 dias, cartão expirado na WABA (29/08)** — `incidente-whatsapp-mudo-2026-08-29.md`
+- **Notificações ao corretor, Graph→Resend (15–31/08)** — `notificar-corretor-resumo.md`
+- **`contacto_humano_em`, trava o que o n8n inicia (29/08)** — `contacto-humano-resumo.md`
+- **Leads da Meta, semeadura da conversa (13–20/08)** — `leads-meta-resumo.md`
+- **Landing pages**: no ar em `imoveis.figueirahome.pt`, fora deste repo; construtor (`feat/landing-pages`) **parado por decisão do cliente**.
 
 ### Invariantes que não são óbvias a ler o código
 
@@ -106,6 +97,8 @@ no ar em `imoveis.figueirahome.pt`, feitas fora deste repositório; o construtor
 - **O n8n não valida nada do que lá se escreve.** Um nome de coluna trocado no `filterString` devolve linhas a mais em silêncio (daí as guardas repetidas no `IF`), e uma ligação apontada a um nó que não existe importa-se sem aviso e nunca dispara — foi assim que o fluxo `03` ficou desde 23/08 ligado a nada. `test_n8n_guardas.py` lê os JSON e verifica ambas.
 - **WhatsApp não lê Markdown** — `channels/whatsapp/formatacao.py`, ponto único de saída. **Sem gráficos de evolução nem de receita** — os dados mentiriam (`dashboard-plano.md`).
 - **Página ≠ OG tags em `imoveis.figueirahome.pt`.** O SPA renderiza os 54 publicados (lê a nossa `imoveis` por `eq`); o **prerender** só serve OG tags a bots, e só para refs simples. `curl` não distingue as duas e leva a concluir "não existe" — ir ao browser. Faltar prerender é cosmético: cartão genérico, link a funcionar. **`preview_url` é `false` por omissão na Cloud API** — sem a chave o WhatsApp mostra o URL cru e nem lê as OG tags; falha em silêncio (200, entregue) e custou um deploy. Tem teste.
+- **"Publicar apesar de indisponível" no eGO**: um interruptor mantém o imóvel na Web API depois de indisponível — **nenhum dos 104 campos o denuncia**. `_existing_ego_ids` filtra `publicado=true`; sem isso o sync criava **51 tarefas falsas**.
+- **`nome` nunca é identificador sozinho** — nem para criar cliente (`find_or_create_cliente` exige telefone ou email), nem para achar lead aberta (`_criar_lead_se_preciso` procura por telefone→email→`cliente_id`). Uma lead da Meta nasce sem `cliente_id`; só o ganha ao qualificar — raro.
 
 ### Dados
 
@@ -134,12 +127,13 @@ sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 ### Próximos passos
 
-0. **Importar `02`/`03`** no n8n (`01` já feito e testado). Credencial *Supabase API* em cada nó. `03` já tem o timestamp corrigido e o template `figueirahome_follow_|pt_PT` preenchidos (31/08), com chão `criado_em gte.2026-08-26` para não apanhar o buraco dos 6 dias mudos. **Correr à mão com `Limit=5`**, trigger desligado (phone id `925368620661613`); contagem de controlo no `docs/n8n/README.md`, confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e os outros intactos. Antes disso, **apagar as leads de teste** `teste-manual-001`/`002`.
-1. **Reenviar as 45 leads** — prazo **23/09**, depois caem na Maria sem contexto. Antes: a **volta à Alexandra e à Alexsandra** (quais das 8 já foram contactadas → marcar `contacto_humano_em` no painel, o `02` salta-as sozinho) **e** a data exacta no WhatsApp Manager → Insights. Depois: **`name_status: DECLINED`**, o **atraso de 12h do `01`** e o `logging.basicConfig(level=INFO)` no `main.py` (sem ele só o ERROR das falhas se vê).
-2. **"Validar CRM"** no painel, uma passagem manual — resolve os 12 imóveis em limbo desde 04/08.
-3. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite — sem isto o A1 entra cego e a lead nunca qualifica) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora, sem sinalização).
-4. **Retomar o construtor de LPs** quando o cliente decidir. Nessa altura: **apagar `agente_leads`** e **actualizar `landing.py:223`**, o único escritor que sobrou — sem isso o merge ressuscita a tabela morta.
-5. **Passagem automática ao eGO** (precisa da chave de integração) · **A3/A4 e sub-fluxos SC/FP** (adiados; `agente_clientes` sem coluna `agente`) · **lembretes 24h/48h** (scheduler) · **dados a montante**: `responsavel` com "Internet" (892), 8432 sem `data_criacao_iso`, `valor_negocio` quase vazio, histórico de visitas por recuperar.
+0. **Colar `docs/site-chat/widget.js` no `figueirahome.pt`** e confirmar ao vivo o fluxo widget → Worker → Fly (o utilizador gere o Worker e o `WIDGET_CHAT_SECRET` do lado do site).
+1. **Importar `02`/`03`** no n8n (`01` já feito e testado). Credencial *Supabase API* em cada nó. `03` já tem o timestamp corrigido e o template `figueirahome_follow_|pt_PT` preenchidos, com chão `criado_em gte.2026-08-26` para não apanhar o buraco dos 6 dias mudos. **Correr à mão com `Limit=5`**, trigger desligado (phone id `925368620661613`); contagem de controlo no `docs/n8n/README.md`, confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e os outros intactos. Antes disso, **apagar as leads de teste** `teste-manual-001`/`002`.
+2. **Reenviar as 45 leads** — prazo **23/09**, depois caem na Maria sem contexto. Antes: a **volta à Alexandra e à Alexsandra** (quais das 8 já foram contactadas → marcar `contacto_humano_em` no painel, o `02` salta-as sozinho) **e** a data exacta no WhatsApp Manager → Insights. Depois: **`name_status: DECLINED`**, o **atraso de 12h do `01`** e o `logging.basicConfig(level=INFO)` no `main.py` (sem ele só o ERROR das falhas se vê).
+3. **Varrer `leads` à procura doutros duplicados antigos** (o fix de 02/09 trava novos, não desfaz os que já existiam) · **"Validar CRM"** no painel, passagem manual — resolve os 12 imóveis em limbo desde 04/08.
+4. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora).
+5. **Retomar o construtor de LPs** quando o cliente decidir — aí **apagar `agente_leads`** e **actualizar `landing.py:223`**, o único escritor que sobrou.
+6. **Passagem automática ao eGO** (precisa da chave de integração) · **A3/A4 e sub-fluxos SC/FP** (adiados) · **lembretes 24h/48h** (scheduler) · **dados a montante**: `responsavel` com "Internet" (892), 8432 sem `data_criacao_iso`, `valor_negocio` quase vazio.
 
 ## Decisões arquitecturais
 
@@ -154,7 +148,8 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Assistentes nunca escrevem em `oportunidades`/`contactos`** — espelho do eGO, pipeline externo. A lead qualificada pára numa **tarefa** (+ email ao corretor, `notificacoes.py`): não há API de escrita do eGO, e um insert nosso em `contactos` fica órfão.
 - **Leads da Meta: semear a conversa, não mexer no router** — a resposta a um template é "Sim"/"Olá", que `_A1_RE` não apanha. A thread nasce com `agente='a1_vendedor'`; alargar o regex mandaria para o A1 toda a gente que diz "olá".
 - **`load_conversation` procura por variantes do número** — a Meta manda `351…`, a semeadura guarda 9 dígitos. Com `.eq()` exacto a thread nunca era encontrada e a funcionalidade parecia instalada sem fazer nada.
-- **Qualificação: regra única em `guards.py`, dois gatilhos** — `find_or_create_cliente` (escrita de cliente) e `promover_se_qualificada` (fim de turno). Sem o segundo, a lead cujo formulário já traz o MQL nunca era promovida. `nova` só conta como "respondeu" no segundo.
+- **Qualificação: regra única em `guards.py`, dois gatilhos** — `find_or_create_cliente` (escrita de cliente) e `promover_se_qualificada` (fim de turno). Sem o segundo, a lead cujo formulário já traz o MQL nunca era promovida. `nova` só conta como "respondeu" no segundo. **`find_or_create_cliente` exige telefone ou email para criar** (nome nunca sozinho, 02/09) e **`_criar_lead_se_preciso` desduplica por telefone→email→`cliente_id`**, nunca só `cliente_id` — uma lead da Meta nasce sem ele.
+- **Instrução específica de canal vive no motor (`engine._montar_system_prompt`), não no prompt base do assistente** — pedir telefone é redundante no WhatsApp (já se sabe pelo canal); só entra para o `site`. **Segredo de endpoint público falha ao pedido, nunca ao arranque** (`require_widget_key`, mesmo padrão de `require_automacao_access`).
 - **Desfecho de conversa ≠ qualificação** — os três da spec §2.2 entram **ao lado** do MQL, não por cima. **`engano` fecha** (sai de `_ESTADOS_LEAD_ABERTA`, entra em `ESTADOS_FECHADOS`); **`sem_resposta` fica ABERTO** apesar do nome — quem responde tarde tem de manter a Matilde e o `imovel_ref`. Detecção do engano por **tool**, escrita em código.
 - **Os travões de envio são colunas, nunca o estado** — `follow_up_em` (`0030`) e `contacto_humano_em` (`0032`). O estado é editável no painel **e** reescrito pelo n8n a cada passo, portanto não segura nada. O `contacto_humano_em` trava só o que **nós** iniciamos; a Matilde responde na mesma a quem escreve. O painel manda um **booleano** e o servidor carimba: com um `datetime`, o `exclude_none` do `atualizar_lead` deixava marcar e não deixava desmarcar.
 - **Visitas em tabela própria (`visitas`, `0023`)** — em colunas de `oportunidades` cabia 1 por oportunidade e o eGO dá uma linha por visita. `oportunidades` fica intacta: o portal do Miguel lê-a.
@@ -168,11 +163,11 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 
 - **O `01` dispara ~12h depois da lead entrar**, desde 28/08 — em rajada de manhã em vez de na hora. Como **16 das 17 respostas reais vieram na 1.ª hora**, isto sozinho chega para matar a conversão. Por investigar nas execuções do n8n.
 - **Sem `logging.basicConfig`**: a raiz fica em `WARNING`. O `ERROR` das falhas de entrega aparece; `sent`/`delivered`/`read` são invisíveis e só se inferem contando recibos.
-- **`agente_leads` ainda existe**, vazia de uso desde 2026-08-18 — a confusão só acaba quando for apagada (Próximos passos 4).
+- **`agente_leads` ainda existe**, vazia de uso desde 2026-08-18 — a confusão só acaba quando for apagada (Próximos passos 5).
 - **Dedup de clientes sob carga**: teste falhou e voltou a passar com o mesmo código. Se aparecerem duplicados em produção, é por aqui.
 - **Agente de voz** (bloqueado por Telnyx, não se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2 s sem VAD.
 
-*Fechados 31/08–02/09: pesquisa, MQL, notificações, tarefas/leads duplicadas, timestamp `03`, lead sem contacto — ver Fases anteriores, acima.*
+*Fechados 31/08–02/09: pesquisa, MQL, notificações, tarefas/leads duplicadas, timestamp `03`, lead sem contacto — `docs/fases/handoff-2026-09-02-resumo.md`.*
 
 ## Convenções
 
