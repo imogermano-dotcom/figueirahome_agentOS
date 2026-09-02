@@ -42,22 +42,21 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-09-01
+## Estado actual — Handoff 2026-09-02
 
-**Chat público novo no `figueirahome.pt`**: `/api/site/chat` + widget
-`docs/site-chat/widget.js`, zero alterações ao motor (routing/qualificação
-já eram agnósticos de canal). Segunda camada `X-Widget-Key` sobre o CORS
-(`require_widget_key`, `api/deps.py` — CORS não trava um `curl` directo).
-Pelo caminho, corrigido um **furo real em produção**: `/api/broker/chat`
-sem `require_auth` dava acesso não autenticado ao `broker` (`v63`→`v66`).
-Falta colar o `widget.js` no site, apontado ao Worker do utilizador.
-Detalhe: `docs/fases/webchat-site-resumo.md`.
+**Lead sem contacto pelo chat do site, achada e corrigida**:
+`find_or_create_cliente` (`guards.py`) aceitava `nome` sozinho e criava
+cliente + lead sem telefone nem email — inofensivo no WhatsApp
+(`contexto.telefone` vem do canal), fatal no site. Agora exige telefone
+ou email para criar; no canal `site` o prompt pede sempre os dois antes de
+`guardar_dados_cliente`. Confirmado ao vivo. Detalhe:
+`docs/fases/webchat-site-resumo.md`.
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-01 em `v66` (`a6a9b5f`, 512mb) — `require_auth` em `/api/broker/chat` (`v63`), `/api/site/chat` (`v64`) + `X-Widget-Key` (`v66`, `WIDGET_CHAT_SECRET`), todos confirmados com `curl`. **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ⚠️ correcção pronta e testada localmente (`find_or_create_cliente`, gate de contacto) — **por commit/push/deploy**. Produção em `v66` (`a6a9b5f`): `require_auth`, `/api/site/chat`, `X-Widget-Key`. **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
@@ -68,11 +67,14 @@ Detalhe: `docs/fases/webchat-site-resumo.md`.
 
 ### Fases anteriores (31/08 e antes) — deployadas, detalhe em `docs/fases/`
 
+**Chat público no `figueirahome.pt` (01/09)**: `/api/site/chat` + widget,
+`X-Widget-Key` sobre o CORS (`v66`). Corrigido um furo real: `/api/broker/chat`
+sem `require_auth` dava acesso não autenticado ao `broker` (`v63`).
+
 **Auditoria à última conversa real do A1 (31/08)**: Filipa Pedro/FH2581,
 4 bugs — pesquisa sem estado/features, MQL perdido em prosa, notificações
-inertes (Graph→Resend), **tarefas duplicadas por falta de dedupe de
-`message_id`** no webhook (Meta reentrega). 34/271 leads já tinham notas
-prévias no eGO.
+inertes (Graph→Resend), tarefas duplicadas por falta de dedupe de
+`message_id` (Meta reentrega). 34/271 leads já tinham notas prévias no eGO.
 
 **Teste do `01` (30/08)**: validado em produção. **Incidente do WhatsApp
 mudo (29/08)**: seis dias sem respostas por um cartão expirado na WABA
@@ -120,7 +122,7 @@ sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **226**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **236**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -170,9 +172,8 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Dedup de clientes sob carga**: teste falhou e voltou a passar com o mesmo código. Se aparecerem duplicados em produção, é por aqui.
 - **Agente de voz** (bloqueado por Telnyx, não se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2 s sem VAD.
 
-*Fechados em 31/08 (pesquisa sem estado/features, MQL perdido em prosa,
-notificações inertes, tarefas duplicadas, timestamp do `03`): ver Estado
-actual, acima.*
+*Fechados 31/08–02/09 (pesquisa, MQL em prosa, notificações, tarefas
+duplicadas, timestamp do `03`, lead sem contacto): ver Fases anteriores.*
 
 ## Convenções
 

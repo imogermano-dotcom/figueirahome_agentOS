@@ -447,13 +447,23 @@ async def find_or_create_cliente(
 ) -> dict | None:
     """Devolve o cliente existente (actualizado) ou cria um novo.
 
-    Devolve `None` quando não há identificador nenhum — é assim que o banco
-    de ensaio do painel (participante `painel_a1_vendedor`, sem telefone)
-    não polui `agente_clientes`.
+    Devolve `None` sem telefone nem email — nome sozinho não é um contacto.
+    É assim que o banco de ensaio do painel (participante `painel_a1_vendedor`,
+    sem telefone) não polui `agente_clientes`.
+
+    Bug real (2026-09-02, chat do site): o gate antigo aceitava `nome`
+    sozinho como identificador (`not telefone and not email and not nome`),
+    ao contrário do que este docstring sempre disse. No WhatsApp nunca dava
+    para ver — `contexto.get("telefone")` preenche sempre, é o próprio
+    número do participante. No site, um visitante que só diga o nome fazia
+    nascer um cliente sem contacto nenhum e, por causa do `tipo_interesse`,
+    uma lead atrás dele — impossível de voltar a contactar. `_procurar_cliente`
+    continua a usar o nome para desempate (spec §2.7); só a criação exige
+    telefone ou email.
     """
     telefone = normalizar_telefone(telefone)
     email = normalizar_email(email)
-    if not telefone and not email and not nome:
+    if not telefone and not email:
         return None
 
     dados = {"nome": nome, "telefone": telefone, "email": email, **campos}

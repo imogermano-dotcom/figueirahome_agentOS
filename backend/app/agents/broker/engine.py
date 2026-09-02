@@ -49,6 +49,20 @@ _TEMPERATURE = 0.4  # spec §2.3: consistente sem ser robótico
 _MAX_TOOL_ITERATIONS = 4  # A1 encadeia ficha -> guardar -> agendar
 _ERRO = "Ocorreu um erro. Tenta novamente."
 
+# No WhatsApp o telefone vem sempre de graça — é o próprio `participante`. No
+# site não há canal nenhum a identificar quem escreve, e `guards.find_or_create_cliente`
+# (2026-09-02) recusa criar cliente ou lead sem telefone/email: nome sozinho não é
+# contacto. Sem este lembrete o modelo regista "interesse" com um nome e mais nada,
+# e `guardar_dados_cliente` fica a dizer "guardado" sem gravar coisa nenhuma —
+# achado em produção quando uma lead do chat do site apareceu sem forma de contacto.
+_INSTRUCAO_IDENTIDADE_SITE = (
+    "\n\nEste contacto vem do chat do site — ao contrário do WhatsApp, não há "
+    "telefone nenhum identificado à partida. Antes de guardar_dados_cliente ou de "
+    "tratares isto como um interesse a registar, pergunta sempre o nome E o número "
+    "de telefone. Sem os dois, os dados não ficam gravados e ninguém consegue "
+    "voltar a contactar esta pessoa."
+)
+
 
 def _perfil_cliente(telefone: str) -> str:
     """Contexto do cliente já conhecido, para o prompt. Só faz sentido com telefone.
@@ -92,6 +106,13 @@ def _texto_perfil(c: dict) -> str:
         "\n\nEste cliente já está registado: " + " | ".join(campos) +
         "\nCumprimenta-o pelo nome e não voltes a pedir dados que já temos."
     )
+
+
+def _montar_system_prompt(spec: dict, perfil: str, extra: str, canal: str) -> str:
+    system_prompt = spec["prompt"] + perfil + extra
+    if canal == "site":
+        system_prompt += _INSTRUCAO_IDENTIDADE_SITE
+    return system_prompt
 
 
 async def _contexto_inicial(
@@ -262,7 +283,7 @@ async def responder(
             # Antes da mensagem do utilizador: o template foi o que veio primeiro.
             mensagens.append(template)
 
-    system_prompt = spec["prompt"] + perfil + extra
+    system_prompt = _montar_system_prompt(spec, perfil, extra, canal)
     contexto = {
         "canal": canal,
         "telefone": telefone,

@@ -104,7 +104,10 @@ TOOL_DEFINITIONS = [
         "name": "guardar_dados_cliente",
         "description": (
             "Guarda ou actualiza os dados do cliente. Chama assim que tiveres pelo menos "
-            "o nome e o tipo de interesse."
+            "o nome e o tipo de interesse. Sem telefone nem email, os dados não ficam "
+            "gravados — nome sozinho não identifica ninguém nem permite voltar a "
+            "contactar. Nos canais onde o contacto não vem automático (o site, ao "
+            "contrário do WhatsApp), pergunta sempre o telefone antes de chamar esta tool."
         ),
         "input_schema": {
             "type": "object",

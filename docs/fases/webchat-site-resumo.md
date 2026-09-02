@@ -47,6 +47,37 @@ rejeitada (422), rate limit por participante (429) e não-global. Mais 1
 (`test_broker_chat_auth.py`) para o fix de segurança. Suite: **226**
 (era 219 no handoff anterior).
 
+## Achado em produção e corrigido (2026-09-02): lead sem contacto
+
+Uma conversa real pelo chat do site criou uma lead sem forma nenhuma de
+contactar a pessoa. Causa: `find_or_create_cliente` (`guards.py`) tratava
+`nome` sozinho como identificador suficiente para criar um cliente — e daí
+para a frente, `_criar_lead_se_preciso` (`tools.py`) nasce mal. O próprio
+docstring da função já dizia o contrário ("sem telefone nem email não se
+cria cliente"), mas a condição de código não implementava isso. No WhatsApp
+nunca se via, porque `contexto.get("telefone")` vem sempre do próprio
+`participante`; no site não há nada a identificar quem escreve.
+
+Fix em duas camadas:
+1. **Código** (a que não pode falhar): `find_or_create_cliente` passa a
+   exigir telefone OU email para criar ou actualizar — nome deixa de bastar.
+   `_procurar_cliente` continua a usar o nome só para desempate (spec §2.7).
+2. **Prompt**, só no canal `site` (`engine._montar_system_prompt`): instrução
+   a pedir sempre nome e telefone antes de `guardar_dados_cliente` ou de
+   tratar algo como interesse a registar. Não entrou na tool nem no prompt
+   base do A1 para não fazer o WhatsApp perguntar um telefone que já tem.
+
+**Confirmado ao vivo, ponta a ponta**: pedido de T2 em Buarcos sem dar
+contacto → a Matilde pesquisou, mostrou opções, e só pediu nome+telefone ao
+avançar para a visita — nada foi escrito na base antes disso (confirmado por
+consulta directa a `agente_clientes`/`leads`). Dado o contacto, criou o
+cliente com `origem='site'` e a tarefa da visita correctamente.
+
+4 testes novos: `test_find_or_create_cliente.py` (nome sozinho não toca a
+BD, nome+tipo_interesse sem contacto idem, telefone sozinho cria, email
+sozinho cria) e `test_identidade_site.py` (instrução só entra no canal
+`site`, WhatsApp e painel ficam como estavam).
+
 ## Por fazer (fora desta fase)
 
 - O utilizador cola o `widget.js` no site (self-hosted, "vibe coding" —
@@ -59,7 +90,12 @@ rejeitada (422), rate limit por participante (429) e não-global. Mais 1
 
 - `backend/app/api/site_chat.py` (novo)
 - `backend/app/api/broker.py` (`require_auth`, fix de segurança)
+- `backend/app/api/deps.py` (`require_widget_key`)
 - `backend/app/main.py` (router, CORS)
-- `backend/app/agents/broker/assistants.py` (`MAX_TOKENS`)
-- `backend/tests/test_site_chat.py`, `test_broker_chat_auth.py` (novos)
+- `backend/app/agents/broker/assistants.py` (`MAX_TOKENS`, descrição de `guardar_dados_cliente`)
+- `backend/app/agents/broker/guards.py` (`find_or_create_cliente`, gate de contacto)
+- `backend/app/agents/broker/engine.py` (`_montar_system_prompt`, instrução do site)
+- `backend/app/config.py` (`widget_chat_secret`)
+- `backend/tests/test_site_chat.py`, `test_broker_chat_auth.py`,
+  `test_find_or_create_cliente.py`, `test_identidade_site.py` (novos)
 - `docs/site-chat/widget.js`, `docs/site-chat/README.md` (novos)
