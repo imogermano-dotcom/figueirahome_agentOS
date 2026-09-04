@@ -11,10 +11,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 
-@router.post("/imoveis/sync/egorealestate/api", dependencies=[Depends(require_sync_access)])
-async def sync_egorealestate_api_endpoint():
+@router.post("/imoveis/sync/egorealestate/api")
+async def sync_egorealestate_api_endpoint(acesso=Depends(require_sync_access)):
+    origem = "cron" if acesso == "sync-secret" else "manual"
     try:
-        return await sync_egorealestate_api()
+        return await sync_egorealestate_api(origem)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     except Exception:
@@ -22,10 +23,11 @@ async def sync_egorealestate_api_endpoint():
         raise HTTPException(status_code=502, detail="Falha ao sincronizar com a Web API do eGO Real Estate.")
 
 
-@router.post("/imoveis/sync/egorealestate/crm", dependencies=[Depends(require_sync_access)])
-async def sync_egorealestate_crm_endpoint():
+@router.post("/imoveis/sync/egorealestate/crm")
+async def sync_egorealestate_crm_endpoint(acesso=Depends(require_sync_access)):
+    origem = "cron" if acesso == "sync-secret" else "manual"
     try:
-        return await sync_egorealestate_crm()
+        return await sync_egorealestate_crm(origem)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     except Exception:

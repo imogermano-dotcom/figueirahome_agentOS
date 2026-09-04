@@ -392,7 +392,7 @@ def test_validacao_crm_corre_depois_do_upsert(monkeypatch):
         estado["sequencia"].append("crm")
         return 0, []
 
-    async def _log(tipo, resumo, detalhes):
+    async def _log(tipo, resumo, detalhes, origem="manual"):
         estado["sequencia"].append("log")
 
     monkeypatch.setattr(sync.egorealestate, "get_properties_page", _pagina)
@@ -460,7 +460,7 @@ def test_resumo_conta_as_visitas_virtuais(monkeypatch):
     monkeypatch.setattr(sync, "_existing_ego_ids", lambda d: _async(set()))
     monkeypatch.setattr(sync, "_flag_unpublished", lambda m: _async((0, [], [])))
     monkeypatch.setattr(sync, "_existing_refs", lambda r: _async(set()))
-    monkeypatch.setattr(sync, "_log_execucao", lambda t, r, d: _async(None))
+    monkeypatch.setattr(sync, "_log_execucao", lambda t, r, d, o="manual": _async(None))
 
     resumo = asyncio.run(sync.sync_egorealestate_api())
 
@@ -488,7 +488,7 @@ def test_falha_do_detalhe_salta_o_imovel(monkeypatch):
     monkeypatch.setattr(sync, "_existing_ego_ids", lambda d: _async(set()))
     monkeypatch.setattr(sync, "_flag_unpublished", lambda m: _async((0, [], [])))
     monkeypatch.setattr(sync, "_existing_refs", lambda r: _async(set()))
-    monkeypatch.setattr(sync, "_log_execucao", lambda t, r, d: _async(None))
+    monkeypatch.setattr(sync, "_log_execucao", lambda t, r, d, o="manual": _async(None))
 
     resumo = asyncio.run(sync.sync_egorealestate_api())
 

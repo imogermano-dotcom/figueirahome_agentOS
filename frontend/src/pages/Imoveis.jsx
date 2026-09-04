@@ -453,7 +453,10 @@ function SincronizacaoTab() {
 
       {ultima && (
         <>
-          <p className="text-zinc-500 text-xs mt-5 mb-2">Última execução: {formatDataHora(ultima.executado_em)}</p>
+          <p className="text-zinc-500 text-xs mt-5 mb-2">
+            Última execução: {formatDataHora(ultima.executado_em)}
+            {ultima.origem && <span className="ml-2 px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[10px] uppercase tracking-wide">{ultima.origem === 'cron' ? 'cron' : 'manual'}</span>}
+          </p>
           <div className="grid grid-cols-5 gap-3 text-center">
             <div>
               <p className="text-2xl font-bold text-emerald-400">{ultima.resumo.criados}</p>
@@ -500,7 +503,7 @@ function SincronizacaoTab() {
               <div className="space-y-1">
                 {log.slice(1).map(exec => (
                   <p key={exec.id} className="text-xs text-zinc-500">
-                    {formatDataHora(exec.executado_em)} — {exec.resumo.criados} criados, {exec.resumo.atualizados} actualizados, {exec.resumo.corrigidos} corrigidos, {exec.resumo.nao_publicados} não publicados, {exec.resumo.erros} erros
+                    {formatDataHora(exec.executado_em)}{exec.origem && ` (${exec.origem === 'cron' ? 'cron' : 'manual'})`} — {exec.resumo.criados} criados, {exec.resumo.atualizados} actualizados, {exec.resumo.corrigidos} corrigidos, {exec.resumo.nao_publicados} não publicados, {exec.resumo.erros} erros
                     {exec.resumo.com_visita_virtual != null && `, ${exec.resumo.com_visita_virtual} com visita virtual`}
                   </p>
                 ))}
@@ -549,7 +552,10 @@ function OportunidadesSyncCard() {
 
       {ultima && (
         <>
-          <p className="text-zinc-500 text-xs mt-5 mb-2">Última execução: {formatDataHora(ultima.executado_em)}</p>
+          <p className="text-zinc-500 text-xs mt-5 mb-2">
+            Última execução: {formatDataHora(ultima.executado_em)}
+            {ultima.origem && <span className="ml-2 px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[10px] uppercase tracking-wide">{ultima.origem === 'cron' ? 'cron' : 'manual'}</span>}
+          </p>
           <div className="grid grid-cols-5 gap-3 text-center">
             <div>
               <p className="text-2xl font-bold text-emerald-400">{ultima.resumo.oportunidades}</p>
@@ -584,7 +590,7 @@ function OportunidadesSyncCard() {
               <div className="space-y-1">
                 {log.slice(1).map(exec => (
                   <p key={exec.id} className="text-xs text-zinc-500">
-                    {formatDataHora(exec.executado_em)} — {exec.resumo.oportunidades} oportunidades, {exec.resumo.notas} notas, {exec.resumo.contactos?.gravados ?? 0} contactos
+                    {formatDataHora(exec.executado_em)}{exec.origem && ` (${exec.origem === 'cron' ? 'cron' : 'manual'})`} — {exec.resumo.oportunidades} oportunidades, {exec.resumo.notas} notas, {exec.resumo.contactos?.gravados ?? 0} contactos
                   </p>
                 ))}
               </div>

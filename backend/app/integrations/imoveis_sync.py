@@ -637,7 +637,7 @@ async def validar_disponibilidade_crm(
     return total, detalhes
 
 
-async def _log_execucao(tipo: str, resumo: dict, detalhes: list[dict]) -> None:
+async def _log_execucao(tipo: str, resumo: dict, detalhes: list[dict], origem: str = "manual") -> None:
     """O log é o registo, não o trabalho — se falhar, o sync não passa a ter
     falhado.
 
@@ -646,10 +646,13 @@ async def _log_execucao(tipo: str, resumo: dict, detalhes: list[dict]) -> None:
     correu bem. O preço de engolir é o painel poder ficar sem a linha de uma
     execução que aconteceu — mas isso lê-se nos logs do Fly, enquanto um 502
     manda investigar uma avaria que não existe.
+
+    `origem` vem de `require_sync_access` (endpoint) — "cron" quando autenticado
+    por `X-Sync-Secret`, "manual" quando por JWT do painel.
     """
     def _insert():
         return get_supabase().table("agente_sync_log").insert({
-            "tipo": tipo, "resumo": resumo, "detalhes": detalhes,
+            "tipo": tipo, "resumo": resumo, "detalhes": detalhes, "origem": origem,
         }).execute()
 
     try:
@@ -658,7 +661,7 @@ async def _log_execucao(tipo: str, resumo: dict, detalhes: list[dict]) -> None:
         logger.exception("Falha a gravar o log de %s — o sync em si correu.", tipo)
 
 
-async def sync_egorealestate_crm() -> dict:
+async def sync_egorealestate_crm(origem: str = "manual") -> dict:
     """Só a validação via CRM backoffice (`validar_disponibilidade_crm`) —
     fonte de verdade da `disponibilidade`, incl. imóveis nunca publicados.
     Acção separada da pull da Web API (ver `sync_egorealestate_api`) porque
@@ -668,11 +671,11 @@ async def sync_egorealestate_crm() -> dict:
 
     corrigidos, detalhes = await validar_disponibilidade_crm()
     resumo = {"criados": 0, "atualizados": 0, "erros": 0, "nao_publicados": 0, "corrigidos": corrigidos}
-    await _log_execucao("egorealestate_crm", resumo, detalhes)
+    await _log_execucao("egorealestate_crm", resumo, detalhes, origem)
     return resumo
 
 
-async def sync_egorealestate_api() -> dict:
+async def sync_egorealestate_api(origem: str = "manual") -> dict:
     """`/v1/Properties/Latest` (sync incremental) está avariado do lado do
     eGO — testado ao vivo, ignora `Since` sempre. Por isso corre-se sempre
     full-sync paginado (portefólio publicado é pequeno, ~55 imóveis).
@@ -710,7 +713,7 @@ async def sync_egorealestate_api() -> dict:
 
     if not properties:
         resumo = {"criados": 0, "atualizados": 0, "erros": 0, "nao_publicados": nao_publicados, "corrigidos": corrigidos}
-        await _log_execucao("egorealestate_api", resumo, detalhes)
+        await _log_execucao("egorealestate_api", resumo, detalhes, origem)
         return resumo
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -814,5 +817,5 @@ async def sync_egorealestate_api() -> dict:
     resumo = {"criados": criados, "atualizados": atualizados, "erros": erros,
               "nao_publicados": nao_publicados, "corrigidos": corrigidos,
               "com_visita_virtual": com_visita_virtual}
-    await _log_execucao("egorealestate_api", resumo, detalhes)
+    await _log_execucao("egorealestate_api", resumo, detalhes, origem)
     return resumo
