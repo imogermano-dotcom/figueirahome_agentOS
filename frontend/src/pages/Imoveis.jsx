@@ -403,7 +403,7 @@ function SincronizacaoTab() {
   const [log, setLog] = useState([])
   const [error, setError] = useState('')
   const [verDetalhes, setVerDetalhes] = useState(false)
-  const [verHistoricoCompleto, setVerHistoricoCompleto] = useState(false)
+  const [historicoCompleto, setHistoricoCompleto] = useState(null)
 
   async function carregarLog(limit = 20) {
     try { setLog(await api.get(`/api/imoveis/sync/log?limit=${limit}`)) }
@@ -420,8 +420,8 @@ function SincronizacaoTab() {
   }
 
   async function handleVerHistoricoCompleto() {
-    await carregarLog(500)
-    setVerHistoricoCompleto(true)
+    try { setHistoricoCompleto(await api.get('/api/imoveis/sync/log?limit=500')) }
+    catch (err) { setError(err.message) }
   }
 
   async function handleDeleteLog() {
@@ -501,24 +501,22 @@ function SincronizacaoTab() {
           {ultima.detalhes?.length > 0 && (
             <button onClick={() => setVerDetalhes(true)}
               className="mt-4 text-xs text-blue-400 hover:text-blue-300 transition-colors">
-              Ver lista completa ({ultima.detalhes.length})
+              Ver imóveis atualizados ({ultima.detalhes.length})
             </button>
           )}
 
           {(() => {
             const anteriores = log.slice(1)
             const corte = Date.now() - DOIS_DIAS_MS
-            const visiveis = verHistoricoCompleto ? anteriores : anteriores.filter(e => new Date(e.executado_em).getTime() >= corte)
+            const visiveis = anteriores.filter(e => new Date(e.executado_em).getTime() >= corte)
             if (anteriores.length === 0) return null
             return (
               <div className="mt-6">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-zinc-500 text-xs uppercase tracking-wide">Execuções anteriores</p>
-                  {!verHistoricoCompleto && (
-                    <button onClick={handleVerHistoricoCompleto} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
-                      Ver histórico completo
-                    </button>
-                  )}
+                  <button onClick={handleVerHistoricoCompleto} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                    Ver histórico completo
+                  </button>
                 </div>
                 {visiveis.length === 0 && (
                   <p className="text-xs text-zinc-600">Nada nos últimos 2 dias.</p>
@@ -546,6 +544,19 @@ function SincronizacaoTab() {
           </div>
         </Modal>
       )}
+
+      {historicoCompleto && (
+        <Modal title={`Histórico completo (${historicoCompleto.length})`} onClose={() => setHistoricoCompleto(null)}>
+          <div className="max-h-[60vh] overflow-y-auto space-y-1">
+            {historicoCompleto.map(exec => (
+              <p key={exec.id} className="text-xs text-zinc-500">
+                {formatDataHora(exec.executado_em)}{exec.origem && ` (${exec.origem === 'cron' ? 'cron' : 'manual'})`} — {exec.resumo.criados} criados, {exec.resumo.atualizados} actualizados, {exec.resumo.corrigidos} corrigidos, {exec.resumo.nao_publicados} não publicados, {exec.resumo.erros} erros
+                {exec.resumo.com_visita_virtual != null && `, ${exec.resumo.com_visita_virtual} com visita virtual`}
+              </p>
+            ))}
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -554,7 +565,7 @@ function OportunidadesSyncCard() {
   const [syncing, setSyncing] = useState(false)
   const [log, setLog] = useState([])
   const [error, setError] = useState('')
-  const [verHistoricoCompleto, setVerHistoricoCompleto] = useState(false)
+  const [historicoCompleto, setHistoricoCompleto] = useState(null)
 
   async function carregarLog(limit = 10) {
     try { setLog(await api.get(`/api/oportunidades/sync/log?limit=${limit}`)) }
@@ -571,8 +582,8 @@ function OportunidadesSyncCard() {
   }
 
   async function handleVerHistoricoCompleto() {
-    await carregarLog(500)
-    setVerHistoricoCompleto(true)
+    try { setHistoricoCompleto(await api.get('/api/oportunidades/sync/log?limit=500')) }
+    catch (err) { setError(err.message) }
   }
 
   const ultima = log[0]
@@ -627,17 +638,15 @@ function OportunidadesSyncCard() {
           {(() => {
             const anteriores = log.slice(1)
             const corte = Date.now() - DOIS_DIAS_MS
-            const visiveis = verHistoricoCompleto ? anteriores : anteriores.filter(e => new Date(e.executado_em).getTime() >= corte)
+            const visiveis = anteriores.filter(e => new Date(e.executado_em).getTime() >= corte)
             if (anteriores.length === 0) return null
             return (
               <div className="mt-6">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-zinc-500 text-xs uppercase tracking-wide">Execuções anteriores</p>
-                  {!verHistoricoCompleto && (
-                    <button onClick={handleVerHistoricoCompleto} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
-                      Ver histórico completo
-                    </button>
-                  )}
+                  <button onClick={handleVerHistoricoCompleto} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                    Ver histórico completo
+                  </button>
                 </div>
                 {visiveis.length === 0 && (
                   <p className="text-xs text-zinc-600">Nada nos últimos 2 dias.</p>
@@ -653,6 +662,18 @@ function OportunidadesSyncCard() {
             )
           })()}
         </>
+      )}
+
+      {historicoCompleto && (
+        <Modal title={`Histórico completo (${historicoCompleto.length})`} onClose={() => setHistoricoCompleto(null)}>
+          <div className="max-h-[60vh] overflow-y-auto space-y-1">
+            {historicoCompleto.map(exec => (
+              <p key={exec.id} className="text-xs text-zinc-500">
+                {formatDataHora(exec.executado_em)}{exec.origem && ` (${exec.origem === 'cron' ? 'cron' : 'manual'})`} — {exec.resumo.oportunidades} oportunidades, {exec.resumo.notas} notas, {exec.resumo.contactos?.gravados ?? 0} contactos
+              </p>
+            ))}
+          </div>
+        </Modal>
       )}
     </div>
   )
