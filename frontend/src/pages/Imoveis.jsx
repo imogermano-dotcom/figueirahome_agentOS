@@ -396,13 +396,17 @@ function descreverAlteracao(item) {
   return `${item.imovel_ref} — ${item.tipo}`
 }
 
+const DOIS_DIAS_MS = 2 * 24 * 60 * 60 * 1000
+
 function SincronizacaoTab() {
   const [syncing, setSyncing] = useState(null)
   const [log, setLog] = useState([])
   const [error, setError] = useState('')
+  const [verDetalhes, setVerDetalhes] = useState(false)
+  const [verHistoricoCompleto, setVerHistoricoCompleto] = useState(false)
 
-  async function carregarLog() {
-    try { setLog(await api.get('/api/imoveis/sync/log?limit=20')) }
+  async function carregarLog(limit = 20) {
+    try { setLog(await api.get(`/api/imoveis/sync/log?limit=${limit}`)) }
     catch (err) { setError(err.message) }
   }
 
@@ -413,6 +417,11 @@ function SincronizacaoTab() {
     try { await api.post(`/api/imoveis/sync/egorealestate/${acao}`); await carregarLog() }
     catch (err) { setError(err.message) }
     setSyncing(null)
+  }
+
+  async function handleVerHistoricoCompleto() {
+    await carregarLog(500)
+    setVerHistoricoCompleto(true)
   }
 
   async function handleDeleteLog() {
@@ -490,27 +499,52 @@ function SincronizacaoTab() {
           )}
 
           {ultima.detalhes?.length > 0 && (
-            <div className="mt-4 max-h-64 overflow-y-auto bg-zinc-950/50 rounded-lg p-3 space-y-1">
-              {ultima.detalhes.map((item, i) => (
-                <p key={i} className="text-xs text-zinc-400">{descreverAlteracao(item)}</p>
-              ))}
-            </div>
+            <button onClick={() => setVerDetalhes(true)}
+              className="mt-4 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+              Ver lista completa ({ultima.detalhes.length})
+            </button>
           )}
 
-          {log.length > 1 && (
-            <div className="mt-6">
-              <p className="text-zinc-500 text-xs uppercase tracking-wide mb-2">Execuções anteriores</p>
-              <div className="space-y-1">
-                {log.slice(1).map(exec => (
-                  <p key={exec.id} className="text-xs text-zinc-500">
-                    {formatDataHora(exec.executado_em)}{exec.origem && ` (${exec.origem === 'cron' ? 'cron' : 'manual'})`} — {exec.resumo.criados} criados, {exec.resumo.atualizados} actualizados, {exec.resumo.corrigidos} corrigidos, {exec.resumo.nao_publicados} não publicados, {exec.resumo.erros} erros
-                    {exec.resumo.com_visita_virtual != null && `, ${exec.resumo.com_visita_virtual} com visita virtual`}
-                  </p>
-                ))}
+          {(() => {
+            const anteriores = log.slice(1)
+            const corte = Date.now() - DOIS_DIAS_MS
+            const visiveis = verHistoricoCompleto ? anteriores : anteriores.filter(e => new Date(e.executado_em).getTime() >= corte)
+            if (anteriores.length === 0) return null
+            return (
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-zinc-500 text-xs uppercase tracking-wide">Execuções anteriores</p>
+                  {!verHistoricoCompleto && (
+                    <button onClick={handleVerHistoricoCompleto} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                      Ver histórico completo
+                    </button>
+                  )}
+                </div>
+                {visiveis.length === 0 && (
+                  <p className="text-xs text-zinc-600">Nada nos últimos 2 dias.</p>
+                )}
+                <div className="space-y-1">
+                  {visiveis.map(exec => (
+                    <p key={exec.id} className="text-xs text-zinc-500">
+                      {formatDataHora(exec.executado_em)}{exec.origem && ` (${exec.origem === 'cron' ? 'cron' : 'manual'})`} — {exec.resumo.criados} criados, {exec.resumo.atualizados} actualizados, {exec.resumo.corrigidos} corrigidos, {exec.resumo.nao_publicados} não publicados, {exec.resumo.erros} erros
+                      {exec.resumo.com_visita_virtual != null && `, ${exec.resumo.com_visita_virtual} com visita virtual`}
+                    </p>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
         </>
+      )}
+
+      {verDetalhes && ultima && (
+        <Modal title={`Imóveis alterados (${ultima.detalhes.length})`} onClose={() => setVerDetalhes(false)}>
+          <div className="max-h-[60vh] overflow-y-auto space-y-1">
+            {ultima.detalhes.map((item, i) => (
+              <p key={i} className="text-xs text-zinc-400">{descreverAlteracao(item)}</p>
+            ))}
+          </div>
+        </Modal>
       )}
     </div>
   )
@@ -520,9 +554,10 @@ function OportunidadesSyncCard() {
   const [syncing, setSyncing] = useState(false)
   const [log, setLog] = useState([])
   const [error, setError] = useState('')
+  const [verHistoricoCompleto, setVerHistoricoCompleto] = useState(false)
 
-  async function carregarLog() {
-    try { setLog(await api.get('/api/oportunidades/sync/log?limit=10')) }
+  async function carregarLog(limit = 10) {
+    try { setLog(await api.get(`/api/oportunidades/sync/log?limit=${limit}`)) }
     catch (err) { setError(err.message) }
   }
 
@@ -533,6 +568,11 @@ function OportunidadesSyncCard() {
     try { await api.post('/api/oportunidades/sync/completo'); await carregarLog() }
     catch (err) { setError(err.message) }
     setSyncing(false)
+  }
+
+  async function handleVerHistoricoCompleto() {
+    await carregarLog(500)
+    setVerHistoricoCompleto(true)
   }
 
   const ultima = log[0]
@@ -584,18 +624,34 @@ function OportunidadesSyncCard() {
             </p>
           )}
 
-          {log.length > 1 && (
-            <div className="mt-6">
-              <p className="text-zinc-500 text-xs uppercase tracking-wide mb-2">Execuções anteriores</p>
-              <div className="space-y-1">
-                {log.slice(1).map(exec => (
-                  <p key={exec.id} className="text-xs text-zinc-500">
-                    {formatDataHora(exec.executado_em)}{exec.origem && ` (${exec.origem === 'cron' ? 'cron' : 'manual'})`} — {exec.resumo.oportunidades} oportunidades, {exec.resumo.notas} notas, {exec.resumo.contactos?.gravados ?? 0} contactos
-                  </p>
-                ))}
+          {(() => {
+            const anteriores = log.slice(1)
+            const corte = Date.now() - DOIS_DIAS_MS
+            const visiveis = verHistoricoCompleto ? anteriores : anteriores.filter(e => new Date(e.executado_em).getTime() >= corte)
+            if (anteriores.length === 0) return null
+            return (
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-zinc-500 text-xs uppercase tracking-wide">Execuções anteriores</p>
+                  {!verHistoricoCompleto && (
+                    <button onClick={handleVerHistoricoCompleto} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                      Ver histórico completo
+                    </button>
+                  )}
+                </div>
+                {visiveis.length === 0 && (
+                  <p className="text-xs text-zinc-600">Nada nos últimos 2 dias.</p>
+                )}
+                <div className="space-y-1">
+                  {visiveis.map(exec => (
+                    <p key={exec.id} className="text-xs text-zinc-500">
+                      {formatDataHora(exec.executado_em)}{exec.origem && ` (${exec.origem === 'cron' ? 'cron' : 'manual'})`} — {exec.resumo.oportunidades} oportunidades, {exec.resumo.notas} notas, {exec.resumo.contactos?.gravados ?? 0} contactos
+                    </p>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
         </>
       )}
     </div>
