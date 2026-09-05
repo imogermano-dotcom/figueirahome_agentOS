@@ -42,44 +42,46 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-09-02
+## Estado actual — Handoff 2026-09-05
 
-Chat público novo no `figueirahome.pt`, uma fuga de segurança real fechada
-pelo caminho, e dois bugs de leads em produção corrigidos (achados a
-responder a perguntas directas do utilizador). Seis deploys (`v63`→`v68`).
-Detalhe completo: `docs/fases/handoff-2026-09-02-resumo.md`.
+Um imóvel retirado no eGO ficou "Disponível" na BD por atraso do cron —
+investigado, corrigido à mão, e o cron reforçado. A seguir, rastreabilidade
+de origem (cron/manual) em cada sync, e limpeza da página de sincronização
+no painel. Detalhe completo: `docs/fases/handoff-2026-09-05-resumo.md`.
 
-- **Furo**: `/api/broker/chat` sem `require_auth` dava acesso não
-  autenticado ao `broker` (`consultar_clientes`/`consultar_leads`) — fechado.
-- **Chat do site**: `/api/site/chat` + widget, `X-Widget-Key` sobre o
-  CORS — deployado; falta colar o `widget.js` no site.
-- **Lead sem contacto**: `find_or_create_cliente` aceitava nome sozinho —
-  exige agora telefone ou email.
-- **Lead duplicada**: dedupe só via `cliente_id` deixava nascer segunda
-  lead para quem já tinha uma da Meta — agora procura telefone→email
-  primeiro; caso real (Carla Emeleana) corrigido à mão na BD.
+- **FH2571**: retirado no eGO, "Disponível" ficou preso na BD pela janela
+  de até 24h do cron único diário — não era bug, só faltava a 2ª corrida.
+  Corrigido à mão (sync manual); cron de imóveis ganhou 2ª corrida diária.
+- **`agente_sync_log.origem`**: cada execução regista se foi `cron`
+  (`X-Sync-Secret`) ou `manual` (JWT do painel), reaproveitando
+  `require_sync_access` — sem segredo novo. Reflecte **como** autenticou,
+  não literalmente "o GitHub Actions correu": um curl manual com o segredo
+  do cron também fica `cron`.
+- **Painel de sync mais limpo**: lista de imóveis alterados e histórico
+  com mais de 2 dias saem da vista para modais próprios, abertos sob
+  pedido — nunca substituem a vista principal.
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-02 em `v68` — dedupe de leads por telefone/email, `require_auth`, `/api/site/chat`, `X-Widget-Key`, gate de contacto do `find_or_create_cliente`. **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-05 — `agente_sync_log.origem`, sync manual corrigiu FH2571. **Sem** o construtor de landing pages |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
-| Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` — visitas em tabela própria, espera pela barra lateral do eGO, e um contacto impossível deixa de matar o lote |
+| Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` |
 | Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
-| Crons eGO (GitHub Actions) | ✅ `sync-imoveis.yml` **06:00 UTC** (~43 s) e `sync-oportunidades.yml` **03:00 UTC**. Chamam o **Fly.io**, não o repo — sem deploy correm código antigo. Afastados de propósito: entram no backoffice com a mesma conta, e juntos a 18/08 deram OOM. O tecto das oportunidades é o `timeout=240` do backend, não o `--max-time` do curl |
-| n8n `01` | ✅ importado, publicado, **testado em produção 29/08** — `handoff-2026-08-30-resumo.md` |
-| n8n `02`/`03` | ⚠️ **por importar/publicar**. `03` pronto: timestamp corrigido, template `figueirahome_follow_\|pt_PT` preenchido, chão `criado_em gte.2026-08-26` para a 1.ª corrida |
+| Cron imóveis (GitHub Actions) | ✅ `sync-imoveis.yml`, agora **06:00 e 13:00 UTC** (desde 03/09) |
+| Cron oportunidades (GitHub Actions) | ✅ `sync-oportunidades.yml`, **03:00 UTC**, sem alteração |
+| n8n `01` | ✅ testado em produção 29/08 — `handoff-2026-08-30-resumo.md` |
+| n8n `02`/`03` | ⚠️ **por importar/publicar**. `03` pronto (ver Próximos passos) |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
 ### Fases anteriores — deployadas, detalhe em `docs/fases/`
 
-- **Chat do site, furo do `/api/broker/chat` (01/09)** — `webchat-site-resumo.md`
+- **Sync: origem cron/manual, cron reforçado, painel mais limpo (03–05/09)** — `handoff-2026-09-05-resumo.md`
+- **Chat do site, dedupe de leads, lead sem contacto (01–02/09)** — `handoff-2026-09-02-resumo.md`
 - **Auditoria ao A1, 4 bugs — pesquisa, MQL, notificações, dedupe WhatsApp (31/08)** — `handoff-2026-08-31-resumo.md`
-- **Teste do `01` em produção (30/08)** — `handoff-2026-08-30-resumo.md`
 - **WhatsApp mudo 6 dias, cartão expirado na WABA (29/08)** — `incidente-whatsapp-mudo-2026-08-29.md`
 - **Notificações ao corretor, Graph→Resend (15–31/08)** — `notificar-corretor-resumo.md`
-- **`contacto_humano_em`, trava o que o n8n inicia (29/08)** — `contacto-humano-resumo.md`
 - **Leads da Meta, semeadura da conversa (13–20/08)** — `leads-meta-resumo.md`
 - **Landing pages**: no ar em `imoveis.figueirahome.pt`, fora deste repo; construtor (`feat/landing-pages`) **parado por decisão do cliente**.
 
