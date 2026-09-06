@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auditoria Leads de Campanha</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#F6F7F5; --surface:#FFFFFF; --surface-2:#EEF1EE; --line:#D7DDD9; --line-soft:#E6EAE7;
+  --ink:#1B2229; --ink-2:#4A545C; --ink-3:#6E7880;
+  --accent:#0E6B68; --accent-soft:#D9ECEA; --accent-ink:#0A4F4D;
+  --crit:#B0402E; --crit-soft:#F4E0DC; --warn:#9A6A00; --warn-soft:#F5EBD1; --ok:#2C7A4B; --ok-soft:#DCEFE2; --info:#3B5F8A; --info-soft:#DCE6F2;
+  --serif:"Newsreader",Georgia,"Times New Roman",serif; --sans:"IBM Plex Sans","Segoe UI",Helvetica,Arial,sans-serif; --mono:"IBM Plex Mono",Consolas,"Courier New",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14181B; --surface:#1B2125; --surface-2:#222A2F; --line:#333D44; --line-soft:#2A3338;
+    --ink:#E5E9EB; --ink-2:#B4BDC3; --ink-3:#8A949B;
+    --accent:#4FB5B0; --accent-soft:#173634; --accent-ink:#8ED4D0;
+    --crit:#E07A67; --crit-soft:#3A2420; --warn:#D9A43C; --warn-soft:#382E17; --ok:#6CBF8C; --ok-soft:#1C3527; --info:#7FA6D6; --info-soft:#1E2C3C;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14181B; --surface:#1B2125; --surface-2:#222A2F; --line:#333D44; --line-soft:#2A3338;
+  --ink:#E5E9EB; --ink-2:#B4BDC3; --ink-3:#8A949B;
+  --accent:#4FB5B0; --accent-soft:#173634; --accent-ink:#8ED4D0;
+  --crit:#E07A67; --crit-soft:#3A2420; --warn:#D9A43C; --warn-soft:#382E17; --ok:#6CBF8C; --ok-soft:#1C3527; --info:#7FA6D6; --info-soft:#1E2C3C;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15.5px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:var(--accent-ink);text-decoration:none;border-bottom:1px solid var(--line)}
+a:hover{border-bottom-color:var(--accent)}
+a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:.08em .35em;border-radius:3px;color:var(--ink)}
+h1,h2,h3{font-family:var(--serif);font-weight:500;text-wrap:balance;margin:0}
+h1{font-size:2.5rem;line-height:1.1;letter-spacing:-.01em}
+h2{font-size:1.65rem;line-height:1.2;margin-bottom:.35rem}
+h3{font-size:1.15rem;font-family:var(--sans);font-weight:600;margin:1.6rem 0 .5rem}
+p{margin:0 0 .9rem}
+.eyebrow{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+
+.page{display:grid;grid-template-columns:1fr;gap:0;max-width:1180px;margin:0 auto;padding:0 20px 80px}
+@media (min-width:980px){.page{grid-template-columns:220px minmax(0,1fr);gap:48px}}
+nav.toc{display:none}
+@media (min-width:980px){
+  nav.toc{display:block;position:sticky;top:24px;align-self:start;padding-top:56px}
+  nav.toc ol{list-style:none;margin:0;padding:0;border-left:1px solid var(--line)}
+  nav.toc li a{display:block;padding:.3rem 0 .3rem .9rem;border:0;color:var(--ink-2);font-size:.86rem;margin-left:-1px;border-left:2px solid transparent}
+  nav.toc li a:hover{color:var(--ink);border-left-color:var(--accent)}
+}
+main{max-width:760px;min-width:0}
+header.hero{padding:56px 0 28px;border-bottom:1px solid var(--line)}
+header.hero .meta{display:flex;flex-wrap:wrap;gap:.5rem 1.5rem;margin-top:1rem;font-size:.86rem;color:var(--ink-2)}
+header.hero .meta b{color:var(--ink);font-weight:500}
+.lede{font-family:var(--serif);font-size:1.25rem;line-height:1.4;color:var(--ink-2);margin:1.1rem 0 0;max-width:62ch}
+
+section{padding:40px 0 8px;border-bottom:1px solid var(--line-soft)}
+section:last-of-type{border-bottom:0}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin:1.4rem 0 .4rem}
+.kpi{background:var(--surface);padding:14px 16px}
+.kpi .n{font-family:var(--serif);font-size:2rem;line-height:1;font-variant-numeric:tabular-nums}
+.kpi .l{font-size:.8rem;color:var(--ink-2);margin-top:.35rem}
+@media (max-width:560px){.kpis{grid-template-columns:1fr}}
+
+.tablewrap{overflow-x:auto;margin:1rem 0 1.4rem;border:1px solid var(--line);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{text-align:left;vertical-align:top;padding:.6rem .75rem;border-bottom:1px solid var(--line-soft)}
+th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:500;background:var(--surface-2)}
+tr:last-child td{border-bottom:0}
+td.sec{font-family:var(--mono);color:var(--ink-3);white-space:nowrap}
+
+.pill{display:inline-block;font-size:.7rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:.15em .5em;border-radius:2px;white-space:nowrap;line-height:1.5}
+.pill.feito{background:var(--ok-soft);color:var(--ok)}
+.pill.parcial{background:var(--warn-soft);color:var(--warn)}
+.pill.falta{background:var(--crit-soft);color:var(--crit)}
+.pill.bloq{background:var(--info-soft);color:var(--info)}
+.pill.div{background:var(--surface-2);color:var(--ink-2)}
+
+.finding{display:grid;grid-template-columns:64px 1fr;gap:0 16px;border-left:3px solid var(--line);padding:12px 0 12px 16px;margin:0 0 10px}
+.finding.crit{border-left-color:var(--crit)}
+.finding.alto{border-left-color:var(--warn)}
+.finding.medio{border-left-color:var(--info)}
+.finding.baixo{border-left-color:var(--line)}
+.finding .id{font-family:var(--mono);font-size:.82rem;color:var(--ink-3);padding-top:.15rem}
+.finding .id small{display:block;font-family:var(--sans);font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;margin-top:.2rem}
+.finding.crit .id small{color:var(--crit)} .finding.alto .id small{color:var(--warn)} .finding.medio .id small{color:var(--info)} .finding.baixo .id small{color:var(--ink-3)}
+.finding h4{margin:0 0 .25rem;font-size:1rem;font-weight:600}
+.finding p{margin:0 0 .4rem;color:var(--ink-2);font-size:.93rem}
+.finding p:last-child{margin-bottom:0}
+.finding .where{font-family:var(--mono);font-size:.78rem;color:var(--ink-3)}
+@media (max-width:560px){.finding{grid-template-columns:1fr;gap:4px}}
+
+.legend{display:flex;flex-wrap:wrap;gap:.6rem 1.2rem;font-size:.8rem;color:var(--ink-2);margin:.4rem 0 1.2rem}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;margin-right:.4rem;vertical-align:-1px;border-radius:1px}
+.legend .c::before{background:var(--crit)} .legend .a::before{background:var(--warn)} .legend .m::before{background:var(--info)} .legend .b::before{background:var(--line)}
+
+.callout{background:var(--accent-soft);border-left:3px solid var(--accent);padding:12px 16px;margin:1rem 0 1.2rem;font-size:.93rem}
+.callout b{color:var(--accent-ink)}
+ul.tight{margin:.2rem 0 1rem;padding-left:1.2rem}
+ul.tight li{margin:.25rem 0}
+ol.order{margin:.4rem 0 1rem;padding-left:1.4rem;counter-reset:none}
+ol.order li{margin:.4rem 0;padding-left:.2rem}
+ol.order li b{font-weight:600}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:700px){.two{grid-template-columns:1fr}}
+.box{border:1px solid var(--line);background:var(--surface);padding:14px 16px}
+.box h3{margin-top:0}
+footer{margin-top:40px;font-size:.8rem;color:var(--ink-3);border-top:1px solid var(--line);padding-top:14px}
+
+.plan{border:1px solid var(--line);background:var(--surface);margin:0 0 22px}
+.plan-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem 1rem;padding:14px 18px;border-bottom:1px solid var(--line-soft);background:var(--surface-2)}
+.plan-head .pid{font-family:var(--mono);font-size:.82rem;color:var(--ink-3)}
+.plan-head h3{margin:0;font-family:var(--serif);font-weight:500;font-size:1.3rem;flex:1 1 auto}
+.plan-head .cov{font-size:.78rem;color:var(--ink-3);font-family:var(--mono);flex-basis:100%}
+.pill.esf{background:var(--surface);border:1px solid var(--line);color:var(--ink-2)}
+dl.plan-body{display:grid;grid-template-columns:130px 1fr;gap:0;margin:0}
+dl.plan-body dt{padding:10px 18px;font-size:.7rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:500;border-bottom:1px solid var(--line-soft)}
+dl.plan-body dd{margin:0;padding:10px 18px 10px 0;border-bottom:1px solid var(--line-soft);font-size:.92rem;color:var(--ink-2)}
+dl.plan-body dt:last-of-type,dl.plan-body dd:last-of-type{border-bottom:0}
+dl.plan-body ol,dl.plan-body ul{margin:0;padding-left:1.2rem}
+dl.plan-body li{margin:.25rem 0}
+dl.plan-body b{color:var(--ink);font-weight:600}
+@media (max-width:560px){dl.plan-body{grid-template-columns:1fr} dl.plan-body dt{padding-bottom:2px;border-bottom:0} dl.plan-body dd{padding-left:18px}}
+.deps{font-size:.88rem;color:var(--ink-2);margin:.6rem 0 1.4rem}
+.deps code{white-space:nowrap}
+</style>
+<style>img{max-width:100%} [hidden]{display:none!important}</style>
+</head>
+<body>
+<div class="page">
+<nav class="toc" aria-label="Índice">
+  <ol>
+    <li><a href="#resumo">Resumo</a></li>
+    <li><a href="#ambito">Âmbito e método</a></li>
+    <li><a href="#matriz">Documento vs. código</a></li>
+    <li><a href="#alterar">A alterar</a></li>
+    <li><a href="#implementar">A implementar</a></li>
+    <li><a href="#melhorias">Melhorias</a></li>
+    <li><a href="#recomendacoes">Recomendações</a></li>
+    <li><a href="#decidir">A decidir</a></li>
+    <li><a href="#planos">Planos de acção</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="hero">
+  <div class="eyebrow">FigueiraHome · Auditoria ao código</div>
+  <h1 style="margin-top:.4rem">Leads de Campanha — o que o código faz face ao documento</h1>
+  <p class="lede">O documento de 1 de Setembro descreve um fluxo em que o agente fala primeiro e o consultor recebe contexto. Este relatório cruza cada promessa desse documento com o código em <code>master</code>, e diz o que está feito, o que contradiz, o que falta, e por onde começar.</p>
+  <div class="meta">
+    <span>Data <b>6 Set 2026</b></span>
+    <span>Ref. do código <b>master @ 4a91a00</b></span>
+    <span>Documento <b>Leads de Campanha — Fluxo e Contexto (01/09)</b></span>
+    <span>Tipo <b>achados, recomendações e planos de acção — sem implementação</b></span>
+  </div>
+</header>
+
+<section id="resumo">
+  <h2>Resumo</h2>
+  <p>Do que o documento promete, o código já tem os alicerces: o fecho por engano ou desinteresse, o carimbo que trava os envios automáticos quando uma consultora já pegou na lead, e a recuperação dos dados de qualificação escritos em prosa. O que falta é o que liga as peças: <b>a lead não é ligada a nenhuma pessoa à entrada</b>, o consultor <b>não é avisado</b> nos dois desfechos mais frequentes, e <b>ninguém sabe quem recebeu a mensagem</b> porque os recibos de entrega são descartados.</p>
+  <div class="kpis">
+    <div class="kpi"><div class="n">155</div><div class="l">leads de 282 sem mensagem nenhuma. Os recibos que o diriam vão para um log que ninguém vê.</div></div>
+    <div class="kpi"><div class="n">1 / 281</div><div class="l">leads ligadas a um contacto existente. O código só liga quando o MQL fecha, nunca à entrada.</div></div>
+    <div class="kpi"><div class="n">54 → 232</div><div class="l">leads que o telefone encontra vs. o email. O scraper grava o telemóvel sem normalizar.</div></div>
+  </div>
+  <div class="callout"><b>Três coisas que o documento dá como abertas já estão fechadas.</b> O caso Filipa Pedro (campos de qualificação em branco) foi corrigido a 31/08, um dia depois de acontecer. O carimbo de contacto humano já trava os três fluxos do n8n. Os desfechos "engano" e "sem interesse" já fecham a lead sem incomodar ninguém.</div>
+  <div class="callout" style="background:var(--warn-soft);border-left-color:var(--warn)"><b>Um achado que o documento não tem.</b> O nosso scraper grava em <code>contactos.criado_em</code> a data de <em>alteração</em> do eGO, e a chave da tabela é (nome, criado_em). É uma causa mecânica plausível dos 8.855 duplicados "que diferem só na data" — metade do problema da secção 5 é nosso. A confirmar com uma query antes de qualquer consolidação.</div>
+</section>
+
+<section id="ambito">
+  <h2>Âmbito e método</h2>
+  <p><b>Auditado:</b> o backend (motor dos assistentes, guardas, tools, endpoints de leads, notificações, webhook do WhatsApp, dashboard), o painel (páginas de Leads e Clientes), o scraper que alimenta <code>contactos</code>, <code>oportunidades</code>, <code>notas</code> e <code>visitas</code> a partir do eGO, as migrations e os três fluxos do n8n.</p>
+  <p><b>Fora do âmbito:</b> o portal <code>portal.miguelgermano.com</code> (não está neste repositório), o Make (escreve directamente na base) e o segundo pipeline que também alimenta <code>contactos</code> sem o identificador do eGO. O documento "Contactos e Conversas — O que está errado hoje", citado na secção 10, não existe no repositório.</p>
+  <p>Cada secção do documento foi lida contra o código real. As referências <code>ficheiro:linha</code> apontam para <code>master</code> em <code>4a91a00</code>.</p>
+</section>
+
+<section id="matriz">
+  <h2>Documento vs. código</h2>
+  <p>Secção a secção: o que o documento assume, o que o código faz, e o estado.</p>
+  <div class="tablewrap">
+  <table>
+    <thead><tr><th>Secção</th><th>O documento diz</th><th>O código faz</th><th>Estado</th></tr></thead>
+    <tbody>
+      <tr><td class="sec">2</td><td>A lead é criada no eGO à entrada e o email sai ao mesmo tempo</td><td>O Make escreve em <code>leads</code>. O email só sai de <code>_promover_lead</code> quando os três campos do MQL ficam preenchidos. O fluxo Make→eGO e o nosso coexistem sem se falarem</td><td><span class="pill div">Divergente</span></td></tr>
+      <tr><td class="sec">3</td><td>Desfechos 1 e 2 geram lead e email; 3 e 4 só ficam guardados</td><td>3 e 4 feitos (<code>encerrar_lead</code>). 1 só avisa se o MQL fechar. 2: o fluxo 03 escreve <code>sem_resposta</code> e ninguém é avisado</td><td><span class="pill parcial">Parcial</span></td></tr>
+      <tr><td class="sec">4</td><td>O eGO deixa-nos criar lead e contacto, uma vez</td><td>Não há escrita nenhuma no eGO. A API pública é só de leitura; o backoffice é raspado por sessão. Sem chave de integração, nada disto existe</td><td><span class="pill bloq">Bloqueado</span></td></tr>
+      <tr><td class="sec">4.1</td><td>Segunda tentativa às 24 horas</td><td>Fluxo 03 a 48h; a conversa expira às 48h; a janela de lead aberta é 30 dias. Três valores para alinhar</td><td><span class="pill div">Divergente</span></td></tr>
+      <tr><td class="sec">5.4</td><td>O campo para ligar a lead ao contacto existe e está vazio (1 em 281)</td><td>Confirmado. <code>leads.cliente_id</code> só é escrito ao qualificar ou quando o assistente grava dados. Nenhum caminho corre à entrada</td><td><span class="pill falta">Em falta</span></td></tr>
+      <tr><td class="sec">5.5</td><td>O agente escreve a qualificação em prosa e deixa os campos em branco</td><td>Corrigido a 31/08: uma segunda chamada extrai tipo, orçamento e zona do resumo. As três leads citadas ficaram para trás</td><td><span class="pill feito">Feito</span></td></tr>
+      <tr><td class="sec">5.6</td><td>Cliente e conversa não se conhecem</td><td>Confirmado e é desenho: a ligação é feita em tempo real pelo telefone, nunca guardada. Tarefas do primeiro turno ficam sem conversa</td><td><span class="pill parcial">Parcial</span></td></tr>
+      <tr><td class="sec">5.9</td><td>Procurar pelo telefone e pelo email; sinalizar quando encontra mais do que uma pessoa</td><td>Procura sequencial: telefone, depois email, depois nome, e fica com a primeira. Se o telefone dá a pessoa A e o email a pessoa B, fica A e ninguém sabe</td><td><span class="pill parcial">Parcial</span></td></tr>
+      <tr><td class="sec">5.9.1</td><td>Campo cheio com valor diferente: guardar ao lado, nunca por cima</td><td>O update escreve por cima. Um segundo telemóvel apaga o primeiro</td><td><span class="pill falta">Contradiz</span></td></tr>
+      <tr><td class="sec">6</td><td>Cartão de 500 caracteres no eGO</td><td>Nada. Depende da escrita no eGO. O texto em si pode ser gerado já</td><td><span class="pill bloq">Bloqueado</span></td></tr>
+      <tr><td class="sec">7</td><td>Histórico do cliente e aviso de acompanhamento recente</td><td>O assistente e o email só lêem <code>agente_clientes</code>. As tabelas do eGO estão na mesma base e nunca são consultadas</td><td><span class="pill falta">Em falta</span></td></tr>
+      <tr><td class="sec">8</td><td>Um carimbo único, na pessoa, à distância de um clique</td><td>Carimbo por lead, marcado no painel, respeitado pelos três fluxos. Sem botão no email; uma pessoa com duas leads tem dois carimbos</td><td><span class="pill parcial">Parcial</span></td></tr>
+      <tr><td class="sec">9.2</td><td>Uma porta de entrada, seja qual for o canal</td><td>Três portas: o Make na base, o chat do site, e o assistente. Nenhuma guarda o registo bruto</td><td><span class="pill falta">Em falta</span></td></tr>
+      <tr><td class="sec">9.4</td><td>Preferências estruturadas, várias por negócio</td><td>Três campos planos por cliente. "T3 ou maior, recente, com exterior, quatro freguesias" não cabe</td><td><span class="pill falta">Em falta</span></td></tr>
+      <tr><td class="sec">9.4</td><td>Uma mensagem por linha</td><td>Bloco JSON por conversa, rejeitado de propósito em Agosto. Ver recomendação R5</td><td><span class="pill div">Decisão</span></td></tr>
+      <tr><td class="sec">9.9</td><td>Consentimento por canal, com data e origem</td><td>Só o WhatsApp da Meta, no formulário. Clientes do site nascem sem consentimento nenhum. As colunas RGPD do eGO nunca são lidas</td><td><span class="pill falta">Em falta</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="alterar">
+  <h2>A alterar</h2>
+  <p>Está errado, ou contradiz o que o documento pede. Ordenado por gravidade.</p>
+  <div class="legend"><span class="c">Crítico</span><span class="a">Alto</span><span class="m">Médio</span><span class="b">Baixo</span></div>
+
+  <div class="finding crit"><div class="id">A9<small>Crítico</small></div><div>
+    <h4>Os recibos de entrega são descartados</h4>
+    <p>A Meta envia <code>sent</code>, <code>delivered</code>, <code>read</code> e <code>failed</code>. O webhook regista-os num log de nível INFO, e a aplicação não configura o logging, por isso só o <code>failed</code> aparece. O n8n marca a lead como contactada com base no <code>200 accepted</code>, que quer dizer "aceite para envio", não "entregue". É por isto que ninguém sabe quem são os 155.</p>
+    <p class="where">webhook.py:31–50 · main.py (sem logging.basicConfig) · n8n 01/02 escrevem template_enviado_em pelo 200</p>
+  </div></div>
+
+  <div class="finding crit"><div class="id">A5<small>Crítico</small></div><div>
+    <h4>O consultor não é avisado nos desfechos mais frequentes</h4>
+    <p>O email só sai quando o MQL fecha, quando há pedido de visita, ou quando o assistente escala. Quem conversa sem fechar os três campos (pede o link, pergunta o preço, desaparece) não gera aviso nenhum. Quem não responde fica <code>sem_resposta</code> em silêncio. O assunto do email muda a cada evento, por isso nunca agrupa numa conversa do Outlook. O corpo traz três campos e o imóvel: sem o que a pessoa disse, sem histórico, sem aviso de acompanhamento, sem botão.</p>
+    <p class="where">guards.py:134–152 · tools.py:753, 838 · docs/n8n/03-follow-up-48h.json</p>
+  </div></div>
+
+  <div class="finding alto"><div class="id">A10<small>Alto</small></div><div>
+    <h4>O scraper grava a data de alteração como data de criação do contacto</h4>
+    <p>Por instrução do pipeline externo, <code>criado_em</code> recebe o valor de <code>ego_atualizado_em</code>. A chave primária de <code>contactos</code> é (nome, criado_em). Duas consequências: cada edição no eGO muda a chave e falha quando uma lead de angariação aponta para lá; e o mesmo contacto nunca tem o mesmo <code>criado_em</code> pelas duas portas. É uma explicação mecânica para os duplicados "que diferem só na data". A confirmar com uma query.</p>
+    <p class="where">scraper/mapping_todas_colunas.py:300–306 · scraper/upsert.py:64–79</p>
+  </div></div>
+
+  <div class="finding alto"><div class="id">A11<small>Alto</small></div><div>
+    <h4>O telemóvel vindo do eGO não é normalizado</h4>
+    <p>O scraper passa o campo tal como vem. A função de normalização existe no backend mas o scraper é uma aplicação à parte e não a importa. É por isto que o telefone encontra 54 leads e o email 232.</p>
+    <p class="where">scraper/mapping_todas_colunas.py:112–119 · guards.py:32 (normalizar_telefone)</p>
+  </div></div>
+
+  <div class="finding alto"><div class="id">A3<small>Alto</small></div><div>
+    <h4>A procura de cliente pára na primeira correspondência</h4>
+    <p>Telefone, depois email, depois nome, com limite de um resultado. O documento pede procurar pelas duas chaves e, quando dão pessoas diferentes, não adivinhar. Hoje a ambiguidade é invisível: 17 leads em 284 decididas às cegas.</p>
+    <p class="where">guards.py:379–428 (_procurar_cliente)</p>
+  </div></div>
+
+  <div class="finding alto"><div class="id">A4<small>Alto</small></div><div>
+    <h4>Actualizar um cliente escreve por cima do telefone e do email</h4>
+    <p>O update envia tudo o que veio. Para orçamento e zona isso é decisão registada e correcta (a conversa é mais recente do que o formulário). Para telefone e email não: um segundo número não é uma correcção do primeiro.</p>
+    <p class="where">guards.py:477–481 (find_or_create_cliente)</p>
+  </div></div>
+
+  <div class="finding alto"><div class="id">A1<small>Alto</small></div><div>
+    <h4>O assistente interno consulta a tabela de leads morta</h4>
+    <p>A tool de leads do broker lê <code>agente_leads</code>, sem uso desde 18 de Agosto, e com o vocabulário de estados antigo. Qualquer pergunta sobre leads devolve "nenhum resultado".</p>
+    <p class="where">tools.py:915 · tools.py:246 (enum de estados)</p>
+  </div></div>
+
+  <div class="finding medio"><div class="id">A6<small>Médio</small></div><div>
+    <h4>O carimbo de contacto humano é por lead, não por pessoa</h4>
+    <p>Uma pessoa com duas leads (a da Meta e outra nascida numa conversa) tem dois carimbos. Marcar um não trava o outro. Desde 2 de Setembro já não se criam leads duplicadas; as antigas continuam.</p>
+    <p class="where">migration 0032 · tools.py:629 (_criar_lead_se_preciso)</p>
+  </div></div>
+
+  <div class="finding medio"><div class="id">A8<small>Médio</small></div><div>
+    <h4>Uma lead só com email nunca é encontrada</h4>
+    <p>A função que decide se um número tem lead aberta procura só por telefone. Uma lead do site, ou da Meta sem telefone, não entra no assistente comercial nem recebe contexto. A promoção a qualificada já cobre o email; esta função não.</p>
+    <p class="where">guards.py:199–231 (lead_aberta)</p>
+  </div></div>
+
+  <div class="finding medio"><div class="id">A2<small>Médio</small></div><div>
+    <h4>Pesquisas de cliente incompletas</h4>
+    <p>A tool do broker compara o telefone por igualdade exacta, sem as variantes de formato. A página de clientes do painel pesquisa só por nome.</p>
+    <p class="where">tools.py:885 · api/clientes.py:37</p>
+  </div></div>
+
+  <div class="finding baixo"><div class="id">A7<small>Baixo</small></div><div>
+    <h4>24 horas no documento, 48 no código</h4>
+    <p>O fluxo 03, a expiração da conversa e a janela de lead aberta têm de mudar juntos: a expiração existe para a resposta tardia ao template ainda cair no assistente certo.</p>
+    <p class="where">03-follow-up-48h.json:26 · conversation.py:10 · guards.py:159</p>
+  </div></div>
+
+  <div class="finding baixo"><div class="id">A12<small>Baixo</small></div><div>
+    <h4>Dois vocabulários para a origem do cliente</h4>
+    <p>O modelo diz <code>chamada | manual | chat</code>; o código escreve <code>whatsapp</code>, <code>site</code>, <code>meta_ads</code>. Não há coluna de campanha no cliente; na lead há o nome do formulário.</p>
+    <p class="where">models/cliente.py:15 · tools.py:618 · leads_meta.py:83</p>
+  </div></div>
+</section>
+
+<section id="implementar">
+  <h2>A implementar</h2>
+  <p>O documento exige e não existe. Separado pelo que depende só de nós e pelo que está preso a uma decisão ou a terceiros.</p>
+
+  <h3>Sem dependência externa</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Ref.</th><th>O quê</th><th>Notas</th></tr></thead>
+    <tbody>
+      <tr><td class="sec">I1</td><td><b>Guardar a entrega.</b> Uma coluna ou tabela escrita quando chega o recibo <code>delivered</code>, e o logging ligado.</td><td>Responde aos 155. É pequeno e é o primeiro.</td></tr>
+      <tr><td class="sec">I2</td><td><b>Ligar a lead a uma pessoa à entrada.</b> Procurar por telefone e email normalizados; preencher <code>cliente_id</code>; marcar como ambígua se encontrar mais do que uma.</td><td>Não há endpoint de entrada nosso: o Make escreve na base. Duas vias: reactivar o endpoint de semeadura (precisa do segredo em produção, hoje em falta) ou um trigger na base, como o do consentimento. O trigger apanha as três portas.</td></tr>
+      <tr><td class="sec">I3</td><td><b>Email nos quatro desfechos.</b> Ao fim de um turno com lead, se ainda não houve aviso, mandar o que a pessoa disse. Quando o fluxo 03 marca sem resposta, avisar com o número de tentativas e a próxima. Assunto fixo por lead para agrupar.</td><td>A conversa já está à mão no motor no fim do turno. O 03 pode chamar um endpoint com o segredo das automações.</td></tr>
+      <tr><td class="sec">I4</td><td><b>Botão "já falei" no email.</b> Um link assinado que carimba o contacto humano e quem foi.</td><td>Padrão de segredo já existe para o widget do site. Sem isto o carimbo depende de abrir o painel.</td></tr>
+      <tr><td class="sec">I5</td><td><b>Histórico FH no prompt e no email.</b> Cliente desde quando, quantas oportunidades, última há quanto tempo, consultores que a acompanharam.</td><td>As tabelas do eGO já estão na base. O que limita é o matching (A10, A11): sem ele acerta em cerca de 20%.</td></tr>
+      <tr><td class="sec">I6</td><td><b>Aviso "acompanhamento recente", informativo.</b> Notas com autor nos últimos 90 dias, depois de filtrar as automáticas.</td><td>Dispara em 1 lead em 282. Só uma linha no email; nunca esconder contexto.</td></tr>
+      <tr><td class="sec">I7</td><td><b>Gerador do cartão de 500 caracteres.</b> Função pura com a ordem de prioridade, sem acentos, com teste.</td><td>O envio fica para quando houver API. O texto pode ficar pronto.</td></tr>
+      <tr><td class="sec">I8</td><td><b>Tempo de resposta no painel.</b> Diferença entre o template enviado e a primeira resposta.</td><td>As duas colunas existem; falta a métrica na função do dashboard.</td></tr>
+      <tr><td class="sec">I9</td><td><b>Carimbo por pessoa.</b> O fluxo 03 filtra por cliente, não por lead.</td><td>Depende de I2. Sem ligação à entrada continua por lead.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Preso a decisão ou a terceiros</h3>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Ref.</th><th>O quê</th><th>O que o prende</th></tr></thead>
+    <tbody>
+      <tr><td class="sec">I10</td><td>Criar lead e contacto no eGO, com o cartão de 500 caracteres</td><td>Não há API de escrita. O Miguel confirma a forma técnica e o limite real.</td></tr>
+      <tr><td class="sec">I11</td><td>Tabela de pessoas, formas de contacto e fusões (secções 9.4 e 9.8)</td><td>Migrations correm à mão; <code>contactos</code> tem consumidores externos (portal, estatísticas, leads de angariação com chave estrangeira). A consolidação inicial deixa 661 + 20 + 469 casos para uma pessoa decidir. É uma fase de semanas com dono a combinar.</td></tr>
+      <tr><td class="sec">I12</td><td>Preferências estruturadas por negócio</td><td>Precisa da tabela de negócio primeiro. Hoje o que o agente recolhe além dos três campos vai para notas em prosa.</td></tr>
+      <tr><td class="sec">I13</td><td>Consentimento por canal com data, origem e texto</td><td>O cliente não tem coluna nenhuma; a lead só tem o WhatsApp da Meta. Exige colunas novas e o gate nos fluxos para quem não veio da Meta.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="melhorias">
+  <h2>Melhorias</h2>
+  <p>Não exigidas pelo documento, baratas, e servem o mesmo objectivo.</p>
+  <ul class="tight">
+    <li><b>M1</b> · A página de Leads não mostra quando a pessoa respondeu, quando recebeu o template, nem liga à conversa. O consultor não vê o que a pessoa disse sem procurar o número noutra página.</li>
+    <li><b>M2</b> · No modal de edição, "Cliente" fica vazio nas leads da Meta: o nome está na própria linha, não no cliente ligado.</li>
+    <li><b>M3</b> · Pesquisa de clientes por telefone e email no painel e na tool do broker, com variantes de formato.</li>
+    <li><b>M4</b> · As tarefas criadas no primeiro turno ficam sem conversa (a conversa só é gravada no fim). Gravar antes, ou actualizar a tarefa depois.</li>
+    <li><b>M5</b> · Apagar <code>agente_leads</code>. Deixa de haver onde se enganar.</li>
+    <li><b>M6</b> · O tipo e o autor das notas já vêm do scraper. A limpeza da secção 7.4 (102 mil para 35 mil) é um filtro, não um processo novo.</li>
+  </ul>
+</section>
+
+<section id="recomendacoes">
+  <h2>Recomendações</h2>
+
+  <h3>R1 · Ordem que rende mais depressa</h3>
+  <ol class="order">
+    <li><b>Saber quem recebeu</b> (I1, A9). O maior problema e o mais pequeno de resolver.</li>
+    <li><b>Ligar à entrada</b> (I2). Fecha o buraco para tudo o que entrar a partir de amanhã.</li>
+    <li><b>Avisar nos quatro desfechos com botão</b> (A5, I3, I4). É a promessa central do documento.</li>
+    <li><b>Corrigir o scraper</b> (A10, A11). O matching passa de cerca de 20% para cerca de 85%.</li>
+    <li><b>Histórico no email e no prompt</b> (I5, I6). Só vale a pena depois do passo anterior.</li>
+    <li><b>Só então</b> a tabela de pessoas (I11).</li>
+  </ol>
+
+  <div class="two">
+    <div class="box"><h3>R2 · Uma query antes de consolidar</h3><p>Confirmar A10: contar contactos com o mesmo nome em que um tem identificador do eGO e o outro não. Se der milhares, a consolidação inicial começa por corrigir a porta, não por fundir fichas.</p></div>
+    <div class="box"><h3>R3 · 24 horas</h3><p>Os dados do documento e do projecto concordam: quem responde, responde na primeira hora. Alinhar o fluxo 03, a expiração da conversa e o nome do ficheiro de uma vez.</p></div>
+    <div class="box"><h3>R4 · Não esconder contexto pela regra dos 90 dias</h3><p>Trava uma lead em 282. O aviso informativo que a secção 5.9.2 já propõe chega, e poupa a lógica de "o consultor saiu" e "nota a sério ou carimbo".</p></div>
+    <div class="box"><h3>R5 · Não partir as mensagens em linhas agora</h3><p>O bloco JSON serve o assistente e o painel. Fazer só quando houver uma pergunta que ele não responda.</p></div>
+    <div class="box"><h3>R6 · Tirar o documento do repositório</h3><p>Está na raiz de um repositório público, sem ser seguido pelo git, com nomes reais de clientes e consultoras. Ignorar ou mover antes do próximo commit.</p></div>
+    <div class="box"><h3>R7 · Recuperar as três leads do documento</h3><p>Filipa Pedro, Junior Marques e Álvaro Marçal ficaram antes da correcção de 31/08. Correr a extracção à mão sobre as notas e deixar a promoção seguir.</p></div>
+  </div>
+
+  <h3>R8 · Um vocabulário para a origem</h3>
+  <p>Fixar os valores de <code>origem</code> do cliente e registar a campanha ao lado, como a secção 9.2 pede. Hoje o nome do formulário só existe na lead.</p>
+</section>
+
+<section id="decidir">
+  <h2>A decidir e a confirmar</h2>
+  <p>Fora do código. Sem estas respostas, parte do acima não avança.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>O quê</th><th>Quem</th><th>Desbloqueia</th></tr></thead>
+    <tbody>
+      <tr><td>Chave que o portal usa para ler a base</td><td>Miguel</td><td>Fechar a leitura anónima de <code>contactos</code> (migration 0022, parada desde Agosto)</td></tr>
+      <tr><td>API de escrita do eGO e limite real do cartão</td><td>Miguel</td><td>I10, secções 3 e 6 do documento</td></tr>
+      <tr><td>Quem alimenta a segunda porta de <code>contactos</code>, sem identificador do eGO</td><td>Miguel</td><td>A10, item 1 da secção 10 do documento</td></tr>
+      <tr><td>24 ou 48 horas para a segunda tentativa</td><td>Agência</td><td>A7</td></tr>
+      <tr><td>Quem decide as leads ambíguas (6%)</td><td>Agência</td><td>I2</td></tr>
+      <tr><td>Segredo das automações em produção</td><td>Desenvolvimento</td><td>I2 pela via do endpoint; I3 pela via do fluxo 03</td></tr>
+      <tr><td>O que "pré-consentido" permite fazer</td><td>RGPD</td><td>I13 e qualquer contacto à base existente</td></tr>
+    </tbody>
+  </table></div>
+  <p>Os planos de acção a seguir dizem qual destas respostas cada bloco precisa, e o que avança sem ela.</p>
+</section>
+
+<section id="planos">
+  <h2>Planos de acção</h2>
+  <p>Sete blocos, na ordem da recomendação R1. Cada um é uma fase: quando arrancar, ganha o seu <code>docs/fases/&lt;nome&gt;-plano.md</code> com o detalhe técnico, e só depois há código. O que está aqui é o suficiente para decidir se, quando e por quem — não para implementar. As migrations correm à mão pelo utilizador; não há ambiente de teste, por isso cada bloco termina com uma verificação em produção controlada.</p>
+
+  <div class="tablewrap"><table>
+    <thead><tr><th>Plano</th><th>Cobre</th><th>Depende de</th><th>Esforço</th></tr></thead>
+    <tbody>
+      <tr><td class="sec">P0</td><td>Higiene imediata</td><td>—</td><td>½ dia</td></tr>
+      <tr><td class="sec">P1</td><td>Saber quem recebeu (A9, I1, I8)</td><td>—</td><td>1 dia</td></tr>
+      <tr><td class="sec">P2</td><td>Uma pessoa por lead à entrada (I2, A3, A4, A8, A2, A6, I9)</td><td>Decisão: trigger ou endpoint</td><td>3 dias</td></tr>
+      <tr><td class="sec">P3</td><td>Avisar o consultor nos quatro desfechos (A5, I3, I4, A7, M1, M2)</td><td>Segredo das automações em produção</td><td>3 dias</td></tr>
+      <tr><td class="sec">P4</td><td>Identidade dos contactos do eGO (A10, A11, R2)</td><td>Query R2; aval do Miguel para colunas novas</td><td>2 dias</td></tr>
+      <tr><td class="sec">P5</td><td>Histórico e cartão (I5, I6, I7, A1, M3, M6)</td><td>P4 para cobertura útil</td><td>3 dias</td></tr>
+      <tr><td class="sec">P6</td><td>Tabela de pessoas (I11, I12, I13)</td><td>P2, P4, chave do portal, dono das fusões, RGPD</td><td>Semanas — a combinar</td></tr>
+    </tbody>
+  </table></div>
+  <p class="deps"><b>Sequência:</b> P0 e P1 arrancam já. P2 e P4 podem correr em paralelo. P3 depende de P2 (o botão carimba a pessoa) e do segredo. P5 depende de P4. P6 só depois de tudo, e só se o cliente decidir. Os esforços são dias de trabalho estimados por leitura do código, não compromissos.</p>
+
+  <div class="plan">
+    <div class="plan-head"><span class="pid">P0</span><h3>Higiene imediata</h3><span class="pill esf">½ dia</span><span class="cov">R6 · R7 · M5 · A12 · leads de teste</span></div>
+    <dl class="plan-body">
+      <dt>Objectivo</dt><dd>Tirar do caminho o que não precisa de decisão e reduz o risco já.</dd>
+      <dt>Âmbito</dt><dd><ul>
+        <li><b>Documento fora do repositório público.</b> Entrada no <code>.gitignore</code> para <code>*.docx</code> na raiz, ou mover para uma pasta ignorada. Confirmar com <code>git status</code> que deixa de aparecer.</li>
+        <li><b>Recuperar as três leads do documento.</b> Script pontual em <code>backend/scripts/</code> que corre a extracção de MQL sobre as notas das três pessoas e grava os três campos; a promoção a qualificada segue sozinha no turno seguinte, ou é disparada à mão.</li>
+        <li><b>Apagar <code>agente_leads</code>.</b> Migration própria, depois de confirmar com uma query que continua vazia de uso. Corrigir primeiro a tool do broker (A1, em P5) ou apagá-la em simultâneo.</li>
+        <li><b>Apagar as leads de teste</b> <code>teste-manual-001</code>/<code>002</code> antes de qualquer envio (já nos próximos passos do projecto).</li>
+        <li><b>Um vocabulário de origem</b> no modelo de cliente, alinhado com o que o código escreve.</li>
+      </ul></dd>
+      <dt>Fora</dt><dd>Qualquer lógica nova. Isto é limpeza.</dd>
+      <dt>Verificação</dt><dd>As três leads aparecem como qualificadas no painel com tarefa criada; a tool do broker não referencia a tabela apagada; o repositório não contém o documento.</dd>
+      <dt>Riscos</dt><dd>Apagar a tabela não tem volta: exportar antes. O backfill pode disparar três emails ao corretor — avisar antes de correr.</dd>
+    </dl>
+  </div>
+
+  <div class="plan">
+    <div class="plan-head"><span class="pid">P1</span><h3>Saber quem recebeu</h3><span class="pill esf">1 dia</span><span class="cov">A9 · I1 · I8</span></div>
+    <dl class="plan-body">
+      <dt>Objectivo</dt><dd>Passar de "aceite para envio" a "entregue" como facto registado, e ver o tempo de resposta no painel.</dd>
+      <dt>Âmbito</dt><dd><ul>
+        <li>Migration: coluna <code>template_entregue_em</code> (e <code>entrega_erro</code> para o <code>failed</code>) em <code>leads</code>.</li>
+        <li>Webhook: quando chega um recibo <code>delivered</code>, encontrar a lead <code>contactada</code> mais recente daquele número (pelas variantes de formato) e carimbar, só se ainda estiver vazio. Quando chega <code>failed</code>, guardar o código e o motivo.</li>
+        <li>Logging da aplicação ligado a INFO, para os restantes recibos ficarem visíveis nos logs do Fly.</li>
+        <li>Painel: coluna ou distintivo "entregue" na página de Leads; métrica de tempo de resposta (primeira resposta menos template enviado) na função do dashboard.</li>
+      </ul></dd>
+      <dt>Fora</dt><dd>Recibos de mensagens que não são templates (a Matilde a responder): ignorar por agora. Histórico: os recibos passados perderam-se; não há backfill possível.</dd>
+      <dt>Pré-requisitos</dt><dd>Nenhum. O webhook já recebe os <code>statuses</code> desde 29/08.</dd>
+      <dt>Passos</dt><dd><ol>
+        <li>Migration à mão pelo utilizador.</li>
+        <li>Teste unitário com um payload real de <code>statuses</code> (sent, delivered, read, failed) contra a função do webhook.</li>
+        <li>Deploy do backend.</li>
+        <li>Enviar um template a um número de teste pelo fluxo 02 com <code>Limit=1</code> e confirmar a coluna preenchida.</li>
+        <li>Reenviar as 45 leads (prazo 23/09) já com isto ligado: passam a ter prova de entrega.</li>
+      </ol></dd>
+      <dt>Verificação</dt><dd>Ao fim de uma semana, contagem de <code>contactada</code> com e sem <code>template_entregue_em</code>. É o primeiro número real sobre os 155.</dd>
+      <dt>Riscos</dt><dd>O <code>recipient_id</code> vem no formato internacional; procurar pelas variantes, como o resto do código. Uma pessoa com duas leads: carimbar a mais recente e aceitar a imprecisão até P2.</dd>
+    </dl>
+  </div>
+
+  <div class="plan">
+    <div class="plan-head"><span class="pid">P2</span><h3>Uma pessoa por lead à entrada</h3><span class="pill esf">3 dias</span><span class="cov">I2 · A3 · A4 · A8 · A2 · A6 · I9</span></div>
+    <dl class="plan-body">
+      <dt>Objectivo</dt><dd>Nenhuma lead entra sem se procurar se a pessoa já existe; a ambiguidade fica assinalada em vez de decidida às cegas; ninguém escreve por cima de um telefone ou email.</dd>
+      <dt>Decisão prévia</dt><dd><b>Trigger na base ou endpoint de entrada.</b> O trigger apanha as três portas (Make, site, assistente) sem depender do Make nem do segredo, à imagem do trigger de consentimento já em produção; custa replicar a normalização do telefone em SQL, com um teste que compara as duas. O endpoint mantém a regra em Python mas exige o segredo em produção e o Make a chamá-lo. <b>Recomendação: trigger</b>, com a normalização como função SQL que P4 também usa.</dd>
+      <dt>Âmbito</dt><dd><ul>
+        <li>Migration: função SQL de normalização; trigger BEFORE INSERT em <code>leads</code> que procura <code>agente_clientes</code> por telefone e email; coluna <code>cliente_ambiguo</code> quando encontra mais do que uma pessoa; <code>outros_contactos</code> (lista) em <code>agente_clientes</code> para o segundo telefone ou email.</li>
+        <li>Regra de fusão de dados (5.9.1) dentro de <code>find_or_create_cliente</code>: vazio recebe; igual não toca; diferente vai para <code>outros_contactos</code> com origem e data. Orçamento e zona continuam a ser sobrescritos, por decisão registada.</li>
+        <li><code>_procurar_cliente</code> devolve também "ambíguo" quando telefone e email dão pessoas diferentes; quem chama decide o que fazer (assistente: usa a do telefone e marca; entrada: marca e não liga).</li>
+        <li><code>lead_aberta</code> passa a procurar também por email.</li>
+        <li>Pesquisas por telefone com variantes e por email na tool do broker e na página de Clientes.</li>
+        <li>Carimbo por pessoa: trigger AFTER UPDATE de <code>contacto_humano_em</code> que o propaga às outras leads abertas do mesmo cliente ou número.</li>
+        <li>Painel: filtro "ambíguas" na página de Leads e forma de escolher a pessoa certa.</li>
+      </ul></dd>
+      <dt>Fora</dt><dd>Criar a tabela de pessoas (P6). Aqui <code>agente_clientes</code> continua a ser "a pessoa". Ligar a <code>contactos</code> do eGO (P5, via P4).</dd>
+      <dt>Pré-requisitos</dt><dd>Decisão de quem revê as ambíguas (secção 10 do documento, "a combinar").</dd>
+      <dt>Passos</dt><dd><ol>
+        <li>Backfill de controlo, só leitura: correr a regra sobre as 284 leads existentes e contar 1 / 0 / &gt;1 pessoas. Deve bater com 223 / 44 / 17 do documento, ou explicar porquê.</li>
+        <li>Migration à mão. Teste em Python que compara a normalização SQL com <code>normalizar_telefone</code> sobre os mesmos casos.</li>
+        <li>Alterações em <code>guards.py</code> e tools com testes: ambiguidade, não sobrescrever, lead por email.</li>
+        <li>Deploy. Backfill real das 284, com as 17 ambíguas a ficar marcadas.</li>
+        <li>Painel.</li>
+      </ol></dd>
+      <dt>Verificação</dt><dd>Uma semana depois: percentagem de leads novas com <code>cliente_id</code> preenchido (alvo: os 85% do documento). Nenhum cliente com telefone alterado por um segundo número. Teste de dedup sob carga volta a correr (há um flaky registado).</dd>
+      <dt>Riscos</dt><dd>Criar cliente à entrada muda o que o assistente vê no primeiro turno ("este cliente já está registado"): confirmar que a precedência formulário/conversa se mantém. Trigger com bug bloqueia inserts do Make: escrever com <code>EXCEPTION WHEN OTHERS</code> a deixar passar e a registar.</dd>
+    </dl>
+  </div>
+
+  <div class="plan">
+    <div class="plan-head"><span class="pid">P3</span><h3>Avisar o consultor nos quatro desfechos</h3><span class="pill esf">3 dias</span><span class="cov">A5 · I3 · I4 · A7 · M1 · M2</span></div>
+    <dl class="plan-body">
+      <dt>Objectivo</dt><dd>O consultor recebe um email por lead, na mesma conversa do Outlook, quando a pessoa fala e quando não fala, com o que ela disse e um botão para dizer "já falei".</dd>
+      <dt>Âmbito</dt><dd><ul>
+        <li>Uma função única <code>avisar_consultor(lead, evento, corpo)</code> em <code>notificacoes.py</code> que fixa o assunto por lead (<code>[Lead ab12] Nome · FH2545</code>), anexa o perfil, o link para a lead no painel e o botão. Os três chamadores actuais passam a usá-la.</li>
+        <li><b>Desfecho 1:</b> no fim do primeiro turno em que uma lead responde, email com a conversa até ali. Coluna <code>aviso_em</code> para não repetir. A qualificação, quando acontece, é um segundo email na mesma thread.</li>
+        <li><b>Desfecho 2:</b> endpoint com o segredo das automações que o fluxo 03 chama depois de marcar sem resposta; o email diz a tentativa, a data da próxima e o imóvel.</li>
+        <li><b>Botão:</b> endpoint GET com assinatura HMAC sobre o id da lead e validade de 30 dias; carimba <code>contacto_humano_em</code> e <code>responsavel</code>; devolve uma página simples "marcada". Idempotente.</li>
+        <li>Segunda tentativa às 24h no fluxo 03 (e no nome do ficheiro). A expiração da conversa fica a 48h: é o que apanha a resposta tardia.</li>
+        <li>Painel: datas de template, resposta e follow-up na página de Leads, e ligação à conversa. "Cliente" no modal a usar o nome da linha.</li>
+      </ul></dd>
+      <dt>Fora</dt><dd>Histórico FH e aviso de acompanhamento no email (P5) — o corpo deixa o lugar. Email pelo n8n directamente: rejeitado, duplicaria o texto fora do repositório.</dd>
+      <dt>Pré-requisitos</dt><dd><code>AUTOMACAO_SECRET</code> definido no Fly e no n8n (hoje em falta). Resend já configurado. P2 para o botão carimbar a pessoa e não só a lead; sem P2 funciona por lead.</dd>
+      <dt>Passos</dt><dd><ol>
+        <li>Migration: <code>aviso_em</code>.</li>
+        <li>Função de aviso com testes: assunto estável, HMAC válido e expirado, idempotência do botão.</li>
+        <li>Alterar o fluxo 03: 24h, chamada ao endpoint; actualizar <code>test_n8n_guardas.py</code>, que lê os JSON.</li>
+        <li>Deploy. Fluxo 03 à mão com <code>Limit=5</code> e trigger desligado; confirmar cinco emails, um por lead, e o botão a carimbar.</li>
+        <li>Importar o 03 com trigger ligado.</li>
+      </ol></dd>
+      <dt>Verificação</dt><dd>Na semana seguinte: cada lead que respondeu tem exactamente um email de desfecho 1; cada <code>sem_resposta</code> tem um de desfecho 2; os emails de uma lead aparecem agrupados no Outlook do director comercial.</dd>
+      <dt>Riscos</dt><dd>Volume: um email por lead que fala, mais um por lead que não fala — cerca de 10 por dia em campanha. Confirmar com a agência que é o que querem. O link do botão em email reencaminhado carimba na mesma: aceitável, é interno.</dd>
+    </dl>
+  </div>
+
+  <div class="plan">
+    <div class="plan-head"><span class="pid">P4</span><h3>Identidade dos contactos do eGO</h3><span class="pill esf">2 dias</span><span class="cov">A10 · A11 · R2</span></div>
+    <dl class="plan-body">
+      <dt>Objectivo</dt><dd>Que o telefone e o email de <code>contactos</code> se possam comparar com os nossos, e que o scraper deixe de fabricar duplicados.</dd>
+      <dt>Âmbito</dt><dd><ul>
+        <li><b>Query R2</b>, primeiro: quantos contactos com o mesmo nome têm um registo com identificador do eGO e outro sem. O resultado decide o resto.</li>
+        <li><b>Colunas geradas</b> <code>telemovel_norm</code> e <code>email_norm</code> em <code>contactos</code>, calculadas pelo Postgres a partir das existentes, com índice. Aditivo: apanha as duas portas sem tocar em nenhum pipeline nem nos valores que o portal lê.</li>
+        <li><b><code>criado_em</code> no scraper:</b> deixar de o escrever a partir da data de alteração. Em update por <code>ego_link</code> não enviar a coluna; em insert, usar a data real de criação do eGO se o relatório a trouxer, senão a de hoje. Guardar a data de alteração em coluna própria.</li>
+      </ul></dd>
+      <dt>Fora</dt><dd>Fundir fichas. Tocar na segunda porta (não é nossa). Mudar a chave primária de <code>contactos</code>.</dd>
+      <dt>Pré-requisitos</dt><dd>Aval do Miguel para as colunas novas (a tabela tem consumidores dele). Confirmar se o relatório do eGO traz a data de criação do contacto.</dd>
+      <dt>Passos</dt><dd><ol>
+        <li>Query R2 e registar o número no plano da fase.</li>
+        <li>Migration à mão com as colunas geradas. Verificar de imediato quantas das 281 leads da Meta encontram contacto por <code>telemovel_norm</code>: deve subir de 54.</li>
+        <li>Alteração no scraper com teste sobre um registo de exemplo; <code>dry_run.py</code> antes do deploy da app do scraper.</li>
+        <li>Deploy do scraper. Na corrida seguinte, contagem de erros 23503 e 23505 no resumo: devem cair.</li>
+      </ol></dd>
+      <dt>Verificação</dt><dd>Leads ligáveis por telefone antes e depois. Duplicados novos por dia em <code>contactos</code> antes e depois (contar pares nome-igual criados no mesmo dia).</dd>
+      <dt>Riscos</dt><dd>A instrução de escrever <code>criado_em</code> veio do pipeline externo: mudá-la pode contrariar algo do lado do Miguel. Comunicar antes. Colunas geradas numa tabela de 28 mil linhas: a migration demora segundos, não é problema.</dd>
+    </dl>
+  </div>
+
+  <div class="plan">
+    <div class="plan-head"><span class="pid">P5</span><h3>Histórico e cartão</h3><span class="pill esf">3 dias</span><span class="cov">I5 · I6 · I7 · A1 · M3 · M6</span></div>
+    <dl class="plan-body">
+      <dt>Objectivo</dt><dd>O assistente e o email sabem se a pessoa já é nossa conhecida, e o texto do cartão de 500 caracteres existe, pronto para o dia em que houver onde o pôr.</dd>
+      <dt>Âmbito</dt><dd><ul>
+        <li>Função <code>historico_fh(telefone, email)</code>: oportunidades pelas colunas de contacto do cliente (51% têm telefone, 31% email), notas e visitas por referência de oportunidade. Devolve: cliente desde, número de oportunidades, última há quanto tempo, consultores distintos, e se há nota humana nos últimos 90 dias.</li>
+        <li>Filtro de notas automáticas (7.4): levantar da base os valores de <code>nota_tipo</code> e autores de sistema, e guardá-los como lista no código com teste.</li>
+        <li>Injecção no prompt do assistente só no primeiro turno, e no corpo do email de P3.</li>
+        <li>Aviso "acompanhamento recente" como uma linha, nunca a esconder o resto.</li>
+        <li><code>cartao_ego(lead, historico)</code>: função pura, ordem de prioridade da secção 6, sem acentos, corte por secção, com teste que prova o limite.</li>
+        <li>Tool de leads do broker a apontar à tabela certa com os estados certos.</li>
+      </ul></dd>
+      <dt>Fora</dt><dd>Enviar o cartão ao eGO. Regra de esconder contexto por consultor activo (R4).</dd>
+      <dt>Pré-requisitos</dt><dd>P4, senão o histórico acerta em cerca de um quinto das pessoas e o cartão diz "sem registo" a quem tem. P3 para o email ter onde entrar.</dd>
+      <dt>Passos</dt><dd><ol>
+        <li>Levantamento de <code>nota_tipo</code> e autores automáticos; lista com teste.</li>
+        <li>Função de histórico com testes sobre fixtures; medir latência das três consultas.</li>
+        <li>Validar à mão contra cinco das 45 leads com histórico (documento 7.3), comparando com o que o eGO mostra.</li>
+        <li>Injecção no prompt e no email; deploy; observar o custo por turno no painel de métricas (só o primeiro turno deve subir).</li>
+        <li>Cartão: função e teste, sem envio.</li>
+      </ol></dd>
+      <dt>Verificação</dt><dd>Nas 45 leads com histórico, o email diz "cliente desde" e os consultores certos. Custo médio por conversa não sobe mais do que o primeiro turno justifica. A tool do broker responde a "leads desta semana".</dd>
+      <dt>Riscos</dt><dd>Metade das oportunidades não tem telefone nem email: o histórico será sempre um mínimo, e o email deve dizê-lo. Iniciais nas notas antigas (Alexandra vs Alexsandra): mostrar o nome como está, não interpretar.</dd>
+    </dl>
+  </div>
+
+  <div class="plan">
+    <div class="plan-head"><span class="pid">P6</span><h3>Tabela de pessoas</h3><span class="pill esf">Semanas</span><span class="cov">I11 · I12 · I13 · secções 9.4 a 9.9 do documento</span></div>
+    <dl class="plan-body">
+      <dt>Objectivo</dt><dd>Uma pessoa, uma linha; formas de contacto únicas; consentimento por canal com data; negócio com responsável; preferências por negócio. É o desenho da secção 9 do documento.</dd>
+      <dt>Estado</dt><dd><b>Não se planeia ainda.</b> Fica aqui o enquadramento para a decisão. Os planos P2 e P4 são a versão mínima que rende sem isto, e fazem parte do caminho: P2 cria a regra de entrada e a lista de ambíguas, P4 dá as chaves comparáveis.</dd>
+      <dt>Pré-requisitos</dt><dd><ul>
+        <li>Resultado da query R2 e do P4 em produção há pelo menos um mês, para se saber quantos duplicados sobram depois de fechar a porta.</li>
+        <li>Chave que o portal do Miguel usa: a nova tabela terá de ser lida por ele, ou <code>contactos</code> continua a ser espelhada.</li>
+        <li>Dono para as fusões duvidosas (661 + 20 casos) e para os conflitos de consentimento (469).</li>
+        <li>Resposta do RGPD sobre "pré-consentido": decide se a consolidação pode ou não somar estados.</li>
+        <li>Decisão do cliente sobre o âmbito: só pessoas e formas de contacto (fases 1 e 2 do documento, 9.7), ou também negócio, preferências e propostas (fase 4).</li>
+      </ul></dd>
+      <dt>O que muda no nosso código</dt><dd><code>find_or_create_cliente</code> passa a criar e ligar na tabela nova; <code>leads.cliente_id</code> passa a apontar-lhe; <code>agente_clientes</code> vira vista ou é migrada; o consentimento sai de <code>leads.ficha</code> para a forma de contacto e os fluxos do n8n lêem-no de lá; o histórico de P5 passa a fazer uma consulta em vez de três.</dd>
+      <dt>Ordem sugerida</dt><dd>A do documento (9.7): pessoas e formas de contacto, com consolidação inicial e registo de fusões; entrada única a escrever lá; ligar notas e conversas; negócio; só no fim desligar os caminhos antigos. Cada passo é uma fase própria com plano e resumo.</dd>
+      <dt>Riscos</dt><dd>Fusões erradas não têm volta fácil: nada se apaga, tudo se regista. Migrations grandes à mão numa base em produção sem ambiente de teste: cada fase tem de ser aditiva e reversível. O portal e as estatísticas do Miguel lêem as tabelas antigas: nenhuma se pode retirar sem ele.</dd>
+    </dl>
+  </div>
+</section>
+
+<footer>Auditoria ao código de <code>figueirahome_agentOS</code> contra "Leads de Campanha — Fluxo e Contexto" (01/09/2026). Achados verificados por leitura do código em <code>master @ 4a91a00</code>; os números de leads e contactos são os do documento, não foram recontados.</footer>
+</main>
+</div>
+</body>
+</html>
