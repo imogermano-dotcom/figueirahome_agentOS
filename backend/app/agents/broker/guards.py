@@ -214,7 +214,7 @@ async def lead_aberta(telefone: str | None) -> dict | None:
         return (
             get_supabase()
             .table("leads")
-            .select("id,tipo,nome,ficha,template_enviado,imovel_ref")
+            .select("id,tipo,nome,ficha,template_enviado,imovel_ref,contacto_humano_em")
             .in_("telefone", variantes_telefone(numero))
             .in_("estado", list(_ESTADOS_LEAD_ABERTA))
             .gte("criado_em", limite)

@@ -1,0 +1,17 @@
+name: Nudge Matilde (janela de 24h)
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # de hora a hora — a janela de elegibilidade é 6h-20h, não precisa de mais
+  workflow_dispatch: {}
+
+jobs:
+  nudge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar nudges pendentes
+        run: |
+          curl -sf -X POST "https://figueirahome-agentos.fly.dev/api/matilde/nudge" \
+            -H "X-Automacao-Secret: ${{ secrets.AUTOMACAO_SECRET }}" \
+            -w "\ntempo total: %{time_total}s\n" \
+            --max-time 120

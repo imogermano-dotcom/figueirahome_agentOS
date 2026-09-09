@@ -16,6 +16,7 @@ from app.api.tarefas import router as tarefas_router
 from app.api.agentes import router as agentes_router
 from app.api.config import router as config_router
 from app.api.dashboard import router as dashboard_router
+from app.api.nudge import router as nudge_router
 from app.config import settings
 
 app = FastAPI(
@@ -53,6 +54,7 @@ app.include_router(tarefas_router)
 app.include_router(config_router)
 app.include_router(dashboard_router)
 app.include_router(agentes_router)
+app.include_router(nudge_router)  # lembrete dentro da janela de 24h — cron, X-Automacao-Secret
 
 
 @app.get("/health")
