@@ -18,6 +18,7 @@ from app.agents.broker import guards
 from app.agents.broker.channels.whatsapp import meta_api
 from app.agents.broker.conversation import save_conversation
 from app.db.supabase_client import get_supabase
+from app.models.lead import ESTADOS_FECHADOS
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,41 @@ _MARCAS_FECHO = ("👋", "cuide-se", "boa continuação", "muita força", "boa s
 def _e_despedida(texto: str) -> bool:
     texto = (texto or "").lower()
     return any(marca in texto for marca in _MARCAS_FECHO)
+
+
+async def _pode_enviar(telefone: str | None) -> bool:
+    """Só recusa quando há mesmo lead **fechada** ou já entregue a um humano.
+
+    Não usar `guards.lead_aberta`: devolve `None` tanto para "nunca houve
+    lead" como para "lead fechada" — indistinguíveis, e é precisamente a
+    primeira categoria que mais precisa do nudge. Achado ao vivo (2026-09-09):
+    o caso que motivou esta funcionalidade (proposta de 110 000€ ao FH2571,
+    nome/telefone nunca chegaram a ser pedidos com sucesso) nunca teve
+    `cliente_id` nem `leads` associada — com `lead_aberta` ficaria sempre de
+    fora, o oposto do que se queria.
+    """
+    numero = guards.normalizar_telefone(telefone)
+    if not numero:
+        return True
+
+    def _fetch():
+        return (
+            get_supabase()
+            .table("leads")
+            .select("estado,contacto_humano_em")
+            .in_("telefone", guards.variantes_telefone(numero))
+            .order("criado_em", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+    resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    if not resp.data:
+        return True  # nunca houve lead — nada a respeitar, nada a apagar
+    lead = resp.data[0]
+    if lead.get("estado") in ESTADOS_FECHADOS:
+        return False
+    return not lead.get("contacto_humano_em")
 
 
 async def _candidatos() -> list[dict]:
@@ -70,8 +106,7 @@ async def _candidatos() -> list[dict]:
             continue
         if _e_despedida(ultima.get("content", "")):
             continue
-        lead = await guards.lead_aberta(row["participante"])
-        if not lead or lead.get("contacto_humano_em"):
+        if not await _pode_enviar(row["participante"]):
             continue
         candidatos.append(row)
     return candidatos

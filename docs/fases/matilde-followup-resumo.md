@@ -12,9 +12,6 @@
   fechadas/com `contacto_humano_em`) e `enviar_nudges()` (envia, grava no
   histórico via `save_conversation`, marca `nudge_em`, regista em
   `agente_sync_log` tipo `nudge_matilde`).
-- `backend/app/agents/broker/guards.py` — `lead_aberta` passou a seleccionar
-  também `contacto_humano_em` (reaproveitado por `nudge.py`, sem duplicar a
-  query).
 - `backend/app/api/nudge.py` — `POST /api/matilde/nudge`, protegido por
   `require_automacao_access` (reaproveitado o `X-Automacao-Secret` já
   existente para Make/n8n, em vez de criar um terceiro segredo).
@@ -24,9 +21,24 @@
 - `supabase/migrations/0035_agente_conversas_nudge.sql` — coluna
   `agente_conversas.nudge_em`. **Por correr à mão** no editor SQL, como as
   restantes.
-- `backend/tests/test_nudge.py` — 6 testes (marcadores de despedida,
-  candidato elegível, e as 3 exclusões: despedida, `contacto_humano_em`,
-  lead fechada/inexistente). Suite completa: 243 a passar (era 237).
+- `backend/tests/test_nudge.py` — 7 testes. Suite completa: 244 a passar
+  (era 237).
+
+## Correcção pós-teste ao vivo (2026-09-09)
+
+O teste ao vivo com o número do utilizador revelou um buraco: `_candidatos()`
+usava `guards.lead_aberta`, que devolve `None` tanto para "nunca houve lead"
+como para "lead fechada" — **indistinguíveis**. Isso excluía precisamente o
+caso que motivou a Frente A (proposta de 110 000€ ao FH2571, nome/telefone
+nunca recolhidos com sucesso — sem `cliente_id`, sem `leads`, ficaria sempre
+de fora).
+
+Corrigido com `nudge._pode_enviar(telefone)`: consulta a `leads` mais
+recente **sem filtrar por estado aberto**, e só recusa quando há mesmo lead
+`ESTADOS_FECHADOS` ou `contacto_humano_em`. Sem lead nenhuma → elegível. A
+mudança em `guards.lead_aberta` (seleccionar `contacto_humano_em`) foi
+revertida — deixou de ser necessária, `guards.py` fica sem alterações
+nesta fase.
 
 ## Decisões já tomadas (ver plano)
 
@@ -50,12 +62,15 @@
    vivo: `/docs` a 200, `/api/matilde/nudge` sem segredo a 401, com o
    segredo certo a 200 (`{"candidatos":0,"enviados":0,"erros":0}` — sem
    candidatos elegíveis no momento do teste).
-4. **Falta**: commitar e dar `git push` — o `schedule` do GitHub Actions só
-   dispara para workflows já no ramo por omissão do repositório remoto.
-   Sem isto o cron não corre, e não há candidato disponível agora para
-   validar o envio real ponta-a-ponta (a amostra tinha tudo fora da janela
-   6h-20h). Confirmar 1-2 envios reais na primeira vez que houver candidato,
-   no mesmo espírito de cautela do `02`/`03`.
+4. ~~Commitar e dar `git push`~~ — **feito (2026-09-09)**, `093e414` em
+   `master`. Cron activo a partir de agora, dispara de hora a hora.
+
+## Testado ao vivo (2026-09-09)
+
+Janela encurtada temporariamente (6h→3min) para não esperar horas, testada
+com um número real do utilizador: mensagem enviada, resposta chegou. Janela
+revertida para 6h/20h e reposta em produção depois do teste — confirmado
+saudável (`/docs` 200).
 
 ## Não implementado nesta fase
 

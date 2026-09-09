@@ -35,6 +35,17 @@ class _FakeTable:
     def lte(self, *a, **k):
         return self
 
+    def order(self, *a, **k):
+        return self
+
+    def limit(self, *a, **k):
+        return self
+
+    def in_(self, campo, valores):
+        if self.nome == "leads" and campo == "telefone":
+            self._telefone_pedido = valores[0]
+        return self
+
     def update(self, dados):
         self.estado["updates"].append((self.nome, dados))
         return self
@@ -44,6 +55,9 @@ class _FakeTable:
         return self
 
     def execute(self):
+        if self.nome == "leads":
+            lead = self.estado["leads_por_participante"].get(getattr(self, "_telefone_pedido", None))
+            return SimpleNamespace(data=[lead] if lead else [])
         return SimpleNamespace(data=self.estado.get("conversas", []))
 
 
@@ -56,13 +70,13 @@ class _FakeSupabase:
 
 
 def _montar(monkeypatch, conversas, leads_por_participante):
-    estado = {"conversas": conversas, "updates": [], "inserts": []}
+    estado = {"conversas": conversas, "leads_por_participante": leads_por_participante, "updates": [], "inserts": []}
     monkeypatch.setattr(nudge, "get_supabase", lambda: _FakeSupabase(estado))
 
-    async def _fake_lead_aberta(telefone):
-        return leads_por_participante.get(telefone)
-
-    monkeypatch.setattr(nudge.guards, "lead_aberta", _fake_lead_aberta)
+    # Decisão testada aqui é a de `_pode_enviar` (fecho/contacto_humano_em),
+    # não a normalização de telefone — já coberta nos testes de `guards`.
+    monkeypatch.setattr(nudge.guards, "normalizar_telefone", lambda t: t)
+    monkeypatch.setattr(nudge.guards, "variantes_telefone", lambda n: [n])
 
     async def _fake_send(to, texto):
         estado.setdefault("enviados", []).append((to, texto))
@@ -87,7 +101,7 @@ def _conversa(id_, participante, ultimo_texto="Antes de lhe dar o preço, diga-m
 
 def test_candidato_elegivel_e_enviado(monkeypatch):
     conversas = [_conversa("c1", "351900000001")]
-    leads = {"351900000001": {"id": "l1", "estado": "contactada", "contacto_humano_em": None}}
+    leads = {"351900000001": {"estado": "contactada", "contacto_humano_em": None}}
     estado = _montar(monkeypatch, conversas, leads)
 
     resumo = asyncio.run(nudge.enviar_nudges())
@@ -99,9 +113,22 @@ def test_candidato_elegivel_e_enviado(monkeypatch):
     assert "nudge_em" in estado["updates"][0][1]
 
 
+def test_sem_lead_nenhuma_ainda_recebe_nudge(monkeypatch):
+    """O caso que motivou a Frente A: quem nunca chegou a ter `leads` (ex.
+    fez uma proposta mas nunca deu nome/telefone) não pode ficar de fora só
+    por não haver registo — é precisamente quem mais precisa do nudge."""
+    conversas = [_conversa("c1", "351900000001")]
+    estado = _montar(monkeypatch, conversas, {})  # nenhuma lead para este número
+
+    resumo = asyncio.run(nudge.enviar_nudges())
+
+    assert resumo == {"candidatos": 1, "enviados": 1, "erros": 0}
+    assert estado["enviados"] == [("351900000001", nudge.TEXTO_NUDGE)]
+
+
 def test_despedida_nao_recebe_nudge(monkeypatch):
     conversas = [_conversa("c1", "351900000001", ultimo_texto="Cuide-se, boa continuação! 👋")]
-    leads = {"351900000001": {"id": "l1", "estado": "contactada", "contacto_humano_em": None}}
+    leads = {"351900000001": {"estado": "contactada", "contacto_humano_em": None}}
     estado = _montar(monkeypatch, conversas, leads)
 
     resumo = asyncio.run(nudge.enviar_nudges())
@@ -112,7 +139,7 @@ def test_despedida_nao_recebe_nudge(monkeypatch):
 
 def test_lead_com_contacto_humano_nao_recebe_nudge(monkeypatch):
     conversas = [_conversa("c1", "351900000001")]
-    leads = {"351900000001": {"id": "l1", "estado": "contactada", "contacto_humano_em": "2026-09-01T00:00:00Z"}}
+    leads = {"351900000001": {"estado": "contactada", "contacto_humano_em": "2026-09-01T00:00:00Z"}}
     _montar(monkeypatch, conversas, leads)
 
     resumo = asyncio.run(nudge.enviar_nudges())
@@ -120,9 +147,10 @@ def test_lead_com_contacto_humano_nao_recebe_nudge(monkeypatch):
     assert resumo == {"candidatos": 0, "enviados": 0, "erros": 0}
 
 
-def test_lead_fechada_ou_inexistente_nao_recebe_nudge(monkeypatch):
+def test_lead_fechada_nao_recebe_nudge(monkeypatch):
     conversas = [_conversa("c1", "351900000001")]
-    _montar(monkeypatch, conversas, {})  # lead_aberta devolve None
+    leads = {"351900000001": {"estado": "engano", "contacto_humano_em": None}}
+    _montar(monkeypatch, conversas, leads)
 
     resumo = asyncio.run(nudge.enviar_nudges())
 
