@@ -30,8 +30,8 @@ backend/app/
 ├── landing/ ⑂       ← gerador.py (allowlist pública + hash + API) · templates/
 ├── agents/voice/    ← webhook Telnyx, audio_ws, save_call, claude_agent (só voz)
 ├── agents/broker/   ← engine (motor único), assistants, router, guards (dedup +
-│                      80% + qualificação), custos, tools, conversation,
-│                      channels/whatsapp/ (webhook, meta_api, formatacao)
+│                      80% + qualificação), custos, tools, conversation, nudge
+│                      (lembrete 24h), channels/whatsapp/ (webhook, meta_api, formatacao)
 ├── integrations/    ← egorealestate.py (cliente API), imoveis_sync.py (upsert + extras)
 ├── db/supabase_client.py  ← get_supabase() [dados] + get_supabase_auth() [só login]
 └── models/          ← Pydantic (imovel, cliente, lead, tarefa, ...)
@@ -42,55 +42,36 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-09-06
+## Estado actual — Handoff 2026-09-10
 
-Sessão só de leitura: auditoria do código contra o documento "Leads de
-Campanha — Fluxo e Contexto" (01/09). **Zero código, zero migrations, zero
-deploys.** Entregável: `docs/fases/auditoria-leads-campanha-2026-09-06.html`
-(matriz doc vs código, 12 achados, 13 a implementar, 7 planos de acção
-P0–P6). Resumo: `docs/fases/handoff-2026-09-06-resumo.md`.
+Sessão mista: auditoria continua parada, investigação ao vivo de um bug real no eGO, e uma fase nova completa — implementada, testada em produção e deployada (dois deploys: feature + fix pós-teste).
 
-- **Dois críticos**: recibos `delivered` do WhatsApp vão para `logger.info`
-  com a raiz em WARNING — invisíveis; é por isso que não se sabe quem são os
-  155 sem mensagem (A9). E o email ao corretor só sai com MQL completo —
-  quem conversa sem fechar os 3 campos, ou não responde, não avisa ninguém (A5).
-- **Achado que o doc não tem**: o **nosso** scraper escreve
-  `contactos.criado_em := ego_atualizado_em` (`mapping_todas_colunas.py:300`),
-  e a PK é `(nome, criado_em)` — causa mecânica plausível dos 8.855 duplicados
-  "só na data". Metade do problema da secção 5 do doc é nosso. Confirmar
-  com query antes de consolidar (P4).
-- **Já fechado, que o doc dá como aberto**: bug da Filipa Pedro
-  (`_extrair_mql_do_resumo`, 31/08, um dia depois do caso — 3 leads por
-  recuperar à mão); carimbo `contacto_humano_em` já trava 01/02/03;
-  desfechos engano/sem_interesse já fecham.
-- **Bloqueado pela chave do eGO**: criar lead/contacto no eGO e o cartão de
-  500 chars — o doc assume uma API de escrita que não existe.
-- **Planos**: P0 higiene · P1 entrega · P2 pessoa à entrada (trigger) ·
-  P3 email nos 4 desfechos + botão · P4 scraper/contactos · P5 histórico ·
-  P6 tabela de pessoas (só enquadramento). P0 e P1 arrancam sem decisão.
+- **Nova feature em produção — Matilde, Frente A**: nudge dentro da janela de 24h quando a conversa pára a meio (Matilde sem resposta 6-20h), excluindo despedidas e leads fechadas/entregues a humano. Testado ao vivo com número real, cron activo (hora a hora) desde 09/09. Fix pós-teste: a guarda inicial excluía quem **nunca** teve `leads` (indistinguível de "fechada" via `lead_aberta`) — exactamente o caso de maior valor que motivou a fase (proposta de 110 000€ ao FH2571, sem nome/telefone recolhidos); `nudge._pode_enviar` só recusa com `ESTADOS_FECHADOS` ou `contacto_humano_em` explícitos. Detalhe: `docs/fases/matilde-followup-plano.md`/`-resumo.md`. Commits `093e414`/`d21eea0`.
+- **Achado eGO, ao vivo**: `angariador` pode ficar congelado mesmo com sync sem erros — a Web API devolve `PropertyAgents: []` quando o eGO tem **múltiplos registos internos para a mesma referência** (`FH2483_A`: 3, só um exposto). Corrigido à mão (Sandra Silva); Miguel ficou de apagar o duplicado, **ainda não apagou**. De caminho, corrigida a memória do "bloqueio de carteira" do CRM (18/08): era **espaço de ID errado** (`ego_id` da Web API ≠ ID do backoffice), não permissão — `find_by_ref` já contorna, `validar_disponibilidade_crm` só ineficiente, não corrigido.
+- **Auditoria de 06/09 continua parada** (pedido do utilizador, 07/09) — P0–P6 por decidir. Reunião com o Miguel em 07/09 tocou este tema; detalhe por colar (memória `reuniao-miguel-2026-09-07`).
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-05 — `agente_sync_log.origem`, sync manual corrigiu FH2571. **Sem** o construtor de landing pages |
+| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-09, `d21eea0` — Matilde Frente A em produção |
 | Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
 | Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` |
-| Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page |
-| Cron imóveis (GitHub Actions) | ✅ `sync-imoveis.yml`, agora **06:00 e 13:00 UTC** (desde 03/09) |
-| Cron oportunidades (GitHub Actions) | ✅ `sync-oportunidades.yml`, **03:00 UTC**, sem alteração |
-| n8n `01` | ✅ testado em produção 29/08 — `handoff-2026-08-30-resumo.md` |
-| n8n `02`/`03` | ⚠️ **por importar/publicar**. `03` pronto (ver Próximos passos) |
+| Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page + nudge 24h |
+| Cron imóveis (GitHub Actions) | ✅ `sync-imoveis.yml`, **06:00 e 13:00 UTC** |
+| Cron oportunidades (GitHub Actions) | ✅ `sync-oportunidades.yml`, **03:00 UTC** |
+| Cron nudge Matilde (GitHub Actions) | ✅ `nudge-matilde.yml`, **hora a hora**, desde 09/09 |
+| n8n `01` | ✅ testado em produção 29/08 |
+| n8n `02`/`03` | ⚠️ **por importar/publicar** — sem mudança desde 06/09 |
 | `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
 
 ### Fases anteriores — deployadas, detalhe em `docs/fases/`
 
-- **Sync: origem cron/manual, 2ª corrida do cron, painel de sync limpo (03–05/09)** — `handoff-2026-09-05-resumo.md`
+- **Matilde: nudge 24h dentro da conversa (09/09)** — `matilde-followup-resumo.md`
+- **Auditoria "Leads de Campanha" — matriz, 12 achados, planos P0–P6 (06/09)** — `handoff-2026-09-06-resumo.md`
+- **Sync: origem cron/manual, painel de sync limpo (03–05/09)** — `handoff-2026-09-05-resumo.md`
 - **Chat do site, dedupe de leads, lead sem contacto (01–02/09)** — `handoff-2026-09-02-resumo.md`
 - **Auditoria ao A1, 4 bugs — pesquisa, MQL, notificações, dedupe WhatsApp (31/08)** — `handoff-2026-08-31-resumo.md`
-- **WhatsApp mudo 6 dias, cartão expirado na WABA (29/08)** — `incidente-whatsapp-mudo-2026-08-29.md`
-- **Notificações ao corretor, Graph→Resend (15–31/08)** — `notificar-corretor-resumo.md`
-- **Leads da Meta, semeadura da conversa (13–20/08)** — `leads-meta-resumo.md`
 - **Landing pages**: no ar em `imoveis.figueirahome.pt`, fora deste repo; construtor (`feat/landing-pages`) **parado por decisão do cliente**.
 
 ### Invariantes que não são óbvias a ler o código
@@ -99,6 +80,7 @@ P0–P6). Resumo: `docs/fases/handoff-2026-09-06-resumo.md`.
 - **Features do imóvel ≠ zona envolvente** nas `FeatureTags` do eGO: `SWIMMING_POOLS`/`PROPERTY_NEAR_GARDENS` são "há na zona"; as do imóvel são `PROPERTY_HAS_POOL`/`PROPERTY_HAS_GARDEN`. A tag errada põe o A1 a afirmar ao comprador o que o imóvel não tem.
 - **Upsert por lotes do PostgREST**: uma chave presente num só registo vira coluna e escreve NULL em todos os outros. Omitir a chave não protege — custou 40 coordenadas. Esparsos saem por `_map_extras`, UPDATE linha a linha. **`latitude`/`longitude` só com `HasGPSLocation=true`** (13/55): sem o flag o eGO devolve o centróide da zona (42 imóveis em 10 pontos). A guarda vive no `_gps`, mas a chave tem de ser escrita pelo **`_map_property`** — no `_map_extras`, que filtra nulos, impedia escrever e nunca apagava.
 - **O eGO demora ~10 min** a expor um imóvel novo na Web API. **Prompt caching a 67%** — "Servido de cache" a zero havendo turnos multiplica o custo por 10.
+- **O `ID` da Web API do eGO (`imoveis.ego_id`) não é o mesmo ID do backoffice** (`/egocore/realestate/{id}`) — passar o nosso `ego_id` lá devolve sempre "não pode consultar", indistinguível de bloqueio de permissão (confirmado 5/5 amostras, 09/09). Backoffice tem o seu próprio ID, obtido por `find_by_ref`/pesquisa por referência — nunca por `fetch_detail(ego_id)` directo. **Um imóvel pode ter vários registos internos na mesma referência** (`FH2483_A`: 3), só um exposto na Web API — se esse não tiver agente, `angariador` fica congelado (filtro de `None` em `_map_extras` nunca apaga).
 - **Três allowlists são fronteiras de segurança**, todas com teste: `_TOOLS_INPUT_SEGURO`, `gerador.CAMPOS_PUBLICOS`, `_FEATURE_BOOLS`. **A quarta não se vê em Python**: o consentimento de WhatsApp vem de um *trigger* na base (`tgr_normaliza_aceita_whatsapp`, `0031`, vivo desde 20/08).
 - **O repo não é a fonte de verdade única do esquema** — 59 entradas em `supabase_migrations` vieram da interface do Supabase. **`db push` proibido** (a `0001` aborta); CLI só de leitura. `supabase migration list` antes de confiar no `database-schema.md`.
 - **MQL = orçamento + zona + tipo de interesse** (`guards.lead_qualificada`). **Imóveis contam-se por `publicado` (53)**, não `disponibilidade`. **A lead responde na 1.ª hora ou nunca** (16 de 17 reais, máx. 1,3 h) e **13 das 17 conversas foram ao fim-de-semana** — a premissa das 48h do follow-up não está confirmada.
@@ -126,7 +108,7 @@ sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ❌**, Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **237**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` (correr de dentro de `backend/` — Dockerfile/`fly.toml` vivem lá, não na raiz) · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`/Fly: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ✅** (09/09, Fly + GitHub Actions), Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **244**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -138,20 +120,19 @@ sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 ### Próximos passos
 
-**Auditoria de 06/09 → planos P0–P6 no HTML em `docs/fases/`.** P0 (docx no
-`.gitignore`, backfill das 3 leads, apagar `agente_leads`) e P1 (persistir
-`delivered`, `logging.basicConfig`) não precisam de decisão. Query R2 e as
-perguntas ao Miguel (chave do portal, API de escrita do eGO, porta 2 de
-`contactos`) antes de P4/P6. Reenviar as 45 **depois** de P1, para haver prova
-de entrega. Os pontos abaixo mantêm-se.
+**Auditoria de 06/09 → planos P0–P6, ainda por decidir** (parada 07/09;
+detalhe no HTML e nos planos em `docs/fases/`). Reunião com o Miguel de
+07/09 pode alterar prioridades — colar aqui quando definido.
 
-0. **Colar `docs/site-chat/widget.js` no `figueirahome.pt`** e confirmar ao vivo o fluxo widget → Worker → Fly (o utilizador gere o Worker e o `WIDGET_CHAT_SECRET` do lado do site).
-1. **Importar `02`/`03`** no n8n (`01` já feito e testado). Credencial *Supabase API* em cada nó. `03` já tem o timestamp corrigido e o template `figueirahome_follow_|pt_PT` preenchidos, com chão `criado_em gte.2026-08-26` para não apanhar o buraco dos 6 dias mudos. **Correr à mão com `Limit=5`**, trigger desligado (phone id `925368620661613`); contagem de controlo no `docs/n8n/README.md`, confirmar que os 5 ficaram `sem_resposta` com `follow_up_em` e os outros intactos. Antes disso, **apagar as leads de teste** `teste-manual-001`/`002`.
-2. **Reenviar as 45 leads** — prazo **23/09**, depois caem na Maria sem contexto. Antes: a **volta à Alexandra e à Alexsandra** (quais das 8 já foram contactadas → marcar `contacto_humano_em` no painel, o `02` salta-as sozinho) **e** a data exacta no WhatsApp Manager → Insights. Depois: **`name_status: DECLINED`**, o **atraso de 12h do `01`** e o `logging.basicConfig(level=INFO)` no `main.py` (sem ele só o ERROR das falhas se vê).
-3. **Varrer `leads` à procura doutros duplicados antigos** (o fix de 02/09 trava novos, não desfaz os que já existiam) · **"Validar CRM"** no painel, passagem manual — resolve os 12 imóveis em limbo desde 04/08.
-4. **Campos reais do formulário de venda** (`_ALIAS_FICHA` em `guards.py` é palpite) · quem marca `whatsapp_permissao` · **chave do portal do Miguel** → desbloqueia a `0022` (RLS) · **decidir as 70 do CRM** (`imoveis_sync.py:442` só cria "Disponível"; 61 Por validar, 7 Arrendado, 2 Reservado ficam de fora).
-5. **Retomar o construtor de LPs** quando o cliente decidir — aí **apagar `agente_leads`** e **actualizar `landing.py:223`**, o único escritor que sobrou.
-6. **Passagem automática ao eGO** (precisa da chave de integração) · **A3/A4 e sub-fluxos SC/FP** (adiados) · **lembretes 24h/48h** (scheduler) · **dados a montante**: `responsavel` com "Internet" (892), 8432 sem `data_criacao_iso`, `valor_negocio` quase vazio.
+0. Confirmar se o Miguel apagou o duplicado `FH2483_A` (`ego_id` `26927326`) — ainda lá a 09/09.
+1. Confirmar o 1º envio real do nudge da Matilde (`agente_sync_log`, `tipo='nudge_matilde'`) — só testado com 1 número.
+2. Colar `docs/site-chat/widget.js` no `figueirahome.pt`, confirmar ao vivo widget → Worker → Fly.
+3. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; passos em `docs/n8n/README.md`.
+4. Reenviar as 45 leads, prazo **23/09** — confirmar antes quais das 8 (Alexandra/Alexsandra) já contactadas.
+5. Varrer `leads` por duplicados antigos · "Validar CRM" manual no painel (12 imóveis em limbo).
+6. Campos reais do formulário de venda (`_ALIAS_FICHA` é palpite) · chave do portal do Miguel → desbloqueia RLS `0022` · decidir as 70 do CRM sem "Disponível".
+7. Retomar construtor de LPs quando o cliente decidir — aí apagar `agente_leads` e actualizar `landing.py:223`.
+8. Passagem automática ao eGO (chave de integração) · A3/A4 (adiados) · dados a montante (`responsavel`/`data_criacao_iso`/`valor_negocio`).
 
 ## Decisões arquitecturais
 
@@ -182,8 +163,9 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Da auditoria de 06/09, por corrigir** (detalhe e `ficheiro:linha` no HTML): recibos de entrega descartados (A9); email só com MQL completo (A5); `_consultar_leads` do broker lê `agente_leads` morta (A1); `_procurar_cliente` pára na 1ª correspondência, ambiguidade invisível (A3); `find_or_create_cliente` escreve por cima de telefone/email (A4); `lead_aberta` só por telefone (A8); `contacto_humano_em` por lead, não por pessoa (A6); `03` a 48h vs 24h do doc (A7).
 - **O `01` dispara ~12h depois da lead entrar**, desde 28/08 — em rajada de manhã em vez de na hora. Como **16 das 17 respostas reais vieram na 1.ª hora**, isto sozinho chega para matar a conversão. Por investigar nas execuções do n8n.
 - **Sem `logging.basicConfig`**: a raiz fica em `WARNING`. O `ERROR` das falhas de entrega aparece; `sent`/`delivered`/`read` são invisíveis e só se inferem contando recibos.
-- **`agente_leads` ainda existe**, vazia de uso desde 2026-08-18 — a confusão só acaba quando for apagada (Próximos passos 5).
+- **`agente_leads` ainda existe**, vazia de uso desde 2026-08-18 — a confusão só acaba quando for apagada (Próximos passos 7).
 - **Dedup de clientes sob carga**: teste falhou e voltou a passar com o mesmo código. Se aparecerem duplicados em produção, é por aqui.
+- **Nudge da Matilde (09/09)**: resposta "diga-me só que não" ao nudge não foi confirmada ao vivo a chamar `encerrar_lead` — a lógica de desfecho já existe no motor, mas o caminho a partir desta mensagem em concreto não foi testado.
 - **Agente de voz** (bloqueado por Telnyx, não se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2 s sem VAD.
 
 *Fechados 31/08–02/09: pesquisa, MQL, notificações, tarefas/leads duplicadas, timestamp `03`, lead sem contacto — `docs/fases/handoff-2026-09-02-resumo.md`.*
