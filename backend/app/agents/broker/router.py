@@ -21,15 +21,23 @@ import re
 
 A1 = "a1_vendedor"
 A2 = "a2_geral"
+A4 = "a4_angariador"
 
-# Sinais de A4 (angariação) e A3 (recrutamento), da tabela §2.2. Ambos os
-# assistentes estão adiados, por isso estas mensagens vão para o A2 — que
-# recolhe o contacto e escala. Testados ANTES do A1 porque partilham
-# vocabulário com ele ("quanto vale a minha casa" tem "casa").
-_ADIADO_RE = re.compile(
+# Sinais de angariação (venda/arrendamento do PRÓPRIO imóvel) — vão para a
+# Bárbara (A4). Testados ANTES do A1 porque partilham vocabulário com ele
+# ("quanto vale a minha casa" tem "casa").
+_A4_RE = re.compile(
     r"("
     r"quero vender|penso vender|pretendo vender|vender a minha|vender o meu|"
-    r"quanto vale|aval(iar|iação|iacao)|angaria|"
+    r"quanto vale|aval(iar|iação|iacao)|angaria"
+    r")",
+    re.IGNORECASE,
+)
+
+# Sinais de A3 (recrutamento), da tabela §2.2. Continua adiado — vai para o
+# A2, que recolhe o contacto e escala.
+_A3_RE = re.compile(
+    r"("
     r"quero trabalhar|trabalhar convosco|consultor imobili|recrutamento|"
     r"candidatura|candidatar"
     r")",
@@ -54,20 +62,22 @@ _A1_RE = re.compile(
 def route(mensagem: str, agente_atual: str | None) -> str:
     """Devolve a chave do assistente que deve responder.
 
-    Stickiness num sentido só: A2 -> A1 quando aparece sinal de compra,
-    nunca A1 -> A2. Uma thread de comprador continua thread de comprador —
-    o prompt do A1 cobre perguntas institucionais soltas sem precisar de
-    devolver a conversa ao A2 e perder o contexto de qualificação.
+    Stickiness num sentido só por cada balde: A2 -> A1/A4 quando aparece o
+    sinal correspondente, nunca o inverso. Uma thread continua com quem já a
+    tem — o prompt de cada assistente cobre perguntas institucionais soltas
+    sem devolver a conversa ao A2 e perder o contexto de qualificação.
 
-    A3 (recrutamento) e A4 (angariação) estão fora do âmbito desta fase:
-    são reconhecidos, mas encaminhados para o A2 — deixar o A2 recolher o
-    contacto e escalar é melhor do que rotear para um assistente que não
-    existe. É também por isso que este teste vem primeiro: "quanto vale a
-    minha casa" é angariação, não compra, apesar de conter "casa".
+    A3 (recrutamento) continua fora do âmbito: é reconhecido, mas
+    encaminhado para o A2 — deixar o A2 recolher o contacto e escalar é
+    melhor do que rotear para um assistente que não existe. A4 (angariação)
+    é a Bárbara. Ambos os testes vêm ANTES do A1 porque partilham
+    vocabulário com ele ("quanto vale a minha casa" tem "casa").
     """
     texto = mensagem or ""
-    if _ADIADO_RE.search(texto):
+    if _A3_RE.search(texto):
         return A2
+    if _A4_RE.search(texto):
+        return A4
     if _A1_RE.search(texto):
         return A1
     if agente_atual:
@@ -81,7 +91,8 @@ def demo() -> None:
     assert route("bom dia", None) == A2
     assert route("obrigado!", A1) == A1
     assert route("procuro um T2", A2) == A1
-    assert route("quero vender a minha casa", None) == A2
+    assert route("quero vender a minha casa", None) == A4
+    assert route("quero trabalhar convosco", None) == A2
     print("router OK")
 
 

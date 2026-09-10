@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 from anthropic import AsyncAnthropic
 
-from app.agents.broker.assistants import A1, A2, BROKER, NOME_A1
+from app.agents.broker.assistants import A1, A2, A4, BROKER, NOME_A1, NOME_A4
 from app.agents.broker.guards import (
     encerrar_lead_do_telefone,
     find_or_create_cliente,
@@ -792,7 +792,7 @@ async def _encerrar_lead(inputs: dict, contexto: dict) -> str:
 
 # Nome que aparece nos emails de notificação — `contexto["agente"]` é o id
 # interno (`a1_vendedor`), ilegível para quem recebe o aviso.
-_NOME_AGENTE = {A1: NOME_A1, A2: "Maria", BROKER: "Broker"}
+_NOME_AGENTE = {A1: NOME_A1, A2: "Maria", A4: NOME_A4, BROKER: "Broker"}
 
 
 async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:

@@ -5,6 +5,7 @@ export const pt = {
     assistentes: 'Assistentes',
     a1: 'A1 — Vendedor',
     a2: 'A2 — Geral',
+    a4: 'A4 — Angariador',
     voz: 'Voz',
     broker: 'Broker (interno)',
     clientes: 'Clientes',

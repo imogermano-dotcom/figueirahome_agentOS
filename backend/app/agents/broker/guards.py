@@ -232,13 +232,18 @@ async def lead_aberta(telefone: str | None) -> dict | None:
 
 
 async def agente_de_lead(telefone: str | None) -> str | None:
-    """`a1_vendedor` se o número for de uma lead de compra ainda em aberto.
+    """Assistente dono da lead ainda em aberto deste número, ou `None`.
 
     Devolve `None` em qualquer outro caso, para o router decidir como decidia.
     """
     lead = await lead_aberta(telefone)
-    if lead and lead.get("tipo") in ("compra", "arrendamento"):
+    if not lead:
+        return None
+    tipo = lead.get("tipo")
+    if tipo in ("compra", "arrendamento"):
         return "a1_vendedor"
+    if tipo == "angariacao":
+        return "a4_angariador"
     return None
 
 

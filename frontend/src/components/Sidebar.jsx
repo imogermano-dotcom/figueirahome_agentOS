@@ -8,6 +8,7 @@ const navItems = [
   { grupo: pt.nav.assistentes },
   { to: '/agentes/a1_vendedor', label: pt.nav.a1, icon: '🏠' },
   { to: '/agentes/a2_geral', label: pt.nav.a2, icon: '📞' },
+  { to: '/agentes/a4_angariador', label: pt.nav.a4, icon: '🔑' },
   { to: '/agentes/voz', label: pt.nav.voz, icon: '☎' },
   { to: '/agentes/broker', label: pt.nav.broker, icon: '🔒' },
   { grupo: null },

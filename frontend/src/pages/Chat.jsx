@@ -7,6 +7,7 @@ const OPCOES = [
   { valor: 'broker',      label: 'Broker (interno)' },
   { valor: 'a1_vendedor', label: 'A1 — Vendedor' },
   { valor: 'a2_geral',    label: 'A2 — Atendimento Geral' },
+  { valor: 'a4_angariador', label: 'A4 — Angariador (Bárbara)' },
   { valor: 'auto',        label: 'Auto (router)' },
 ]
 
@@ -14,6 +15,7 @@ const SUGESTAO = {
   broker:      'Ex: "Que imóveis tenho em Coimbra abaixo de 200 mil?"',
   a1_vendedor: 'Ex: "Procuro um T2 na Figueira até 150 mil"',
   a2_geral:    'Ex: "Qual é o vosso horário?"',
+  a4_angariador: 'Ex: "Quero vender o meu apartamento em Buarcos"',
   auto:        'Escreve como um cliente — o router escolhe quem responde.',
 }
 

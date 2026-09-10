@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.agents.broker.router import A1, A2, route  # noqa: E402
+from app.agents.broker.router import A1, A2, A4, route  # noqa: E402
 
 
 def test_classificacao_inicial():
@@ -29,17 +29,23 @@ def test_stickiness():
     assert route("procuro um T2", A2) == A1
 
 
-def test_a3_a4_adiados_vao_para_a2():
-    # Reconhecidos, mas encaminhados para o A2 enquanto A3/A4 não existem.
-    # "casa"/"imóvel" nestas frases não pode arrastá-las para o A1.
-    assert route("quero vender a minha casa", None) == A2
-    assert route("quanto vale a minha casa?", None) == A2
-    assert route("queria uma avaliação do meu imóvel", None) == A2
+def test_a3_recrutamento_adiado_vai_para_a2():
+    # A3 não existe — reconhecido, mas encaminhado para o A2.
     assert route("quero trabalhar convosco como consultor imobiliário", None) == A2
+    assert route("gostaria de enviar a minha candidatura", None) == A2
+
+
+def test_a4_angariacao_vai_para_barbara():
+    # "casa"/"imóvel" nestas frases não pode arrastá-las para o A1.
+    assert route("quero vender a minha casa", None) == A4
+    assert route("quanto vale a minha casa?", None) == A4
+    assert route("queria uma avaliação do meu imóvel", None) == A4
+    # Stickiness: uma thread já da Bárbara mantém-se sem sinal novo.
+    assert route("obrigado, fico a aguardar", A4) == A4
 
 
 def test_nunca_devolve_agente_inexistente():
-    conhecidos = {A1, A2}
+    conhecidos = {A1, A2, A4}
     casos = [
         ("quero comprar casa", None),
         ("bom dia", None),
@@ -55,6 +61,7 @@ def test_nunca_devolve_agente_inexistente():
 if __name__ == "__main__":
     test_classificacao_inicial()
     test_stickiness()
-    test_a3_a4_adiados_vao_para_a2()
+    test_a3_recrutamento_adiado_vai_para_a2()
+    test_a4_angariacao_vai_para_barbara()
     test_nunca_devolve_agente_inexistente()
     print("test_router OK")
