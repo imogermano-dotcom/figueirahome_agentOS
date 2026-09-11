@@ -108,8 +108,26 @@ def _texto_perfil(c: dict) -> str:
     )
 
 
+_DIAS_SEMANA = (
+    "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira",
+    "sexta-feira", "sábado", "domingo",
+)
+
+
+def _data_de_hoje() -> str:
+    """Data real, para o modelo propor horários em dias úteis que existem.
+
+    Sem isto o modelo inventa uma data plausível mas errada ao propor visitas
+    (A1 `agendar_visita`, A4 `escalar_para_humano`) — observado ao vivo com a
+    Bárbara a propor "22 de Julho" numa conversa de Setembro. UTC chega para
+    "que dia é hoje"; não é caminho onde a hora exacta importe.
+    """
+    hoje = datetime.now(timezone.utc)
+    return f"Hoje é {_DIAS_SEMANA[hoje.weekday()]}, {hoje.strftime('%d/%m/%Y')}."
+
+
 def _montar_system_prompt(spec: dict, perfil: str, extra: str, canal: str) -> str:
-    system_prompt = spec["prompt"] + perfil + extra
+    system_prompt = spec["prompt"] + perfil + extra + f"\n\n{_data_de_hoje()}"
     if canal == "site":
         system_prompt += _INSTRUCAO_IDENTIDADE_SITE
     return system_prompt
