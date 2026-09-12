@@ -1,0 +1,17 @@
+name: Uptime figueirahome.pt
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # de 5 em 5 min — 3 falhas seguidas = alerta em ~10-15 min
+  workflow_dispatch: {}
+
+jobs:
+  uptime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar figueirahome.pt
+        run: |
+          curl -sf -X POST "https://figueirahome-agentos.fly.dev/api/site/uptime-check" \
+            -H "X-Automacao-Secret: ${{ secrets.AUTOMACAO_SECRET }}" \
+            -w "\ntempo total: %{time_total}s\n" \
+            --max-time 30
