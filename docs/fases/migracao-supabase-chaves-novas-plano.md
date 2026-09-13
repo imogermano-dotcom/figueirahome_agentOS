@@ -67,6 +67,17 @@ utilizador, criada por ele no dashboard):
 - ⚠️ Segredos antigos (`SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_IMOVEIS_URL`,
   `SUPABASE_IMOVEIS_KEY`) ainda não removidos do Fly em nenhuma das duas
   apps — por decidir quando remover.
+- ✅ **Frontend/login** (`figueirahome-agentos.pages.dev`) — achado à parte
+  do resto: `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` (Cloudflare Pages,
+  variáveis de build do Vite) ainda apontavam para o `fykbo...` eliminado —
+  `auth/v1/token?grant_type=refresh_token` a devolver 503, confirmado ao
+  vivo. Login novo estava partido em produção (sessões já abertas
+  sobreviviam por terem o token em cache). Corrigido: `.env` local
+  actualizado para `zphasvfopnbzwnaidsnw` + a `sb_publishable_...` nova;
+  utilizador actualizou a variável no Cloudflare e fez "Retry deployment"
+  (mudar a variável sozinha não republica — o Vite baptiza `VITE_*` no
+  bundle em build-time). Confirmado no bundle novo (`index-C31TlEgV.js`):
+  zero referências ao projecto antigo, chave nova presente.
 
 ## Fora do âmbito desta correcção
 
