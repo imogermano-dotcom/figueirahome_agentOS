@@ -52,12 +52,24 @@ utilizador, criada por ele no dashboard):
    SUPABASE_SERVICE_ROLE_KEY SUPABASE_IMOVEIS_URL SUPABASE_IMOVEIS_KEY` —
    não antes, para haver caminho de volta se a chave nova falhar.
 
-## Fora do âmbito desta correcção (seguem-se depois)
+## Estado (13/09)
 
-- **`scraper/`** (app Fly separada, `figueirahome-scraper`) também lê
-  Supabase com as mesmas variáveis — mesmíssimo problema, cron diário
-  06:00/13:00 UTC. Precisa da mesma migração, noutra app. Sinalizado, não
-  incluído aqui para não misturar dois deploys.
+- ✅ Backend (`figueirahome-agentos`) — migrado, deployado, confirmado com
+  escrita real em produção (`agente_sync_log`).
+- ✅ Scraper (`figueirahome-scraper`) — migrado, deployado, `/health` 200,
+  ligação a `imoveis`/`oportunidades`/`contactos` confirmada. Pipeline
+  completo (Playwright + upsert) não testado ao vivo — corre no cron
+  06:00/13:00 UTC ou à mão via `/run/oportunidades-completo`.
+- ⚠️ Chave usada em ambos é **temporária, partilhada com o site**
+  (`sitefigueirahome`) — utilizador sem acesso para criar uma dedicada no
+  momento do incidente. Trocar por uma própria do backend/scraper assim que
+  possível.
+- ⚠️ Segredos antigos (`SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_IMOVEIS_URL`,
+  `SUPABASE_IMOVEIS_KEY`) ainda não removidos do Fly em nenhuma das duas
+  apps — por decidir quando remover.
+
+## Fora do âmbito desta correcção
+
 - **Portal do Miguel, Make, bundle das landing pages** — externos a este
   repo. Ficam resolvidos **se** as chaves legacy forem reactivadas
   entretanto (decisão do utilizador, ver conversa), ou continuam bloqueados
