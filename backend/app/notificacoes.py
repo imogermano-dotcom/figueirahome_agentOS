@@ -38,9 +38,12 @@ def destinatarios() -> list[str]:
 def _consultor_do_imovel(imovel_ref: str) -> tuple[str | None, str]:
     """Email de quem angariou o imóvel, e o motivo quando não há.
 
-    Duas consultas em **bases diferentes**, por isso não há join: `imoveis` vive
-    no projecto de dados e `profiles` no de autenticação. A ponte é
-    `profiles.ego_responsavel`, que guarda o nome tal como o eGO o escreve.
+    Duas queries sem join porque `profiles` não tem FK para `imoveis` — a
+    ponte é `profiles.ego_responsavel`, que guarda o nome tal como o eGO o
+    escreve. Até 13/09 eram também dois *projectos* Supabase distintos
+    (`imoveis` num, `profiles` no de Auth); o de Auth foi eliminado e
+    `profiles` integrado no mesmo projecto — continua a ser duas consultas,
+    já não é a duas bases.
 
     A cobertura é parcial e **não é uma tarefa de configuração por fazer**: a
     2026-08-16, 21 dos 54 imóveis publicados (39%) estavam atribuídos a pessoas
@@ -52,7 +55,7 @@ def _consultor_do_imovel(imovel_ref: str) -> tuple[str | None, str]:
     `profiles`" levaria alguém, daqui a uns meses, a criar contas a
     ex-colaboradoras a partir de um email automático.
     """
-    from app.db.supabase_client import get_supabase, get_supabase_auth
+    from app.db.supabase_client import get_supabase
 
     try:
         im = (
@@ -66,7 +69,7 @@ def _consultor_do_imovel(imovel_ref: str) -> tuple[str | None, str]:
             return None, f"o imóvel {imovel_ref} não tem angariador no eGO"
 
         perfil = (
-            get_supabase_auth().table("profiles").select("email")
+            get_supabase().table("profiles").select("email")
             .eq("ego_responsavel", nome).limit(1).execute().data
         )
         if not perfil or not perfil[0].get("email"):

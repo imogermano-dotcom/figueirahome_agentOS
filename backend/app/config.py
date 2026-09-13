@@ -12,13 +12,12 @@ class Settings(BaseSettings):
     telnyx_public_key: str = ""
     telnyx_phone_number: str = ""
 
-    # Supabase — projecto principal
+    # Supabase — projecto único (o de Auth, `fykbo...`, foi eliminado a
+    # 13/09 e integrado neste — ver docs/fases/migracao-supabase-chaves-novas-plano.md).
+    # Chave nova (`sb_secret_...`): as antigas anon/service_role foram
+    # desactivadas pelo Supabase a nível de projecto em 12/09.
     supabase_url: str = ""
-    supabase_service_role_key: str = ""
-
-    # Supabase — projecto imóveis (segunda base)
-    supabase_imoveis_url: str = ""
-    supabase_imoveis_key: str = ""
+    supabase_secret_key: str = ""
 
     # eGO Real Estate — CRM da agência (fonte de verdade para imóveis)
     egorealestate_api_key: str = ""
