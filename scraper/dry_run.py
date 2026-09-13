@@ -30,11 +30,11 @@ def main() -> None:
     for tabela in ("oportunidades", "notas", "tarefas", "prefs", "contactos"):
         print(f"  {tabela}: {len(batch[tabela])}")
 
-    if not config.supabase_imoveis_url or not config.supabase_imoveis_key:
-        print("\nSUPABASE_IMOVEIS_URL/KEY não configuradas — sem comparação com produção.")
+    if not config.supabase_url or not config.supabase_secret_key:
+        print("\nSUPABASE_URL/SUPABASE_SECRET_KEY não configuradas — sem comparação com produção.")
         return
 
-    supabase = create_client(config.supabase_imoveis_url, config.supabase_imoveis_key)
+    supabase = create_client(config.supabase_url, config.supabase_secret_key)
 
     print("\n-- Diff contra produção (5 primeiras oportunidades) --")
     for oport in batch["oportunidades"][:5]:

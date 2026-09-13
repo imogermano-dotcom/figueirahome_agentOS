@@ -307,7 +307,7 @@ async def run(headless: bool = True) -> dict:
         f"tarefas={len(batch['tarefas'])} prefs={len(batch['prefs'])} contactos={len(batch['contactos'])}"
     )
 
-    supabase = create_client(config.supabase_imoveis_url, config.supabase_imoveis_key)
+    supabase = create_client(config.supabase_url, config.supabase_secret_key)
     return upsert.run(supabase, batch)
 
 
