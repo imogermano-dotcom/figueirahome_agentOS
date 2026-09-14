@@ -30,6 +30,7 @@ async def run_oportunidades_completo(x_scraper_secret: str = Header(None, alias=
     try:
         return await oportunidades_completo.run(headless=True)
     except RuntimeError as e:
+        logger.error("Falha no scrape de oportunidades (relatório completo): %s", e)
         raise HTTPException(status_code=502, detail=str(e))
     except Exception:
         logger.exception("Falha no scrape de oportunidades (relatório completo)")
