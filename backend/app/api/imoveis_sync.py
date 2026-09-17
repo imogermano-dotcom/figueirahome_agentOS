@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.deps import require_auth, require_sync_access
 from app.db.supabase_client import get_supabase
@@ -12,8 +12,16 @@ router = APIRouter(prefix="/api")
 
 
 @router.post("/imoveis/sync/egorealestate/api")
-async def sync_egorealestate_api_endpoint(acesso=Depends(require_sync_access)):
+async def sync_egorealestate_api_endpoint(request: Request, acesso=Depends(require_sync_access)):
     origem = "cron" if acesso == "sync-secret" else "manual"
+    if origem == "cron":
+        logger.warning(
+            "Sync API (imoveis) via sync-secret — client=%s x-forwarded-for=%s fly-client-ip=%s user-agent=%s",
+            request.client.host if request.client else None,
+            request.headers.get("x-forwarded-for"),
+            request.headers.get("fly-client-ip"),
+            request.headers.get("user-agent"),
+        )
     try:
         return await sync_egorealestate_api(origem)
     except RuntimeError as e:
