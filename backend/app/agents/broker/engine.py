@@ -117,10 +117,10 @@ _DIAS_SEMANA = (
 def _data_de_hoje() -> str:
     """Data real, para o modelo propor horários em dias úteis que existem.
 
-    Sem isto o modelo inventa uma data plausível mas errada ao propor visitas
-    (A1 `agendar_visita`, A4 `escalar_para_humano`) — observado ao vivo com a
-    Bárbara a propor "22 de Julho" numa conversa de Setembro. UTC chega para
-    "que dia é hoje"; não é caminho onde a hora exacta importe.
+    Sem isto o modelo inventa uma data plausível mas errada (ex.: A4
+    `escalar_para_humano`) — observado ao vivo com a Bárbara a propor "22 de
+    Julho" numa conversa de Setembro. UTC chega para "que dia é hoje"; não é
+    caminho onde a hora exacta importe.
     """
     hoje = datetime.now(timezone.utc)
     return f"Hoje é {_DIAS_SEMANA[hoje.weekday()]}, {hoje.strftime('%d/%m/%Y')}."
@@ -201,7 +201,7 @@ async def _contexto_inicial(
 # Tools cujos argumentos são critérios de pesquisa e nada mais. Só destas se
 # guardam os `input` em `agente_interacoes.tools_detalhe`.
 #
-# `guardar_dados_cliente`, `agendar_visita` e `escalar_para_humano` recebem
+# `guardar_dados_cliente`, `pedir_visita` e `escalar_para_humano` recebem
 # nome, telefone e email — copiá-los para cá espalharia dados pessoais por uma
 # segunda tabela sem necessidade. Dessas guarda-se o nome da tool e mais nada.
 #

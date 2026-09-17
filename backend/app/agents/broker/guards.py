@@ -8,10 +8,10 @@ Duas guardas, ambas da spec `assistentes-ia-especificacao.md`:
   partilha que a torna eficaz. Antes desta função havia quatro upserts
   artesanais quase iguais (WhatsApp, voz, e cada tool que gravava cliente).
 
-* **Regra dos 80%** (§3.2 SV) — não marcar visita se o orçamento declarado
-  for inferior a 80% do preço de venda. Aplicada dentro de `agendar_visita`,
-  antes de qualquer escrita: o modelo fica impedido de marcar, em vez de ser
-  apenas instruído a não o fazer.
+* **Regra dos 80%** (§3.2 SV) — não registar pedido de visita se o orçamento
+  declarado for inferior a 80% do preço de venda. Aplicada dentro de
+  `pedir_visita`, antes de qualquer escrita: o modelo fica impedido, em vez
+  de ser apenas instruído a não o fazer.
 """
 
 import asyncio

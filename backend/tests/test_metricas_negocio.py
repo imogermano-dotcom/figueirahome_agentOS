@@ -43,8 +43,8 @@ def test_guardar_dados_cliente_nao_deixa_passar_pii():
     assert "input" not in d
 
 
-def test_agendar_visita_e_escalar_nao_deixam_passar_pii():
-    for tool in ("agendar_visita", "escalar_para_humano"):
+def test_pedir_visita_e_escalar_nao_deixam_passar_pii():
+    for tool in ("pedir_visita", "escalar_para_humano"):
         d = _detalhe_tool({
             "name": tool,
             "input": {"nome": "Maria", "telefone": "913000000", "resumo": "quer visitar"},

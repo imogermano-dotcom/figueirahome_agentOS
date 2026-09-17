@@ -129,12 +129,12 @@ TOOL_DEFINITIONS = [
         },
     },
     {
-        "name": "agendar_visita",
+        "name": "pedir_visita",
         "description": (
-            "Regista um pedido de visita a um imóvel. A tool verifica se o orçamento "
-            "declarado é compatível com o preço — se não for, recusa e devolve instruções. "
-            "Propõe tu os horários ao cliente; não lhe peças que escolha sozinho. "
-            "O horário fica por confirmar pelo consultor."
+            "Regista o interesse do cliente em visitar um imóvel. A tool verifica se o "
+            "orçamento declarado é compatível com o preço — se não for, recusa e devolve "
+            "instruções. Não propõe nem negoceia horário: quem agenda é a consultora, por "
+            "contacto directo com o cliente."
         ),
         "input_schema": {
             "type": "object",
@@ -144,15 +144,11 @@ TOOL_DEFINITIONS = [
                 "telefone": {"type": "string", "description": "Telefone de contacto"},
                 "quando": {
                     "type": "string",
-                    "description": "Data e hora pretendidas, como o cliente as disse (ex: 'sábado às 15h')",
-                },
-                "data_iso": {
-                    "type": "string",
-                    "description": "A mesma data em formato AAAA-MM-DD, se conseguires determiná-la",
+                    "description": "Preferência de data/hora que o cliente tenha mencionado, se alguma (ex: 'fim-de-semana'). Não perguntes por isto.",
                 },
                 "orcamento": {"type": "number", "description": "Orçamento declarado pelo cliente, em euros"},
             },
-            "required": ["imovel_ref", "nome", "telefone", "quando"],
+            "required": ["imovel_ref", "nome", "telefone"],
         },
     },
     {
@@ -678,7 +674,7 @@ def _preco_do_imovel(ref: str) -> dict | None:
     return resp.data[0] if resp.data else None
 
 
-async def _agendar_visita(inputs: dict, contexto: dict) -> str:
+async def _pedir_visita(inputs: dict, contexto: dict) -> str:
     ref = (inputs.get("imovel_ref") or "").strip()
     imovel = await _run(_preco_do_imovel, ref)
     if not imovel:
@@ -693,31 +689,39 @@ async def _agendar_visita(inputs: dict, contexto: dict) -> str:
     if venda_preco and venda_preco > 0 and not visita_permitida(orcamento, venda_preco):
         if orcamento:
             return (
-                f"NÃO MARCADA. Este imóvel custa {venda_preco:.0f}€, acima do orçamento "
+                f"NÃO REGISTADO. Este imóvel custa {venda_preco:.0f}€, acima do orçamento "
                 f"de {orcamento:.0f}€ que o cliente indicou. Explica que preferes procurar "
                 "imóveis semelhantes que se enquadrem melhor, e usa pesquisar_imoveis "
                 "com os critérios que já conheces."
             )
         return (
-            "NÃO MARCADA. Falta saber o orçamento. Pergunta o intervalo de investimento "
+            "NÃO REGISTADO. Falta saber o orçamento. Pergunta o intervalo de investimento "
             "que o cliente tem em mente, explicando que ajuda a preparar a visita e que "
             "não é compromisso nenhum. Se recusar dizer, usa escalar_para_humano."
         )
 
     telefone = normalizar_telefone(inputs.get("telefone") or contexto.get("telefone"))
     nome = inputs.get("nome")
-    quando = inputs.get("quando") or "data a confirmar"
+    quando = inputs.get("quando")
 
-    await find_or_create_cliente(
+    cliente = await find_or_create_cliente(
         nome=nome,
         telefone=telefone,
         orcamento=orcamento,
         origem=contexto.get("origem", "whatsapp"),
     )
+    # Pedido de visita é sinal de interesse real — garante que fica sempre
+    # ligado a uma lead, mesmo que `guardar_dados_cliente` nunca tenha corrido
+    # nesta conversa (era o buraco: cliente gravado, lead nenhuma).
+    if cliente:
+        await _run(
+            _criar_lead_se_preciso, cliente,
+            f"Pedido de visita a {imovel.get('imovel_ref')}." + (f" Quando: {quando}." if quando else ""),
+        )
 
-    # ponytail: a visita vive em agente_tarefas — `prazo` é date, por isso a
-    # hora fica no título. Sem coluna de tempo não dá para fazer a query do
-    # lembrete 24h; criar `agente_visitas` quando os lembretes entrarem.
+    # ponytail: a visita vive em agente_tarefas — sem coluna de tempo própria,
+    # `prazo` fica por preencher (sem horário para converter em data). Criar
+    # `agente_visitas` quando os lembretes de visita entrarem.
     descricao = "\n".join(
         p for p in (
             f"Pedido de visita via {contexto.get('canal', 'assistente')}.",
@@ -725,17 +729,16 @@ async def _agendar_visita(inputs: dict, contexto: dict) -> str:
             f"Preço: {venda_preco:.0f}€" if venda_preco else None,
             f"Orçamento declarado: {orcamento:.0f}€" if orcamento else None,
             f"Contacto: {nome or '?'} — {telefone or '?'}",
-            f"Quando: {quando}",
+            f"Preferência de data/hora: {quando}" if quando else None,
         ) if p
     )
 
     await _run(
         _inserir_tarefa,
         {
-            "titulo": f"Visita {imovel.get('imovel_ref')} — {nome or '?'} {telefone or ''} — {quando}".strip(),
+            "titulo": f"Pedido de visita {imovel.get('imovel_ref')} — {nome or '?'} {telefone or ''}".strip(),
             "descricao": descricao,
             "imovel_ref": imovel.get("imovel_ref"),
-            "prazo": _data_valida(inputs.get("data_iso")),
             "estado": "pendente",
             # Campos de métrica (migration 0018). O título continua legível
             # para o corretor, mas deixa de ser a fonte de verdade.
@@ -747,7 +750,8 @@ async def _agendar_visita(inputs: dict, contexto: dict) -> str:
     # A visita era a única escrita cliente-facing que ficava só na tarefa. A spec
     # §2.2 ("Interesse real") manda avisar por email, e é o desfecho que mais o
     # merece: a pessoa está a pedir para ver a casa. `notificar` engole os
-    # próprios erros e resolve sozinho a consultora do imóvel — ver notificacoes.py.
+    # próprios erros e resolve sozinho a consultora do imóvel (e o director,
+    # sempre) — ver notificacoes.py.
     await _run(
         notificar,
         f"Pedido de visita — {imovel.get('imovel_ref')}",
@@ -759,16 +763,16 @@ async def _agendar_visita(inputs: dict, contexto: dict) -> str:
             f"Preço:     {venda_preco:.0f}€" if venda_preco else None,
             f"Contacto:  {nome or '—'} — {telefone or '—'}",
             f"Orçamento: {orcamento:.0f}€" if orcamento else None,
-            f"Quando:    {quando}",
+            f"Preferência de data/hora: {quando}" if quando else None,
             "",
-            "Foi dito ao cliente que o consultor confirma o horário e entra em contacto.",
+            "A consultora entra em contacto directamente para agendar.",
         ) if p is not None),
         imovel.get("imovel_ref"),
     )
 
     return (
-        "Pedido de visita registado. Confirma ao cliente que o consultor valida "
-        "o horário e entra em contacto."
+        "Pedido registado. Diz ao cliente que a consultora responsável vai "
+        "entrar em contacto para combinar a visita — não proponhas horário nenhum."
     )
 
 
@@ -856,16 +860,6 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
     )
 
 
-def _data_valida(valor: str | None) -> str | None:
-    """Só aceita AAAA-MM-DD; qualquer outra coisa fica de fora (a hora vai no título)."""
-    if not valor:
-        return None
-    try:
-        return date.fromisoformat(valor.strip()).isoformat()
-    except ValueError:
-        return None
-
-
 def _inserir_tarefa(dados: dict) -> None:
     get_supabase().table("agente_tarefas").insert(
         {k: v for k, v in dados.items() if v is not None}
@@ -941,8 +935,8 @@ async def execute_tool(name: str, inputs: dict, contexto: dict | None = None) ->
             return await _link_imovel(inputs, contexto)
         if name == "guardar_dados_cliente":
             return await _guardar_dados_cliente(inputs, contexto)
-        if name == "agendar_visita":
-            return await _agendar_visita(inputs, contexto)
+        if name == "pedir_visita":
+            return await _pedir_visita(inputs, contexto)
         if name == "escalar_para_humano":
             return await _escalar_para_humano(inputs, contexto)
         if name == "encerrar_lead":
