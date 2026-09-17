@@ -15,7 +15,7 @@ Plataforma de IA para agência imobiliária em Portugal:
 |---|---|
 | Frontend | React + Tailwind v4 (Vite) → Cloudflare Pages |
 | Backend | FastAPI (Python, async) → Fly.io. Landing pages em Jinja2 + CSS à mão |
-| Base de dados | Supabase (PostgreSQL + Auth) — 2 projectos |
+| Base de dados | Supabase (PostgreSQL + Auth) — 1 projecto (fundido em 13/09) |
 | Telefonia / STT / TTS | Telnyx (Call Control + Streaming) · OpenAI Whisper (PT) · Telnyx `speak()` (`Polly.Ines-Neural`) |
 | IA | Claude API — Sonnet 4.6 (httpx directo, não SDK) |
 
@@ -33,7 +33,7 @@ backend/app/
 │                      80% + qualificação), custos, tools, conversation, nudge
 │                      (lembrete 24h), channels/whatsapp/ (webhook, meta_api, formatacao)
 ├── integrations/    ← egorealestate.py (cliente API), imoveis_sync.py (upsert + extras)
-├── db/supabase_client.py  ← get_supabase() [dados] + get_supabase_auth() [só login]
+├── db/supabase_client.py  ← get_supabase(), cliente único (projecto de dados + Auth fundidos)
 └── models/          ← Pydantic (imovel, cliente, lead, tarefa, ...)
 
 frontend/src/  App.jsx · lib/ · components/ (Layout, Sidebar, AgenteMetricas, · AgenteConversas, Barras, LandingPagesTab ⑂, ui.jsx ⑂) · pages/ (Dashboard,  · Clientes, Imoveis, Leads, Chat, AgenteConfig, Config)
@@ -42,37 +42,47 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-09-10
+## Estado actual — Handoff 2026-09-17
 
-Sessão mista: auditoria continua parada, investigação ao vivo de um bug real no eGO, e uma fase nova completa — implementada, testada em produção e deployada (dois deploys: feature + fix pós-teste).
+Leads da Meta entram 100% pelo n8n agora, não pelo Make: `Meta leads to
+supabase` só recebe o ID no webhook, vai buscar tudo à Graph API, `Switch`
+por `campaign_name` em 3 ramos (compra/arrendamento, Angariação,
+Recrutamento), cada um chama uma função Postgres própria com dedup gracioso
+(200 + `status:duplicate`, nunca 409). Detalhe completo:
+`docs/fases/leads-meta-n8n-resumo.md`.
 
-- **Nova feature em produção — Matilde, Frente A**: nudge dentro da janela de 24h quando a conversa pára a meio (Matilde sem resposta 6-20h), excluindo despedidas e leads fechadas/entregues a humano. Testado ao vivo com número real, cron activo (hora a hora) desde 09/09. Fix pós-teste: a guarda inicial excluía quem **nunca** teve `leads` (indistinguível de "fechada" via `lead_aberta`) — exactamente o caso de maior valor que motivou a fase (proposta de 110 000€ ao FH2571, sem nome/telefone recolhidos); `nudge._pode_enviar` só recusa com `ESTADOS_FECHADOS` ou `contacto_humano_em` explícitos. Detalhe: `docs/fases/matilde-followup-plano.md`/`-resumo.md`. Commits `093e414`/`d21eea0`.
-- **Achado eGO, ao vivo**: `angariador` pode ficar congelado mesmo com sync sem erros — a Web API devolve `PropertyAgents: []` quando o eGO tem **múltiplos registos internos para a mesma referência** (`FH2483_A`: 3, só um exposto). Corrigido à mão (Sandra Silva); Miguel ficou de apagar o duplicado, **ainda não apagou**. De caminho, corrigida a memória do "bloqueio de carteira" do CRM (18/08): era **espaço de ID errado** (`ego_id` da Web API ≠ ID do backoffice), não permissão — `find_by_ref` já contorna, `validar_disponibilidade_crm` só ineficiente, não corrigido.
-- **Auditoria de 06/09 continua parada** (pedido do utilizador, 07/09) — P0–P6 por decidir. Reunião com o Miguel em 07/09 tocou este tema; detalhe por colar (memória `reuniao-miguel-2026-09-07`).
+- **`contactos` começa a ser registo unificado** de leads — ganhou `estado`,
+  `template_enviado(_em)`, `meta_lead_id` (UNIQUE), `meta_form_name`,
+  `meta_created_at`, `tipo_contacto` (array `comprador`/`vendedor`/
+  `recrutamento`). Aditivo; tabela continua do Miguel/pipeline externo.
+- **`leads_angariacao` deixou de ser escrita** — Angariação grava só em
+  `contactos`. Continua a existir, lida por humanos, não apagar.
+- **Bug real na guarda de idempotência do `01`**: comparava
+  `template_enviado_em`/`contacto_humano_em` como `type: "object"`, rebentava
+  com string não-vazia (lead já contactada) em vez de bloquear. Corrigido.
+- **`DADOS - FB FORM` (ramo compra) lia o nó errado desde 08/09** — nunca
+  exercitado (testes só cobriam Angariação). Corrigido.
+- Scraper: `logger.error` no `RuntimeError` do sync de oportunidades —
+  deployado (`5caebef`).
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| Backend `figueirahome-agentos.fly.dev` | ✅ 2026-09-09, `d21eea0` — Matilde Frente A em produção |
-| Frontend `figueirahome-agentos.pages.dev` | ✅ Cloudflare Pages, auto-deploy do push |
-| Scraper `figueirahome-scraper.fly.dev` | ✅ 2026-08-15 em `7b1843f` |
-| Assistentes A1/A2 | ✅ WhatsApp + painel, pesquisa real + link da landing page + nudge 24h |
-| Cron imóveis (GitHub Actions) | ✅ `sync-imoveis.yml`, **06:00 e 13:00 UTC** |
-| Cron oportunidades (GitHub Actions) | ✅ `sync-oportunidades.yml`, **03:00 UTC** |
-| Cron nudge Matilde (GitHub Actions) | ✅ `nudge-matilde.yml`, **hora a hora**, desde 09/09 |
-| n8n `01` | ✅ testado em produção 29/08 |
-| n8n `02`/`03` | ⚠️ **por importar/publicar** — sem mudança desde 06/09 |
-| `master` | ✅ pushed e deployado. Landing pages **fora** de `master`, no ramo `feat/landing-pages` |
+| `Meta leads to supabase` (n8n) | ✅ 17/09 — Switch 3 ramos, RPCs graciosas |
+| `01` enviar template compra/arrendamento (n8n) | ✅ 17/09 — trigger novo, bug da guarda corrigido |
+| `enviar template Angariação` (n8n) | ✅ 15/09 — WhatsApp real entregue, testado |
+| Envio template Recrutamento | ❌ falta template aprovado na Meta — só RPC+routing feitos |
+| Backend/Scraper/Frontend | ✅ (13/09, chaves novas) |
+| `master` | commit `5caebef` + este handoff |
 
 ### Fases anteriores — deployadas, detalhe em `docs/fases/`
 
+- **Leads Meta → n8n nativo, `contactos` unificado, 3 RPCs graciosas (14–17/09)** — `leads-meta-n8n-resumo.md`
+- **A4 "Bárbara" + fix datas + uptime monitor + migração chaves Supabase (13/09)** — `handoff-2026-09-13-resumo.md`
 - **Matilde: nudge 24h dentro da conversa (09/09)** — `matilde-followup-resumo.md`
-- **Auditoria "Leads de Campanha" — matriz, 12 achados, planos P0–P6 (06/09)** — `handoff-2026-09-06-resumo.md`
-- **Sync: origem cron/manual, painel de sync limpo (03–05/09)** — `handoff-2026-09-05-resumo.md`
-- **Chat do site, dedupe de leads, lead sem contacto (01–02/09)** — `handoff-2026-09-02-resumo.md`
-- **Auditoria ao A1, 4 bugs — pesquisa, MQL, notificações, dedupe WhatsApp (31/08)** — `handoff-2026-08-31-resumo.md`
-- **Landing pages**: no ar em `imoveis.figueirahome.pt`, fora deste repo; construtor (`feat/landing-pages`) **parado por decisão do cliente**.
+- **Auditoria "Leads de Campanha", 12 achados, planos P0–P6 (06/09)** — `handoff-2026-09-06-resumo.md`
+- **Landing pages**: no ar, fora deste repo; construtor (`feat/landing-pages`) parado por decisão do cliente.
 
 ### Invariantes que não são óbvias a ler o código
 
@@ -95,16 +105,9 @@ Sessão mista: auditoria continua parada, investigação ao vivo de um bug real 
 
 ### Dados
 
-Tudo no projecto `zphasvfopnbzwnaidsnw` (settings `supabase_imoveis_*`, CLI ligado
-a ele); o original `fykbo…` é **só Auth** — lá só se lê a `profiles`, para o email
-da consultora. `get_supabase()` = dados, `get_supabase_auth()` = login.
-**Migrations corridas à mão pelo utilizador** no editor SQL — explicar antes.
-Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para aqui
-convergiram as outras, `0029` deu-lhe `origem`), `agente_leads` (morta desde
-18/08, por apagar) e `leads_angariacao` (79, Make + consultora).
-**`oportunidades`/`contactos` são de fora do repo** — o portal do Miguel lê-as, e
-desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`. São o **único
-sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
+**Um projecto só**, `zphasvfopnbzwnaidsnw` — desde 13/09 tem dados **e** Auth (o antigo `fykbo…` foi eliminado pelo utilizador, `profiles` fundida aqui). `get_supabase()` é o único cliente (`supabase_url`+`supabase_secret_key`, chave nova `sb_secret_...`). **Migrations corridas à mão pelo utilizador** no editor SQL — explicar antes.
+Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para aqui convergiram as outras, `0029` deu-lhe `origem`), `agente_leads` (morta desde 18/08, por apagar) e `leads_angariacao` (79, Make + consultora).
+**`oportunidades`/`contactos` são de fora do repo** — o portal do Miguel lê-as, e desde 23/08 a `social_imovel_stats` dele lê a nossa `visitas`. São o **único sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 ### Ambiente local
 
@@ -114,32 +117,34 @@ sítio** que responde a "quem já falou com esta lead?" (cruzar por telefone).
 
 | Item | Estado |
 |---|---|
-| **Portal do Miguel** | ⚠️ ainda em vigor, lê o mesmo Supabase. **Bloqueia a `0022`**: se usar a chave `anon`, apertar o RLS de `contactos`/`imoveis`/`oportunidades` parte-o. Confirmar a chave antes de correr |
-| `whatsapp_permissao` a `True` em **3 de 79** | ⚠️ é o gate do template; sem o Make a marcá-lo à entrada, não sai template e não há A1. **Formulário de venda do Meta Lead Ads** ainda não existe: os alias em `_ALIAS_FICHA` são palpites tirados do de angariação |
-| Telnyx — credenciais e número PT +351 | ❌ bloqueia a voz · ~3459 linhas `fonte='manual'` de origem desconhecida: parado a pedido do utilizador |
+| **Chave Supabase partilhada** | ⚠️ backend e scraper usam a `sb_secret_...` do site (`sitefigueirahome`), temporária — trocar por dedicada quando o utilizador tiver acesso ao dashboard |
+| **Chaves legacy desactivadas** | ⚠️ bloqueia portal do Miguel, Make, bundle das landing pages (fora do repo). Reactivar como stopgap é decisão por tomar |
+| Segredos antigos no Fly (`SUPABASE_SERVICE_ROLE_KEY` etc.) | ⚠️ não removidos em nenhuma das 2 apps — por decisão do utilizador |
+| `whatsapp_permissao` a `True` em **3 de 79** | ⚠️ é o gate do template; sem o Make a marcá-lo à entrada, não sai template e não há A1 |
+| Telnyx — credenciais e número PT +351 | ❌ bloqueia a voz |
 
 ### Próximos passos
 
-**Auditoria de 06/09 → planos P0–P6, ainda por decidir** (parada 07/09;
-detalhe no HTML e nos planos em `docs/fases/`). Reunião com o Miguel de
-07/09 pode alterar prioridades — colar aqui quando definido.
-
-0. Confirmar se o Miguel apagou o duplicado `FH2483_A` (`ego_id` `26927326`) — ainda lá a 09/09.
-1. Confirmar o 1º envio real do nudge da Matilde (`agente_sync_log`, `tipo='nudge_matilde'`) — só testado com 1 número.
-2. Colar `docs/site-chat/widget.js` no `figueirahome.pt`, confirmar ao vivo widget → Worker → Fly.
-3. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; passos em `docs/n8n/README.md`.
-4. Reenviar as 45 leads, prazo **23/09** — confirmar antes quais das 8 (Alexandra/Alexsandra) já contactadas.
-5. Varrer `leads` por duplicados antigos · "Validar CRM" manual no painel (12 imóveis em limbo).
-6. Campos reais do formulário de venda (`_ALIAS_FICHA` é palpite) · chave do portal do Miguel → desbloqueia RLS `0022` · decidir as 70 do CRM sem "Disponível".
-7. Retomar construtor de LPs quando o cliente decidir — aí apagar `agente_leads` e actualizar `landing.py:223`.
-8. Passagem automática ao eGO (chave de integração) · A3/A4 (adiados) · dados a montante (`responsavel`/`data_criacao_iso`/`valor_negocio`).
+1. Confirmar pipeline completo do scraper (Playwright+upsert) no próximo cron
+   (06:00/13:00 UTC) sob a chave nova.
+2. Reconfirmar cadência do cron do uptime (5 min esperado, só 1x nas primeiras ~3h17).
+3. Trocar a chave Supabase partilhada por uma dedicada, assim que o utilizador tiver acesso.
+4. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar.
+5. Remover segredos antigos do Fly (backend + scraper) — só depois de tudo confirmado estável.
+6. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; passos em `docs/n8n/README.md`.
+7. Actualizar `docs/database-schema.md` para reflectir "um projecto, não dois" e as colunas novas de `contactos`.
+8. Auditoria de 06/09 (P0–P6) continua parada — retomar quando decidido.
+9. Testar `lead_meta_recrutamento` ponta a ponta quando chegar a 1ª lead real.
+10. Aprovar template WhatsApp de Recrutamento na Meta.
+11. Com o Miguel: separar `contactos.tipos` em origem/categoria (ideia solta, não aplicada).
+12. Plano à parte para Matilde/Bárbara passarem a ler `contactos` (leads/leads_angariacao desaparecem) — toca `engine.py`/`guards.py`/`assistants.py`/`router.py`.
 
 ## Decisões arquitecturais
 
 **Texto completo e o porquê de cada uma: `docs/decisoes.md`.** Ler antes de mexer
 na área respectiva — quase todas registam uma tentativa que já falhou ao vivo.
 
-- **Um motor, N assistentes** — nunca N cópias do loop. A3/A4 = entrada no dict + linha em `agente_config`, que é **a tabela de assistentes** (acrescentar = INSERT, não deploy).
+- **Um motor, N assistentes** — nunca N cópias do loop. Novo assistente = entrada no dict + linha em `agente_config`, que é **a tabela de assistentes** (acrescentar = INSERT, não deploy). A4 "Bárbara" seguiu este padrão (13/09); A3 (recrutamento) continua adiado.
 - **Subconjunto de tools por assistente é fronteira de segurança**, não organização (`consultar_*` só no `broker`). **Nunca deixar o `agente` vir do pedido num endpoint sem auth** — foi assim que `/api/broker/chat` deu acesso não autenticado ao `broker` até 31/08 (`v63`); o endpoint público do site (`/api/site/chat`) nunca aceita esse campo.
 - **Router por regex, não por LLM**; routing **sticky** em `agente_conversas.agente`, sentido único A2→A1.
 - **Regras que não podem falhar vivem em `guards.py`** (dedup + 80%), nunca no prompt. **Dedup: o nome é sempre tentado**, aceite só quando nada contradiz (`_compativel`).
@@ -163,7 +168,7 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Da auditoria de 06/09, por corrigir** (detalhe e `ficheiro:linha` no HTML): recibos de entrega descartados (A9); email só com MQL completo (A5); `_consultar_leads` do broker lê `agente_leads` morta (A1); `_procurar_cliente` pára na 1ª correspondência, ambiguidade invisível (A3); `find_or_create_cliente` escreve por cima de telefone/email (A4); `lead_aberta` só por telefone (A8); `contacto_humano_em` por lead, não por pessoa (A6); `03` a 48h vs 24h do doc (A7).
 - **O `01` dispara ~12h depois da lead entrar**, desde 28/08 — em rajada de manhã em vez de na hora. Como **16 das 17 respostas reais vieram na 1.ª hora**, isto sozinho chega para matar a conversão. Por investigar nas execuções do n8n.
 - **Sem `logging.basicConfig`**: a raiz fica em `WARNING`. O `ERROR` das falhas de entrega aparece; `sent`/`delivered`/`read` são invisíveis e só se inferem contando recibos.
-- **`agente_leads` ainda existe**, vazia de uso desde 2026-08-18 — a confusão só acaba quando for apagada (Próximos passos 7).
+- **`agente_leads` ainda existe**, vazia de uso desde 2026-08-18 — a confusão só acaba quando for apagada.
 - **Dedup de clientes sob carga**: teste falhou e voltou a passar com o mesmo código. Se aparecerem duplicados em produção, é por aqui.
 - **Nudge da Matilde (09/09)**: resposta "diga-me só que não" ao nudge não foi confirmada ao vivo a chamar `encerrar_lead` — a lógica de desfecho já existe no motor, mas o caminho a partir desta mensagem em concreto não foi testado.
 - **Agente de voz** (bloqueado por Telnyx, não se manifesta hoje): sem barge-in; sessões em memória, perdidas em restart; race condition (`is_speaking` vs `call.speak.ended`); janelas fixas de 2 s sem VAD.
