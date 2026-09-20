@@ -124,10 +124,9 @@ corpo da resposta, que o `curl -sf` do cron suprime. Adicionado
 
 ## Por fazer
 
-- Testar `lead_meta_recrutamento` ponta a ponta quando chegar a primeira lead
-  real dessa campanha.
-- Template WhatsApp de Recrutamento — por aprovar na Meta; sem ele não há
-  fluxo de envio (só RPC + routing feitos).
+- **Envio do template de Recrutamento construído e testado sem lead real em
+  18-20/09** — `handoff-2026-09-20-resumo.md`. Falta só confirmar ponta a
+  ponta com uma candidatura real da Meta (webhook real, não pin data).
 - Decidir com o Miguel: separar `contactos.tipos` em origem/categoria (ideia
   do utilizador, não aplicada — mudança estrutural numa tabela partilhada).
 - Migração maior, ainda sem plano: Matilde e Bárbara passarem a ler

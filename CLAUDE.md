@@ -42,42 +42,35 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-09-17
+## Estado actual — Handoff 2026-09-20
 
-Leads da Meta entram 100% pelo n8n agora, não pelo Make: `Meta leads to
-supabase` só recebe o ID no webhook, vai buscar tudo à Graph API, `Switch`
-por `campaign_name` em 3 ramos (compra/arrendamento, Angariação,
-Recrutamento), cada um chama uma função Postgres própria com dedup gracioso
-(200 + `status:duplicate`, nunca 409). Detalhe completo:
-`docs/fases/leads-meta-n8n-resumo.md`.
+Os 3 ramos de leads da Meta (n8n) estão completos, incluindo envio de
+template — Recrutamento (`figueirahome_lead_recruta|pt_PT`, persona "Inês")
+ficou pronto e testado 18-20/09, fechando o que tinha ficado por fazer em
+17/09. A1 já não agenda visita — regista o pedido, garante lead, a consultora
+contacta directamente (pedido do utilizador). Detalhe completo:
+`docs/fases/handoff-2026-09-20-resumo.md`.
 
-- **`contactos` começa a ser registo unificado** de leads — ganhou `estado`,
-  `template_enviado(_em)`, `meta_lead_id` (UNIQUE), `meta_form_name`,
-  `meta_created_at`, `tipo_contacto` (array `comprador`/`vendedor`/
-  `recrutamento`). Aditivo; tabela continua do Miguel/pipeline externo.
-- **`leads_angariacao` deixou de ser escrita** — Angariação grava só em
-  `contactos`. Continua a existir, lida por humanos, não apagar.
-- **Bug real na guarda de idempotência do `01`**: comparava
-  `template_enviado_em`/`contacto_humano_em` como `type: "object"`, rebentava
-  com string não-vazia (lead já contactada) em vez de bloquear. Corrigido.
-- **`DADOS - FB FORM` (ramo compra) lia o nó errado desde 08/09** — nunca
-  exercitado (testes só cobriam Angariação). Corrigido.
-- Scraper: `logger.error` no `RuntimeError` do sync de oportunidades —
-  deployado (`5caebef`).
+- **`pedir_visita`** (era `agendar_visita`): sem negociação de horário, garante lead via `_criar_lead_se_preciso` (fechava sem lead sempre que `guardar_dados_cliente` nunca corria na conversa).
+- **Bug de filtro em `agente_sync_log`**: partilhada por 5+ automações; o log de sync de imóveis lia-a sem filtrar `tipo` — misturava nudge/uptime/oportunidades no painel, e o `DELETE` apagava tudo. Corrigido nos dois.
+- **Crons atrasavam 4-5h** — todos agendados no minuto `0`, pico de carga global do GitHub. Desviados para minutos 17/23/37/12.
+- **`contactos` ganhou `id` uuid** (aditivo, PK antiga `(nome, criado_em)` intacta) — 1º passo de "uniformizar leads → todas em `contactos`". Plano com 3 opções, por decidir: `contactos-unificado-assistentes-plano.md`.
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
 | `Meta leads to supabase` (n8n) | ✅ 17/09 — Switch 3 ramos, RPCs graciosas |
-| `01` enviar template compra/arrendamento (n8n) | ✅ 17/09 — trigger novo, bug da guarda corrigido |
+| `01` enviar template compra/arrendamento (n8n) | ✅ 17/09 |
 | `enviar template Angariação` (n8n) | ✅ 15/09 — WhatsApp real entregue, testado |
-| Envio template Recrutamento | ❌ falta template aprovado na Meta — só RPC+routing feitos |
+| `enviar template Recrutamento` (n8n) | ✅ 20/09 — WhatsApp real entregue, testado sem lead real |
+| A1 `pedir_visita` (backend) | ✅ 18/09 — sem agendamento, lead garantida |
 | Backend/Scraper/Frontend | ✅ (13/09, chaves novas) |
-| `master` | commit `5caebef` + este handoff |
+| `master` | commit `fb8bd14` + este handoff |
 
 ### Fases anteriores — deployadas, detalhe em `docs/fases/`
 
+- **A1 sem agendamento, envio Recrutamento, filtro do sync log, crons desviados, `contactos.id` (18–20/09)** — `handoff-2026-09-20-resumo.md`
 - **Leads Meta → n8n nativo, `contactos` unificado, 3 RPCs graciosas (14–17/09)** — `leads-meta-n8n-resumo.md`
 - **A4 "Bárbara" + fix datas + uptime monitor + migração chaves Supabase (13/09)** — `handoff-2026-09-13-resumo.md`
 - **Matilde: nudge 24h dentro da conversa (09/09)** — `matilde-followup-resumo.md`
@@ -134,10 +127,9 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para a
 6. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; passos em `docs/n8n/README.md`.
 7. Actualizar `docs/database-schema.md` para reflectir "um projecto, não dois" e as colunas novas de `contactos`.
 8. Auditoria de 06/09 (P0–P6) continua parada — retomar quando decidido.
-9. Testar `lead_meta_recrutamento` ponta a ponta quando chegar a 1ª lead real.
-10. Aprovar template WhatsApp de Recrutamento na Meta.
-11. Com o Miguel: separar `contactos.tipos` em origem/categoria (ideia solta, não aplicada).
-12. Plano à parte para Matilde/Bárbara passarem a ler `contactos` (leads/leads_angariacao desaparecem) — toca `engine.py`/`guards.py`/`assistants.py`/`router.py`.
+9. Confirmar amanhã se os crons desviados do minuto 0 (17/23/37/12) deixaram de atrasar.
+10. Testar Recrutamento ponta a ponta com candidatura real da Meta — só testado até agora com dados à mão, sem passar pelo webhook real.
+11. Decidir opção A/B/C do plano de `contactos` unificado (`contactos-unificado-assistentes-plano.md`) — inclui `tipos` com o Miguel e Matilde/Bárbara→`contactos`.
 
 ## Decisões arquitecturais
 
