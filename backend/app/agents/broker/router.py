@@ -21,6 +21,7 @@ import re
 
 A1 = "a1_vendedor"
 A2 = "a2_geral"
+A3 = "a3_recrutamento"
 A4 = "a4_angariador"
 
 # Sinais de angariação (venda/arrendamento do PRÓPRIO imóvel) — vão para a
@@ -34,8 +35,7 @@ _A4_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Sinais de A3 (recrutamento), da tabela §2.2. Continua adiado — vai para o
-# A2, que recolhe o contacto e escala.
+# Sinais de A3 (recrutamento), da tabela §2.2 — Inês.
 _A3_RE = re.compile(
     r"("
     r"quero trabalhar|trabalhar convosco|consultor imobili|recrutamento|"
@@ -62,20 +62,26 @@ _A1_RE = re.compile(
 def route(mensagem: str, agente_atual: str | None) -> str:
     """Devolve a chave do assistente que deve responder.
 
-    Stickiness num sentido só por cada balde: A2 -> A1/A4 quando aparece o
-    sinal correspondente, nunca o inverso. Uma thread continua com quem já a
-    tem — o prompt de cada assistente cobre perguntas institucionais soltas
-    sem devolver a conversa ao A2 e perder o contexto de qualificação.
+    Stickiness num sentido só, a sério: A2 -> A1/A3/A4 quando aparece o sinal
+    correspondente, nunca o inverso, e nunca entre A1/A3/A4 uma vez atribuída
+    — o prompt de cada assistente cobre perguntas institucionais soltas sem
+    devolver a conversa ao A2 e perder o contexto de qualificação.
 
-    A3 (recrutamento) continua fora do âmbito: é reconhecido, mas
-    encaminhado para o A2 — deixar o A2 recolher o contacto e escalar é
-    melhor do que rotear para um assistente que não existe. A4 (angariação)
-    é a Bárbara. Ambos os testes vêm ANTES do A1 porque partilham
-    vocabulário com ele ("quanto vale a minha casa" tem "casa").
+    Bug real (20/09, achado a testar a Inês): a thread já tinha `_A3_RE`
+    atribuído, mas a mensagem seguinte ("sempre gostei de imóveis...") batia
+    em `_A1_RE` (que reconhece "imóveis", "preço", "visita" — vocabulário
+    normal numa conversa de recrutamento OU de angariação) e devolvia A1 a
+    meio da conversa, sem aviso. O `if agente_atual` só protegia contra a
+    ausência de qualquer sinal, nunca contra um sinal de OUTRO balde. Como a
+    Bárbara (A4) já está em produção, o mesmo podia acontecer com ela — um
+    proprietário a dizer "o imóvel tem 3 quartos" a meio de uma angariação.
+    Por isso a stickiness de A1/A3/A4 corre ANTES de qualquer regex.
     """
     texto = mensagem or ""
+    if agente_atual and agente_atual != A2:
+        return agente_atual
     if _A3_RE.search(texto):
-        return A2
+        return A3
     if _A4_RE.search(texto):
         return A4
     if _A1_RE.search(texto):
@@ -92,7 +98,7 @@ def demo() -> None:
     assert route("obrigado!", A1) == A1
     assert route("procuro um T2", A2) == A1
     assert route("quero vender a minha casa", None) == A4
-    assert route("quero trabalhar convosco", None) == A2
+    assert route("quero trabalhar convosco", None) == A3
     print("router OK")
 
 

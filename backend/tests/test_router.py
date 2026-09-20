@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.agents.broker.router import A1, A2, A4, route  # noqa: E402
+from app.agents.broker.router import A1, A2, A3, A4, route  # noqa: E402
 
 
 def test_classificacao_inicial():
@@ -29,10 +29,11 @@ def test_stickiness():
     assert route("procuro um T2", A2) == A1
 
 
-def test_a3_recrutamento_adiado_vai_para_a2():
-    # A3 não existe — reconhecido, mas encaminhado para o A2.
-    assert route("quero trabalhar convosco como consultor imobiliário", None) == A2
-    assert route("gostaria de enviar a minha candidatura", None) == A2
+def test_a3_recrutamento_vai_para_ines():
+    assert route("quero trabalhar convosco como consultor imobiliário", None) == A3
+    assert route("gostaria de enviar a minha candidatura", None) == A3
+    # Stickiness: uma thread já da Inês mantém-se sem sinal novo.
+    assert route("obrigado, fico a aguardar", A3) == A3
 
 
 def test_a4_angariacao_vai_para_barbara():
@@ -44,8 +45,16 @@ def test_a4_angariacao_vai_para_barbara():
     assert route("obrigado, fico a aguardar", A4) == A4
 
 
+def test_a3_a4_nao_saltam_para_a1_a_meio_da_conversa():
+    # Bug real (20/09): "imóveis"/"visita"/"preço" batem em _A1_RE e uma
+    # thread já da Inês ou da Bárbara saltava para o A1 sem aviso.
+    assert route("sempre gostei de imóveis, full-time", A3) == A3
+    assert route("qual é o preço da visita de avaliação?", A4) == A4
+    assert route("quanto custa a formação?", A3) == A3
+
+
 def test_nunca_devolve_agente_inexistente():
-    conhecidos = {A1, A2, A4}
+    conhecidos = {A1, A2, A3, A4}
     casos = [
         ("quero comprar casa", None),
         ("bom dia", None),
@@ -61,7 +70,8 @@ def test_nunca_devolve_agente_inexistente():
 if __name__ == "__main__":
     test_classificacao_inicial()
     test_stickiness()
-    test_a3_recrutamento_adiado_vai_para_a2()
+    test_a3_recrutamento_vai_para_ines()
     test_a4_angariacao_vai_para_barbara()
+    test_a3_a4_nao_saltam_para_a1_a_meio_da_conversa()
     test_nunca_devolve_agente_inexistente()
     print("test_router OK")

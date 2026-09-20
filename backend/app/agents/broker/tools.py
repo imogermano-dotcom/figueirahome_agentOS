@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 from anthropic import AsyncAnthropic
 
-from app.agents.broker.assistants import A1, A2, A4, BROKER, NOME_A1, NOME_A4
+from app.agents.broker.assistants import A1, A2, A3, A4, BROKER, NOME_A1, NOME_A3, NOME_A4
 from app.agents.broker.guards import (
     encerrar_lead_do_telefone,
     find_or_create_cliente,
@@ -119,7 +119,7 @@ TOOL_DEFINITIONS = [
                 "email": {"type": "string"},
                 "tipo_interesse": {
                     "type": "string",
-                    "enum": ["compra", "arrendamento", "venda", "outro"],
+                    "enum": ["compra", "arrendamento", "venda", "recrutamento", "outro"],
                 },
                 "orcamento": {"type": "number", "description": "Orçamento em euros"},
                 "zona_preferida": {"type": "string"},
@@ -205,7 +205,7 @@ TOOL_DEFINITIONS = [
                 "telefone": {"type": "string", "description": "Filtrar por telefone (exacto)"},
                 "tipo_interesse": {
                     "type": "string",
-                    "enum": ["compra", "arrendamento", "venda", "outro"],
+                    "enum": ["compra", "arrendamento", "venda", "recrutamento", "outro"],
                     "description": "Tipo de interesse do cliente",
                 },
                 "zona_preferida": {"type": "string", "description": "Zona/localização preferida (parcial)"},
@@ -564,7 +564,7 @@ _EXTRAIR_MQL_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "tipo_interesse": {"type": "string", "enum": ["compra", "arrendamento", "venda", "outro"]},
+                "tipo_interesse": {"type": "string", "enum": ["compra", "arrendamento", "venda", "recrutamento", "outro"]},
                 "orcamento": {"type": "number", "description": "Orçamento em euros"},
                 "zona_preferida": {"type": "string"},
             },
@@ -796,7 +796,7 @@ async def _encerrar_lead(inputs: dict, contexto: dict) -> str:
 
 # Nome que aparece nos emails de notificação — `contexto["agente"]` é o id
 # interno (`a1_vendedor`), ilegível para quem recebe o aviso.
-_NOME_AGENTE = {A1: NOME_A1, A2: "Maria", A4: NOME_A4, BROKER: "Broker"}
+_NOME_AGENTE = {A1: NOME_A1, A2: "Maria", A3: NOME_A3, A4: NOME_A4, BROKER: "Broker"}
 
 
 async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:

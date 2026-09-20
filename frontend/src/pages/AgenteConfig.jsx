@@ -23,6 +23,13 @@ export const META = {
     placeholderPersona: 'Ex: Recepcionista virtual da Figueirahome, cordial e breve…',
     placeholderInstrucoes: 'Horários, morada, serviços, parceiros de crédito. É daqui que o A2 responde — mantém actualizado.',
   },
+  a3_recrutamento: {
+    titulo: 'A3 — Assistente de Recrutamento',
+    subtitulo: 'Inês: qualifica candidatos a consultor e agenda entrevistas.',
+    icon: '🎓',
+    placeholderPersona: 'Ex: Inês, assistente de recrutamento da Figueirahome, tom cordial e directo…',
+    placeholderInstrucoes: 'Ex: Nunca indicar valores de comissão nem rendimento estimado — remeter sempre para o responsável de recrutamento…',
+  },
   a4_angariador: {
     titulo: 'A4 — Assistente Angariador',
     subtitulo: 'Bárbara: qualifica proprietários e agenda visitas de avaliação.',
