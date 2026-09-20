@@ -856,7 +856,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             "",
             f"Contacto: {nome or '—'} — {telefone or '—'}",
             f"Motivo:   {motivo}",
-            f"Imóvel:   {inputs.get('imovel_ref') or '—'}",
+            f"Imóvel:   {inputs['imovel_ref']}" if inputs.get("imovel_ref") else None,
             "",
             inputs.get("resumo"),
             "",
