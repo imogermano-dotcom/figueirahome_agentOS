@@ -5,10 +5,10 @@ import { api } from '../lib/api'
 // a partir do painel, sem depender do WhatsApp real.
 const OPCOES = [
   { valor: 'broker',      label: 'Broker (interno)' },
-  { valor: 'a1_vendedor', label: 'A1 — Vendedor' },
-  { valor: 'a2_geral',    label: 'A2 — Atendimento Geral' },
-  { valor: 'a3_recrutamento', label: 'A3 — Recrutamento (Inês)' },
-  { valor: 'a4_angariador', label: 'A4 — Angariador (Bárbara)' },
+  { valor: 'a1_vendedor', label: 'Matilde — Vendedora' },
+  { valor: 'a2_geral',    label: 'Maria — Atendimento Geral' },
+  { valor: 'a3_recrutamento', label: 'Inês — Recrutamento' },
+  { valor: 'a4_angariador', label: 'Bárbara — Angariadora' },
   { valor: 'auto',        label: 'Auto (router)' },
 ]
 

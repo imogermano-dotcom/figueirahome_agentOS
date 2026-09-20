@@ -10,29 +10,29 @@ const inputCls = "w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2
 // persona/instruções/activo são os mesmos campos para todos.
 export const META = {
   a1_vendedor: {
-    titulo: 'A1 — Assistente Vendedor',
+    titulo: 'Matilde — Vendedora',
     subtitulo: 'Qualifica compradores e arrendatários, mostra imóveis e marca visitas.',
     icon: '🏠',
     placeholderPersona: 'Ex: Assistente comercial da Figueirahome, tom profissional e caloroso…',
     placeholderInstrucoes: 'Ex: Foca-te na zona da Figueira da Foz. Menciona o portefólio de moradias…',
   },
   a2_geral: {
-    titulo: 'A2 — Atendimento Geral',
+    titulo: 'Maria — Atendimento Geral',
     subtitulo: 'Recepcionista virtual: horários, morada, serviços, e encaminhamento.',
     icon: '📞',
     placeholderPersona: 'Ex: Recepcionista virtual da Figueirahome, cordial e breve…',
-    placeholderInstrucoes: 'Horários, morada, serviços, parceiros de crédito. É daqui que o A2 responde — mantém actualizado.',
+    placeholderInstrucoes: 'Horários, morada, serviços, parceiros de crédito. É daqui que a Maria responde — mantém actualizado.',
   },
   a3_recrutamento: {
-    titulo: 'A3 — Assistente de Recrutamento',
-    subtitulo: 'Inês: qualifica candidatos a consultor e agenda entrevistas.',
+    titulo: 'Inês — Recrutamento',
+    subtitulo: 'Qualifica candidatos a consultor e agenda entrevistas.',
     icon: '🎓',
     placeholderPersona: 'Ex: Inês, assistente de recrutamento da Figueirahome, tom cordial e directo…',
     placeholderInstrucoes: 'Ex: Nunca indicar valores de comissão nem rendimento estimado — remeter sempre para o responsável de recrutamento…',
   },
   a4_angariador: {
-    titulo: 'A4 — Assistente Angariador',
-    subtitulo: 'Bárbara: qualifica proprietários e agenda visitas de avaliação.',
+    titulo: 'Bárbara — Angariadora',
+    subtitulo: 'Qualifica proprietários e agenda visitas de avaliação.',
     icon: '🔑',
     placeholderPersona: 'Ex: Bárbara, assistente de angariação da Figueirahome, tom cordial e directo…',
     placeholderInstrucoes: 'Ex: Nunca indicar comissão nem avaliar o imóvel — remeter sempre para o consultor…',
