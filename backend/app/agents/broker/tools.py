@@ -704,6 +704,12 @@ async def _pedir_visita(inputs: dict, contexto: dict) -> str:
     nome = inputs.get("nome")
     quando = inputs.get("quando")
 
+    if await _run(
+        _tarefa_ja_registada, contexto.get("conversa_id"), "visita",
+        "imovel_ref", imovel.get("imovel_ref"),
+    ):
+        return "Já está registado. Confirma ao cliente que a consultora entra em contacto — não repitas o registo nem chames esta tool outra vez."
+
     cliente = await find_or_create_cliente(
         nome=nome,
         telefone=telefone,
@@ -804,6 +810,11 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
     nome = inputs.get("nome")
     motivo = inputs.get("motivo") or "assunto para consultor"
 
+    if await _run(
+        _tarefa_ja_registada, contexto.get("conversa_id"), "escalar", "motivo", motivo,
+    ):
+        return "Já está registado. Confirma ao cliente que entram em contacto — não repitas o registo nem chames esta tool outra vez."
+
     await find_or_create_cliente(
         nome=nome, telefone=telefone, notas=inputs.get("resumo"),
         origem=contexto.get("origem", "whatsapp"),
@@ -858,6 +869,33 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
         "Registado para o consultor. Confirma ao cliente que entram em contacto, "
         "e no próximo dia útil se for fora de horas."
     )
+
+
+def _tarefa_ja_registada(conversa_id: str | None, tipo: str, coluna: str, valor: str | None) -> bool:
+    """Evita duplicar tarefa (e o email que a acompanha) quando o modelo repete
+    a mesma tool dentro da mesma conversa.
+
+    Bug real (20/09, achado a testar a Inês e antes com `pedir_visita`):
+    tool_use/tool_result não ficam persistidos entre turnos — só o texto
+    final entra em `mensagens` (`engine.py`). No turno seguinte o modelo só
+    vê o que ele próprio *disse*, não que a tool correu; ao confirmar de novo
+    ao cliente ("tudo tratado!"), volta a chamar a tool. Resultado: duas
+    tarefas e dois emails, minutos ou segundos à parte, sempre no mesmo
+    `conversa_id`.
+
+    `coluna`/`valor` (imovel_ref para visita, motivo para escalar) evitam
+    bloquear um pedido genuinamente diferente na mesma conversa — só o
+    mesmo pedido, repetido, é que não conta outra vez.
+    """
+    if not conversa_id:
+        return False
+    q = (
+        get_supabase().table("agente_tarefas").select("id")
+        .eq("conversa_id", conversa_id).eq("tipo", tipo)
+    )
+    if valor:
+        q = q.eq(coluna, valor)
+    return bool(q.limit(1).execute().data)
 
 
 def _inserir_tarefa(dados: dict) -> None:

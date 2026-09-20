@@ -47,6 +47,7 @@ def visita(monkeypatch):
         tools, "_criar_lead_se_preciso",
         lambda cliente, resumo: registo["leads"].append((cliente, resumo)),
     )
+    monkeypatch.setattr(tools, "_tarefa_ja_registada", lambda *a: False)
 
     async def _sem_cliente(**kwargs):
         return None
@@ -103,6 +104,21 @@ def test_visita_pedida_garante_lead(visita, monkeypatch):
     cliente, resumo = registo["leads"][0]
     assert cliente["id"] == "cliente-1"
     assert "FH2572" in resumo
+
+
+def test_visita_ja_registada_nao_duplica(visita, monkeypatch):
+    """Bug real (20/09): o modelo repete `pedir_visita` na mesma conversa ao
+    confirmar de novo ao cliente — tool_use/tool_result não ficam guardados
+    entre turnos, só o texto final. Sem dedup, duas tarefas e dois emails."""
+    pedir, registo = visita
+    monkeypatch.setattr(tools, "_tarefa_ja_registada", lambda *a: True)
+
+    resposta = pedir()
+
+    assert "já está registado" in resposta.lower()
+    assert not registo["tarefas"]
+    assert not registo["avisos"]
+    assert not registo["leads"]
 
 
 def test_visita_recusada_pelos_80_por_cento_nao_avisa(visita):
