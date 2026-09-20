@@ -2,8 +2,13 @@ name: Sync imóveis (eGO Real Estate)
 
 on:
   schedule:
-    - cron: "0 6 * * *"   # 06:00 UTC diariamente
-    - cron: "0 13 * * *"  # 13:00 UTC diariamente
+    # Minuto 17/23, não 0: o GitHub atrasa sistematicamente crons no topo da
+    # hora (fila de todos os repos do mundo a disparar ao mesmo tempo) — em
+    # "0 6"/"0 13" isto custava 4-5h de atraso todos os dias (confirmado
+    # 15-19/09, `gh run list`). Ver aviso oficial do GitHub sobre "high load
+    # times include the start of every hour".
+    - cron: "17 6 * * *"   # ~06:17 UTC diariamente
+    - cron: "23 13 * * *"  # ~13:23 UTC diariamente
   workflow_dispatch: {}
 
 jobs:

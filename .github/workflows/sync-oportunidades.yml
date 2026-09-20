@@ -1,14 +1,17 @@
 name: Sync oportunidades (relatório completo eGO)
 
-# 03:00 UTC, e não junto do sync de imóveis (06:00), de propósito: os dois entram
-# no backoffice do eGO com a MESMA conta — este por Playwright, o outro pela
-# validação CRM — e sessões concorrentes podem derrubar-se. Os agendamentos do
-# GitHub derivam bastante (o cron das 06:00 já disparou às 06:37, 06:52 e 07:22),
-# por isso a folga é de horas, não de minutos. Correu junto a 2026-08-18 e a app
-# principal morreu por OOM.
+# ~03:37 UTC, e não junto do sync de imóveis (~06:17), de propósito: os dois
+# entram no backoffice do eGO com a MESMA conta — este por Playwright, o outro
+# pela validação CRM — e sessões concorrentes podem derrubar-se. Os
+# agendamentos do GitHub derivam bastante, por isso a folga é de horas, não de
+# minutos. Correu junto a 2026-08-18 e a app principal morreu por OOM.
+#
+# Minuto 37, não 0: o GitHub atrasa sistematicamente crons no topo da hora —
+# confirmado 4-5h de atraso todos os dias em "0 3"/"0 6"/"0 13" (15-19/09,
+# `gh run list`). Ver `sync-imoveis.yml`.
 on:
   schedule:
-    - cron: "0 3 * * *"
+    - cron: "37 3 * * *"
   workflow_dispatch: {}
 
 jobs:

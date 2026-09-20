@@ -2,7 +2,8 @@ name: Nudge Matilde (janela de 24h)
 
 on:
   schedule:
-    - cron: "0 * * * *"   # de hora a hora — a janela de elegibilidade é 6h-20h, não precisa de mais
+    # minuto 12, não 0: GitHub atrasa crons no topo da hora (ver sync-imoveis.yml)
+    - cron: "12 * * * *"   # de hora a hora — a janela de elegibilidade é 6h-20h, não precisa de mais
   workflow_dispatch: {}
 
 jobs:
