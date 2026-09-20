@@ -14,6 +14,16 @@ const AMARELO = '#fab219'   // aviso
 
 const nf = n => (n ?? 0).toLocaleString('pt-PT')
 
+// `agente_conversas.agente` vem em bruto do router (slug interno) — o
+// dashboard mostra o nome próprio, como o resto do painel.
+const NOME_AGENTE = {
+  a1_vendedor: 'Matilde',
+  a2_geral: 'Maria',
+  a3_recrutamento: 'Inês',
+  a4_angariador: 'Bárbara',
+}
+const nomeAgente = slug => NOME_AGENTE[slug] || slug
+
 function Cartao({ children, className = '' }) {
   return (
     <div className={`bg-zinc-900 border border-white/5 rounded-2xl p-5 ${className}`}>
@@ -190,7 +200,7 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-          <Barras dados={a?.conversas_por_agente} />
+          <Barras dados={a?.conversas_por_agente?.map(d => ({ ...d, nome: nomeAgente(d.nome) }))} />
         </Cartao>
       </div>
 
