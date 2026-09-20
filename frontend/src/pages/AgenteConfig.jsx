@@ -64,16 +64,16 @@ export const META = {
 const FALLBACK = { titulo: 'Assistente', subtitulo: '', icon: '🤖' }
 
 const ABAS = [
-  { id: 'config', label: 'Configuração' },
   { id: 'metricas', label: 'Métricas' },
   { id: 'conversas', label: 'Conversas' },
+  { id: 'config', label: 'Configuração' },
 ]
 
 export default function AgenteConfig() {
   const { agente } = useParams()
   const meta = META[agente] || FALLBACK
 
-  const [aba, setAba] = useState('config')
+  const [aba, setAba] = useState('metricas')
   const [form, setForm] = useState({ persona: '', instrucoes: '', ativo: true })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
