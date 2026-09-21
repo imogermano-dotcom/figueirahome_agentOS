@@ -453,6 +453,6 @@ async def responder(
     # nunca dispara. Ao fim do turno sabem-se as duas metades da condição —
     # respondeu (é este turno) e o perfil está completo.
     if telefone:
-        await promover_se_qualificada(telefone)
+        await promover_se_qualificada(telefone, agente=agente)
 
     return resposta

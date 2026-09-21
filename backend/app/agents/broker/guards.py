@@ -19,10 +19,13 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
+from app.agents.broker.assistants import A1, A2, A3, A4, NOME_A1, NOME_A3, NOME_A4
 from app.db.supabase_client import get_supabase
 from app.notificacoes import notificar
 
 logger = logging.getLogger(__name__)
+
+_NOME_AGENTE = {A1: NOME_A1, A2: "Maria", A3: NOME_A3, A4: NOME_A4}
 
 _LIMIAR_VISITA = 0.80
 
@@ -76,7 +79,8 @@ def lead_qualificada(cliente: dict | None) -> bool:
 
 
 def _promover_lead(
-    supabase, cliente: dict, estados: tuple[str, ...] = ("contactada",)
+    supabase, cliente: dict, estados: tuple[str, ...] = ("contactada",),
+    agente: str | None = None,
 ) -> None:
     """Marca a lead como qualificada e cria a tarefa para o corretor.
 
@@ -131,10 +135,11 @@ def _promover_lead(
     # A tarefa é o registo; isto é o toque no ombro. Uma lead imobiliária é
     # perecível e ninguém tem o painel aberto às 23h. `notificar` engole os
     # próprios erros de propósito — ver `app/notificacoes.py`.
+    nome_agente = _NOME_AGENTE.get(agente, "o assistente")
     notificar(
         f"Lead qualificada — {quem}",
         "\n".join((
-            "Uma lead da Meta acabou de qualificar na conversa com o A1.",
+            f"Uma lead acabou de qualificar na conversa com {nome_agente}.",
             "",
             f"Nome:      {cliente.get('nome') or '—'}",
             f"Telefone:  {telefone or '—'}",
@@ -280,7 +285,7 @@ async def marcar_lead_respondeu(lead_id: str, conversa_id: str | None) -> None:
         logger.exception("Falha a marcar resposta da lead %s", lead_id)
 
 
-async def promover_se_qualificada(telefone: str | None) -> None:
+async def promover_se_qualificada(telefone: str | None, agente: str | None = None) -> None:
     """Promove ao fim do turno a lead cujo perfil já veio completo do formulário.
 
     `_promover_lead` só corre de dentro de `find_or_create_cliente`, que exige
@@ -309,7 +314,7 @@ async def promover_se_qualificada(telefone: str | None) -> None:
         )
         cliente = resp.data[0] if resp.data else None
         if lead_qualificada(cliente):
-            _promover_lead(supabase, cliente, _ESTADOS_LEAD_ABERTA)
+            _promover_lead(supabase, cliente, _ESTADOS_LEAD_ABERTA, agente=agente)
 
     try:
         await asyncio.get_event_loop().run_in_executor(None, _run)
@@ -551,7 +556,7 @@ async def find_or_create_cliente(
         # fica o aviso e o cliente é devolvido na mesma.
         if lead_qualificada(cliente):
             try:
-                _promover_lead(supabase, cliente)
+                _promover_lead(supabase, cliente, agente=agente)
             except Exception:
                 logger.exception("Falha ao promover lead (cliente=%s)", cliente.get("id"))
 
