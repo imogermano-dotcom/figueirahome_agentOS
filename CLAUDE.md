@@ -54,7 +54,8 @@ contacta directamente (pedido do utilizador). Detalhe completo:
 - **`pedir_visita`** (era `agendar_visita`): sem negociação de horário, garante lead via `_criar_lead_se_preciso` (fechava sem lead sempre que `guardar_dados_cliente` nunca corria na conversa).
 - **Bug de filtro em `agente_sync_log`**: partilhada por 5+ automações; o log de sync de imóveis lia-a sem filtrar `tipo` — misturava nudge/uptime/oportunidades no painel, e o `DELETE` apagava tudo. Corrigido nos dois.
 - **Crons atrasavam 4-5h** — todos agendados no minuto `0`, pico de carga global do GitHub. Desviados para minutos 17/23/37/12.
-- **`contactos` ganhou `id` uuid** (aditivo, PK antiga `(nome, criado_em)` intacta) — 1º passo de "uniformizar leads → todas em `contactos`". Plano com 3 opções, por decidir: `contactos-unificado-assistentes-plano.md`.
+- **`contactos` ganhou `id` uuid** (aditivo, PK antiga `(nome, criado_em)` intacta) — 1º passo de "uniformizar leads → todas em `contactos`". Plano com 3 opções: `contactos-unificado-assistentes-plano.md`.
+- **21/09 — Opção B desse plano, aplicada**: `find_or_create_cliente` passou a espelhar (aditivo, `agente is not null`, nunca merge) em `contactos`, que ganhou coluna `agente`. Corrige "Leads captados" no painel, que vinha idêntico em todos os assistentes (`agente_clientes` não distinguia quem captou o quê). `mqls`/qualificação continuam de `agente_clientes`, ainda sem filtro por agente — limitação conhecida, não resolvida.
 
 ### Produção
 
@@ -129,7 +130,7 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para a
 8. Auditoria de 06/09 (P0–P6) continua parada — retomar quando decidido.
 9. Confirmar amanhã se os crons desviados do minuto 0 (17/23/37/12) deixaram de atrasar.
 10. Testar Recrutamento ponta a ponta com candidatura real da Meta — só testado até agora com dados à mão, sem passar pelo webhook real.
-11. Decidir opção A/B/C do plano de `contactos` unificado (`contactos-unificado-assistentes-plano.md`) — inclui `tipos` com o Miguel e Matilde/Bárbara→`contactos`.
+11. Opção B do plano de `contactos` unificado aplicada 21/09 (captação inicial). Por decidir ainda: `tipos` vs `tipo_contacto` com o Miguel, e se vale a pena ir para a Opção C (migração completa, `mqls` por agente incluído).
 
 ## Decisões arquitecturais
 
@@ -141,7 +142,7 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 - **Router por regex, não por LLM**; routing **sticky** em `agente_conversas.agente`, sentido único A2→A1.
 - **Regras que não podem falhar vivem em `guards.py`** (dedup + 80%), nunca no prompt. **Dedup: o nome é sempre tentado**, aceite só quando nada contradiz (`_compativel`).
 - **Fallback de tipologia dentro da tool** — o modelo perdia moradias T2 ao traduzir "T2"→`natureza`. **Tool forcing** na iteração 0 quando `_SEARCH_RE` bate; sem ele Claude prometia callbacks.
-- **Assistentes nunca escrevem em `oportunidades`/`contactos`** — espelho do eGO, pipeline externo. A lead qualificada pára numa **tarefa** (+ email ao corretor, `notificacoes.py`): não há API de escrita do eGO, e um insert nosso em `contactos` fica órfão.
+- **Assistentes nunca escrevem em `oportunidades`** — espelho do eGO, pipeline externo. A lead qualificada pára numa **tarefa** (+ email ao corretor, `notificacoes.py`): não há API de escrita do eGO. **Em `contactos` escrevem desde 21/09** (espelho aditivo, nunca mexe em linha que não seja sua — `docs/decisoes.md`).
 - **Leads da Meta: semear a conversa, não mexer no router** — a resposta a um template é "Sim"/"Olá", que `_A1_RE` não apanha. A thread nasce com `agente='a1_vendedor'`; alargar o regex mandaria para o A1 toda a gente que diz "olá".
 - **`load_conversation` procura por variantes do número** — a Meta manda `351…`, a semeadura guarda 9 dígitos. Com `.eq()` exacto a thread nunca era encontrada e a funcionalidade parecia instalada sem fazer nada.
 - **Qualificação: regra única em `guards.py`, dois gatilhos** — `find_or_create_cliente` (escrita de cliente) e `promover_se_qualificada` (fim de turno). Sem o segundo, a lead cujo formulário já traz o MQL nunca era promovida. `nova` só conta como "respondeu" no segundo. **`find_or_create_cliente` exige telefone ou email para criar** (nome nunca sozinho, 02/09) e **`_criar_lead_se_preciso` desduplica por telefone→email→`cliente_id`**, nunca só `cliente_id` — uma lead da Meta nasce sem ele.

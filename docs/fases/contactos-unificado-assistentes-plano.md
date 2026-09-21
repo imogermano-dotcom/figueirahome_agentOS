@@ -1,6 +1,15 @@
 # Plano — `leads`/`agente_clientes` → `contactos` como registo único (assistentes)
 
-> Fase nova, per regra do CLAUDE.md: plano antes de código. Ainda não aplicado.
+> **Opção B aplicada em 21/09** (parcial — só a captação inicial, não a
+> migração completa): `find_or_create_cliente` (`guards.py`) passou a
+> espelhar em `contactos` via `_espelhar_em_contactos`, aditivo, nunca mexe
+> em linha que não seja sua (`agente is not null`). `contactos` ganhou coluna
+> `agente` (ALTER à mão, sem migration própria no repo — como sempre).
+> `agente_metricas` (migration 0038) passou a contar `leads_captados` daqui,
+> por assistente. `leads`/`agente_clientes` continuam a ser a fonte de
+> verdade operacional (MQL, estados, painel, notificações) — nada disso
+> mudou. Detalhe: `docs/decisoes.md`. Opções A/C abaixo continuam por decidir
+> se um dia se quiser ir mais longe.
 
 ## Objectivo
 

@@ -444,10 +444,66 @@ def _compativel(candidato: dict, telefone: str | None, email: str | None) -> boo
     return True
 
 
+_TIPO_CONTACTO = {
+    "compra": "comprador",
+    "arrendamento": "comprador",
+    "venda": "vendedor",
+    "recrutamento": "recrutamento",
+}
+
+
+def _espelhar_em_contactos(
+    supabase, *, nome, telefone, email, agente, tipo_interesse
+) -> None:
+    """Espelho aditivo em `contactos` (2026-09-21, pedido do utilizador —
+    ver `docs/fases/contactos-unificado-assistentes-plano.md`, Opção B).
+
+    `contactos` tem dois escritores de fora (scraper + pipeline do Miguel) e
+    `(nome, criado_em)` como chave suave — nada confiável para dedup contra
+    dados alheios. Por isso esta função **nunca mexe numa linha que não seja
+    dela**: só procura/actualiza onde `agente is not null`. Uma pessoa já
+    existente no `contactos` do Miguel ganha uma segunda linha, atribuída a
+    nós — não junta as duas, mas também nunca lhe corrompe a dele.
+
+    Best-effort só nisto: quem chama envolve em try/except, uma falha aqui
+    nunca pode derrubar a escrita (essa sim crítica) em `agente_clientes`.
+    """
+    if not agente or (not telefone and not email):
+        return
+
+    q = supabase.table("contactos").select("id,nome,tipo_contacto").not_.is_("agente", "null")
+    q = q.in_("telefone", variantes_telefone(telefone)) if telefone else q.eq("email", email)
+    existente = (q.limit(1).execute().data or [None])[0]
+
+    tipo = _TIPO_CONTACTO.get(tipo_interesse)
+
+    if existente:
+        tipos = set(existente.get("tipo_contacto") or [])
+        if tipo:
+            tipos.add(tipo)
+        dados = {"agente": agente, "tipo_contacto": sorted(tipos)}
+        if nome and not existente.get("nome"):
+            dados["nome"] = nome
+        supabase.table("contactos").update(dados).eq("id", existente["id"]).execute()
+    else:
+        dados = {
+            "nome": nome,
+            "telefone": telefone,
+            "email": email,
+            "agente": agente,
+            "estado": "nova",
+            "criado_em": datetime.now(timezone.utc).isoformat(),
+            "tipo_contacto": [tipo] if tipo else [],
+        }
+        dados = {k: v for k, v in dados.items() if v is not None}
+        supabase.table("contactos").insert(dados).execute()
+
+
 async def find_or_create_cliente(
     nome: str | None = None,
     telefone: str | None = None,
     email: str | None = None,
+    agente: str | None = None,
     **campos,
 ) -> dict | None:
     """Devolve o cliente existente (actualizado) ou cria um novo.
@@ -498,6 +554,18 @@ async def find_or_create_cliente(
                 _promover_lead(supabase, cliente)
             except Exception:
                 logger.exception("Falha ao promover lead (cliente=%s)", cliente.get("id"))
+
+        try:
+            _espelhar_em_contactos(
+                supabase,
+                nome=nome,
+                telefone=telefone,
+                email=email,
+                agente=agente,
+                tipo_interesse=campos.get("tipo_interesse"),
+            )
+        except Exception:
+            logger.exception("Falha ao espelhar em contactos (cliente=%s)", cliente.get("id") if cliente else None)
 
         return cliente
 

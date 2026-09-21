@@ -612,6 +612,7 @@ async def _guardar_dados_cliente(inputs: dict, contexto: dict) -> str:
         zona_preferida=inputs.get("zona_preferida"),
         notas=inputs.get("resumo"),
         origem=contexto.get("origem", "whatsapp"),
+        agente=contexto.get("agente"),
     )
     if not cliente:
         # Banco de ensaio do painel: sem telefone nem email não se cria cliente.
@@ -715,6 +716,7 @@ async def _pedir_visita(inputs: dict, contexto: dict) -> str:
         telefone=telefone,
         orcamento=orcamento,
         origem=contexto.get("origem", "whatsapp"),
+        agente=contexto.get("agente"),
     )
     # Pedido de visita é sinal de interesse real — garante que fica sempre
     # ligado a uma lead, mesmo que `guardar_dados_cliente` nunca tenha corrido
@@ -818,6 +820,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
     await find_or_create_cliente(
         nome=nome, telefone=telefone, notas=inputs.get("resumo"),
         origem=contexto.get("origem", "whatsapp"),
+        agente=contexto.get("agente"),
     )
 
     prefixo = "URGENTE — " if inputs.get("urgente") else ""

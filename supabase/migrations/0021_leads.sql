@@ -12,6 +12,10 @@
 -- (upsert por `ego_link`, que só o eGO atribui) e um insert nosso fica órfão ou
 -- colide com a PK real `(nome, criado_em)` — ver `docs/decisoes.md`. A passagem
 -- ao eGO é manual nesta fase.
+--
+-- ACTUALIZAÇÃO 2026-09-21: revertido — `find_or_create_cliente` passou a
+-- espelhar (aditivo, nunca merge) em `contactos` via `_espelhar_em_contactos`
+-- (`guards.py`). Ver `docs/decisoes.md` e migration 0038.
 
 create table if not exists leads (
   id              uuid primary key default gen_random_uuid(),

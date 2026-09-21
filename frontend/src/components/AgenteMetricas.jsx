@@ -25,6 +25,20 @@ const taxa = (valor, numerador, denominador) => {
 
 const PERIODOS = [{ dias: 7, label: '7 dias' }, { dias: 30, label: '30 dias' }, { dias: 90, label: '90 dias' }]
 
+// Nem todos os assistentes têm o mesmo funil — o A1 vende (MQL, visitas,
+// pesquisas), o A3/A4 qualificam e escalam para humano (o "transbordo" deles
+// É o desfecho desejado, não uma falha), o A2/Broker não têm nenhum dos dois.
+// `desfecho` lê `atendimento.motivos` (já devolvido pelo RPC) por substring —
+// sem migração nova: o motivo do escalar_para_humano do A3/A4 já é o sucesso.
+const CAPACIDADES = {
+  a1_vendedor:     { funil: true,  mql: true,  visitasAgendadas: true,  desfecho: null, transbordos: true,  preferencias: true },
+  a2_geral:        { funil: true,  mql: false, visitasAgendadas: false, desfecho: null, transbordos: true,  preferencias: false },
+  a3_recrutamento: { funil: true,  mql: false, visitasAgendadas: false, desfecho: { match: 'entrevista', label: 'Entrevistas marcadas' }, transbordos: false, preferencias: false },
+  a4_angariador:   { funil: true,  mql: false, visitasAgendadas: false, desfecho: { match: 'avaliação',  label: 'Visitas de avaliação marcadas' }, transbordos: false, preferencias: false },
+  broker:          { funil: false, mql: false, visitasAgendadas: false, desfecho: null, transbordos: false, preferencias: false },
+}
+const CAPACIDADES_FALLBACK = { funil: true, mql: true, visitasAgendadas: true, desfecho: null, transbordos: true, preferencias: true }
+
 function Cartao({ children, className = '' }) {
   return <div className={`bg-zinc-900 border border-white/5 rounded-2xl p-5 ${className}`}>{children}</div>
 }
@@ -80,6 +94,8 @@ export default function AgenteMetricas({ agente }) {
 
   const f = d.funil || {}, at = d.atendimento || {}, pr = d.preferencias || {}, op = d.operacional || {}
   const vazio = !op.turnos
+  const cap = CAPACIDADES[agente] || CAPACIDADES_FALLBACK
+  const desfecho = cap.desfecho && at.motivos?.find(m => m.nome?.toLowerCase().includes(cap.desfecho.match))
 
   return (
     <div className="space-y-8">
@@ -102,22 +118,36 @@ export default function AgenteMetricas({ agente }) {
       )}
 
       {/* ── 🌟 FUNIL ───────────────────────────── */}
-      <Bloco titulo="🌟 Funil e conversão"
-             nota="Do primeiro contacto até à visita marcada.">
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          <Kpi label="Leads captados" valor={num(f.leads_captados)}
-               nota={`${num(f.conversas)} conversas`} />
-          <Kpi label="Leads qualificados" valor={num(f.mqls)} cor={AZUL}
-               nota={`${taxa(f.taxa_qualificacao, f.mqls, f.leads_captados)} dos leads`} />
-          <Kpi label="Visitas agendadas" valor={num(f.visitas_agendadas)} cor={VERDE} />
-          <Kpi label="Taxa de conversão"
-               valor={taxa(f.taxa_conversao, f.visitas_agendadas, f.conversas)}
-               nota="visitas ÷ conversas" />
-        </div>
-        <p className="text-xs text-zinc-600">
-          Qualificado = orçamento, zona e tipo de interesse declarados.
-        </p>
-      </Bloco>
+      {cap.funil && (
+        <Bloco titulo="🌟 Funil e conversão"
+               nota="Do primeiro contacto até ao resultado.">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+            <Kpi label="Leads captados" valor={num(f.leads_captados)}
+                 nota={`${num(f.conversas)} conversas`} />
+            {cap.mql && (
+              <Kpi label="Leads qualificados" valor={num(f.mqls)} cor={AZUL}
+                   nota={`${taxa(f.taxa_qualificacao, f.mqls, f.leads_captados)} dos leads`} />
+            )}
+            {cap.visitasAgendadas && (
+              <>
+                <Kpi label="Visitas agendadas" valor={num(f.visitas_agendadas)} cor={VERDE} />
+                <Kpi label="Taxa de conversão"
+                     valor={taxa(f.taxa_conversao, f.visitas_agendadas, f.conversas)}
+                     nota="visitas ÷ conversas" />
+              </>
+            )}
+            {desfecho && (
+              <Kpi label={cap.desfecho.label} valor={num(desfecho.total)} cor={VERDE}
+                   nota="confirmado via escalar_para_humano" />
+            )}
+          </div>
+          {cap.mql && (
+            <p className="text-xs text-zinc-600">
+              Qualificado = orçamento, zona e tipo de interesse declarados.
+            </p>
+          )}
+        </Bloco>
+      )}
 
       {/* ── 💬 ATENDIMENTO ─────────────────────── */}
       <Bloco titulo="💬 Desempenho e saúde do atendimento"
@@ -126,9 +156,11 @@ export default function AgenteMetricas({ agente }) {
           <Kpi label="Resposta (mediana)" valor={ms(at.tempo_resposta_p50)}
                nota={`p95 ${ms(at.tempo_resposta_p95)}`}
                cor={at.tempo_resposta_p95 > 10000 ? AMARELO : undefined} />
-          <Kpi label="Transbordos" valor={num(at.transbordos)}
-               cor={at.transbordos ? AMARELO : undefined}
-               nota={`${taxa(at.taxa_transbordo, at.transbordos, f.conversas)} das conversas`} />
+          {cap.transbordos && (
+            <Kpi label="Transbordos" valor={num(at.transbordos)}
+                 cor={at.transbordos ? AMARELO : undefined}
+                 nota={`${taxa(at.taxa_transbordo, at.transbordos, f.conversas)} das conversas`} />
+          )}
           <Kpi label="Mensagens por conversa"
                valor={(at.mensagens_por_conversa ?? 0).toFixed(1)}
                nota={`${num(at.conversas_longas)} com 8+`} />
@@ -136,42 +168,46 @@ export default function AgenteMetricas({ agente }) {
                nota="voltaram a escrever" />
         </div>
 
-        <Cartao>
-          <h3 className="text-sm font-medium text-zinc-200 mb-1">Motivos de transbordo</h3>
-          <p className="text-xs text-zinc-600 mb-3">
-            O que a IA não resolveu — é por aqui que se sabe o que treinar a seguir.
-          </p>
-          <Barras dados={at.motivos} cor={AMARELO} />
-        </Cartao>
+        {cap.transbordos && (
+          <Cartao>
+            <h3 className="text-sm font-medium text-zinc-200 mb-1">Motivos de transbordo</h3>
+            <p className="text-xs text-zinc-600 mb-3">
+              O que a IA não resolveu — é por aqui que se sabe o que treinar a seguir.
+            </p>
+            <Barras dados={at.motivos} cor={AMARELO} />
+          </Cartao>
+        )}
       </Bloco>
 
       {/* ── 🏠 PREFERÊNCIAS ────────────────────── */}
-      <Bloco titulo="🏠 Preferências do mercado"
-             nota={`De ${num(pr.pesquisas)} pesquisas — inclui quem procurou e nunca deixou contacto.`}>
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-          <Kpi label="Preço médio pedido" valor={eur(pr.preco_medio_pedido)}
-               nota={`mediana ${eur(pr.preco_mediano_pedido)}`} />
-          <Kpi label="Orçamento declarado" valor={eur(pr.orcamento_medio_declarado)}
-               nota="médio, de quem se registou" />
-          <Kpi label="Pesquisas" valor={num(pr.pesquisas)} />
-          <Kpi label="Zonas distintas" valor={num(pr.zonas?.length)} />
-        </div>
+      {cap.preferencias && (
+        <Bloco titulo="🏠 Preferências do mercado"
+               nota={`De ${num(pr.pesquisas)} pesquisas — inclui quem procurou e nunca deixou contacto.`}>
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+            <Kpi label="Preço médio pedido" valor={eur(pr.preco_medio_pedido)}
+                 nota={`mediana ${eur(pr.preco_mediano_pedido)}`} />
+            <Kpi label="Orçamento declarado" valor={eur(pr.orcamento_medio_declarado)}
+                 nota="médio, de quem se registou" />
+            <Kpi label="Pesquisas" valor={num(pr.pesquisas)} />
+            <Kpi label="Zonas distintas" valor={num(pr.zonas?.length)} />
+          </div>
 
-        <div className="grid lg:grid-cols-3 gap-4">
-          <Cartao>
-            <h3 className="text-sm font-medium text-zinc-200 mb-3">Zonas mais procuradas</h3>
-            <Barras dados={pr.zonas} />
-          </Cartao>
-          <Cartao>
-            <h3 className="text-sm font-medium text-zinc-200 mb-3">Tipologias</h3>
-            <Barras dados={pr.tipologias} />
-          </Cartao>
-          <Cartao>
-            <h3 className="text-sm font-medium text-zinc-200 mb-3">Intenção</h3>
-            <Barras dados={pr.intencao} />
-          </Cartao>
-        </div>
-      </Bloco>
+          <div className="grid lg:grid-cols-3 gap-4">
+            <Cartao>
+              <h3 className="text-sm font-medium text-zinc-200 mb-3">Zonas mais procuradas</h3>
+              <Barras dados={pr.zonas} />
+            </Cartao>
+            <Cartao>
+              <h3 className="text-sm font-medium text-zinc-200 mb-3">Tipologias</h3>
+              <Barras dados={pr.tipologias} />
+            </Cartao>
+            <Cartao>
+              <h3 className="text-sm font-medium text-zinc-200 mb-3">Intenção</h3>
+              <Barras dados={pr.intencao} />
+            </Cartao>
+          </div>
+        </Bloco>
+      )}
 
       {/* ── ⚙️ OPERACIONAL ─────────────────────── */}
       <Bloco titulo="⚙️ Estado operacional"
