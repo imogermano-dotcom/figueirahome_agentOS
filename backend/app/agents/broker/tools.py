@@ -847,9 +847,11 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
         },
     )
 
-    # O assistente acabou de prometer ao cliente que alguém entra em contacto.
-    # Se isso ficar só numa linha do painel, a promessa depende de o corretor
-    # abrir o painel. `notificar` engole os próprios erros — ver notificacoes.py.
+    # Se isto ficar só numa linha do painel, depende de o corretor o abrir.
+    # `notificar` engole os próprios erros — ver notificacoes.py. A linha final
+    # descreve o que a equipa vai fazer, não o que o assistente disse ao
+    # cliente — isso é só a instrução dada ao modelo no `return` desta função,
+    # nunca verificada, e o modelo pode parafrasear ou omitir por completo.
     agente = _NOME_AGENTE.get(contexto.get("agente"), contexto.get("agente") or "assistente")
     await _run(
         notificar,
@@ -863,7 +865,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             "",
             inputs.get("resumo"),
             "",
-            "Foi dito ao cliente que entram em contacto (próximo dia útil se fora de horas).",
+            "O consultor entra em contacto directamente (próximo dia útil se for fora de horas).",
         ) if p is not None),
         inputs.get("imovel_ref"),
     )
