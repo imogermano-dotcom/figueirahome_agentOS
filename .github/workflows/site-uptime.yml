@@ -1,8 +1,10 @@
 name: Uptime figueirahome.pt
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"   # de 5 em 5 min — 3 falhas seguidas = alerta em ~10-15 min
+  # `schedule` desligado 22/09: um monitor de 5/5 min que na prática corria
+  # de 4 em 4h (>98% dos gatilhos perdidos, medido 15-22/09) não detecta nada
+  # — substituído pelo Cron Manager no Fly (`crons/`, schedule "site-uptime",
+  # `*/5 * * * *` a sério). `workflow_dispatch` fica para correr à mão.
   workflow_dispatch: {}
 
 jobs:

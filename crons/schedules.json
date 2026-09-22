@@ -1,0 +1,87 @@
+[
+    {
+        "name": "sync-imoveis-manha",
+        "app_name": "figueirahome-crons",
+        "schedule": "17 6 * * *",
+        "region": "ams",
+        "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/imoveis/sync/egorealestate/api -H \\\"X-Sync-Secret: $EGOREALESTATE_SYNC_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 600\"",
+        "command_timeout": 650,
+        "enabled": false,
+        "config": {
+            "metadata": { "fly_process_group": "cron" },
+            "auto_destroy": true,
+            "disable_machine_autostart": true,
+            "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 },
+            "image": "docker-hub-mirror.fly.io/curlimages/curl:latest",
+            "restart": { "max_retries": 1, "policy": "no" }
+        }
+    },
+    {
+        "name": "sync-imoveis-tarde",
+        "app_name": "figueirahome-crons",
+        "schedule": "23 13 * * *",
+        "region": "ams",
+        "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/imoveis/sync/egorealestate/api -H \\\"X-Sync-Secret: $EGOREALESTATE_SYNC_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 600\"",
+        "command_timeout": 650,
+        "enabled": false,
+        "config": {
+            "metadata": { "fly_process_group": "cron" },
+            "auto_destroy": true,
+            "disable_machine_autostart": true,
+            "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 },
+            "image": "docker-hub-mirror.fly.io/curlimages/curl:latest",
+            "restart": { "max_retries": 1, "policy": "no" }
+        }
+    },
+    {
+        "name": "sync-oportunidades",
+        "app_name": "figueirahome-crons",
+        "schedule": "37 3 * * *",
+        "region": "ams",
+        "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/oportunidades/sync/completo -H \\\"X-Sync-Secret: $EGOREALESTATE_SYNC_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 420\"",
+        "command_timeout": 450,
+        "enabled": false,
+        "config": {
+            "metadata": { "fly_process_group": "cron" },
+            "auto_destroy": true,
+            "disable_machine_autostart": true,
+            "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 },
+            "image": "docker-hub-mirror.fly.io/curlimages/curl:latest",
+            "restart": { "max_retries": 1, "policy": "no" }
+        }
+    },
+    {
+        "name": "nudge-matilde",
+        "app_name": "figueirahome-crons",
+        "schedule": "12 * * * *",
+        "region": "ams",
+        "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/matilde/nudge -H \\\"X-Automacao-Secret: $AUTOMACAO_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 120\"",
+        "command_timeout": 150,
+        "enabled": true,
+        "config": {
+            "metadata": { "fly_process_group": "cron" },
+            "auto_destroy": true,
+            "disable_machine_autostart": true,
+            "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 },
+            "image": "docker-hub-mirror.fly.io/curlimages/curl:latest",
+            "restart": { "max_retries": 1, "policy": "no" }
+        }
+    },
+    {
+        "name": "site-uptime",
+        "app_name": "figueirahome-crons",
+        "schedule": "*/5 * * * *",
+        "region": "ams",
+        "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/site/uptime-check -H \\\"X-Automacao-Secret: $AUTOMACAO_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 30\"",
+        "command_timeout": 45,
+        "enabled": true,
+        "config": {
+            "metadata": { "fly_process_group": "cron" },
+            "auto_destroy": true,
+            "disable_machine_autostart": true,
+            "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 },
+            "image": "docker-hub-mirror.fly.io/curlimages/curl:latest",
+            "restart": { "max_retries": 1, "policy": "no" }
+        }
+    }
+]

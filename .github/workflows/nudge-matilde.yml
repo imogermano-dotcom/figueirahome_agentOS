@@ -1,9 +1,10 @@
 name: Nudge Matilde (janela de 24h)
 
 on:
-  schedule:
-    # minuto 12, não 0: GitHub atrasa crons no topo da hora (ver sync-imoveis.yml)
-    - cron: "12 * * * *"   # de hora a hora — a janela de elegibilidade é 6h-20h, não precisa de mais
+  # `schedule` desligado 22/09: o GitHub atrasava isto 4-5h todos os dias
+  # mesmo desviado do minuto 0 (medido 15-22/09, `gh run list`) — substituído
+  # pelo Cron Manager no Fly (`crons/`, schedule "nudge-matilde", `12 * * * *`
+  # certo, sem fila global). `workflow_dispatch` fica para correr à mão.
   workflow_dispatch: {}
 
 jobs:

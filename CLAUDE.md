@@ -56,7 +56,8 @@ contacta directamente (pedido do utilizador). Detalhe completo:
 - **Crons atrasavam 4-5h** — todos agendados no minuto `0`, pico de carga global do GitHub. Desviados para minutos 17/23/37/12.
 - **`contactos` ganhou `id` uuid** (aditivo, PK antiga `(nome, criado_em)` intacta) — 1º passo de "uniformizar leads → todas em `contactos`". Plano com 3 opções: `contactos-unificado-assistentes-plano.md`.
 - **21/09 — Opção B desse plano, aplicada**: `find_or_create_cliente` passou a espelhar (aditivo, `agente is not null`, nunca merge) em `contactos`, que ganhou coluna `agente`. Corrige "Leads captados" no painel, que vinha idêntico em todos os assistentes (`agente_clientes` não distinguia quem captou o quê). `mqls`/qualificação continuam de `agente_clientes`, ainda sem filtro por agente — limitação conhecida, não resolvida.
-- **22/09 — Recrutamento (A3) ganha follow-up + routing sem semeadura**: candidatos só existiam em `contactos`, nunca em `leads` — sem thread semeada, uma resposta tipo "Sim" ao 1º template caía na Maria (A2). `guards.agente_de_lead` (chamado pelo webhook antes do router, já usado por A1/A4) ganhou fallback para `contactos` via `contacto_recrutamento_aberto`; `contactos` ganhou `respondeu_em`/`follow_up_em`/`follow_up_2_em` (migrations `0039`/`0040`). Dois fluxos n8n: "follow-up recrutamento (diário)" a 24h (`3pKTcPNSU850s0ha`) e "última tentativa" a 72h (`RuBg6gDOjUmRXZ2U`), ambos inactivos até corrida manual confirmada — mesmo ritual dos fluxos `01`-`03`. `template_enviado_em` do 1º template fica imutável de propósito (o fluxo de 24h deixou de o reescrever) — é a âncora que os dois follow-ups medem, independentes um do outro. Detalhe: `docs/fases/recrutamento-followup-resumo.md`.
+- **22/09 — Recrutamento (A3) ganha follow-up + routing sem semeadura**: candidatos só existiam em `contactos`, nunca em `leads` — sem thread semeada, uma resposta tipo "Sim" ao 1º template caía na Maria (A2). `guards.agente_de_lead` (chamado pelo webhook antes do router, já usado por A1/A4) ganhou fallback para `contactos` via `contacto_recrutamento_aberto`; `contactos` ganhou `respondeu_em`/`follow_up_em`/`follow_up_2_em` (migrations `0039`/`0040`). Dois fluxos n8n activos: "follow-up recrutamento" a 24h (`3pKTcPNSU850s0ha`) e "última tentativa" a 72h (`RuBg6gDOjUmRXZ2U`), testados ao vivo. `template_enviado_em` do 1º template fica imutável de propósito — é a âncora que os dois follow-ups medem, independentes um do outro. Detalhe: `docs/fases/recrutamento-followup-resumo.md`.
+- **22/09 — Cron Manager no Fly (`crons/`), GitHub Actions atrasava horas**: medido via `gh run list` — `sync-imoveis`/`sync-oportunidades` 3-6h40 atrasados todos os dias, `nudge-matilde` a perder ~80% dos gatilhos horários, `site-uptime` a perder >98% (corria de ~4/4h em vez de 5/5 min). Nova app `figueirahome-crons` (`crons/`, [fly-apps/cron-manager](https://github.com/fly-apps/cron-manager), `schedules.json`) dispara por cron syntax real, sem fila global do GitHub — `nudge-matilde` e `site-uptime` já activos e testados lá, `schedule` desligado no GitHub (fica só `workflow_dispatch`). `sync-imoveis`/`sync-oportunidades` continuam no GitHub por agora — ver "Próximos passos" 2 e 12. Custo estimado: cêntimos/mês em compute (facturado ao segundo) + ~$0,15/mês do volume de 1GB; sem breakdown fiável por app/máquina na factura do Fly (confirmado, pedido aberto da comunidade). `AUTOMACAO_SECRET` rodado (não havia registo legível em lado nenhum — só existia como secret write-only no Fly/GitHub desde a criação, `85a3465`).
 
 ### Produção
 
@@ -122,16 +123,17 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para a
 
 1. Confirmar pipeline completo do scraper (Playwright+upsert) no próximo cron
    (06:00/13:00 UTC) sob a chave nova.
-2. Reconfirmar cadência do cron do uptime (5 min esperado, só 1x nas primeiras ~3h17).
+2. Confirmar `sync-imoveis`/`sync-oportunidades` uns dias no Cron Manager antes de activar (hoje `enabled:false` — risco de sessão concorrente no eGO com o GitHub, ver item 12).
 3. Trocar a chave Supabase partilhada por uma dedicada, assim que o utilizador tiver acesso.
 4. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar.
 5. Remover segredos antigos do Fly (backend + scraper) — só depois de tudo confirmado estável.
 6. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; passos em `docs/n8n/README.md`.
 7. Actualizar `docs/database-schema.md` para reflectir "um projecto, não dois" e as colunas novas de `contactos`.
 8. Auditoria de 06/09 (P0–P6) continua parada — retomar quando decidido.
-9. Confirmar amanhã se os crons desviados do minuto 0 (17/23/37/12) deixaram de atrasar.
+9. ~~Crons desviados do minuto 0~~ — não resolveu (ver item 12); resolvido de outra forma.
 10. Testar Recrutamento ponta a ponta com candidatura real da Meta — só testado até agora com dados à mão, sem passar pelo webhook real.
 11. Opção B do plano de `contactos` unificado aplicada 21/09 (captação inicial). Por decidir ainda: `tipos` vs `tipo_contacto` com o Miguel, e se vale a pena ir para a Opção C (migração completa, `mqls` por agente incluído).
+12. `sync-imoveis`/`sync-oportunidades` continuam no GitHub Actions, `schedule` ainda ligado lá (ao contrário de `nudge-matilde`/`site-uptime`, já movidos). Activar no Cron Manager (item 2) exige espaçar as horas das sessões do eGO (mesma conta, já rebentou a app principal por OOM a 18/08 quando correram juntos) e só desligar o `schedule` do GitHub depois de confirmado.
 
 ## Decisões arquitecturais
 
