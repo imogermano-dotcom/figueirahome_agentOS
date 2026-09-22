@@ -56,6 +56,7 @@ contacta directamente (pedido do utilizador). Detalhe completo:
 - **Crons atrasavam 4-5h** — todos agendados no minuto `0`, pico de carga global do GitHub. Desviados para minutos 17/23/37/12.
 - **`contactos` ganhou `id` uuid** (aditivo, PK antiga `(nome, criado_em)` intacta) — 1º passo de "uniformizar leads → todas em `contactos`". Plano com 3 opções: `contactos-unificado-assistentes-plano.md`.
 - **21/09 — Opção B desse plano, aplicada**: `find_or_create_cliente` passou a espelhar (aditivo, `agente is not null`, nunca merge) em `contactos`, que ganhou coluna `agente`. Corrige "Leads captados" no painel, que vinha idêntico em todos os assistentes (`agente_clientes` não distinguia quem captou o quê). `mqls`/qualificação continuam de `agente_clientes`, ainda sem filtro por agente — limitação conhecida, não resolvida.
+- **22/09 — Recrutamento (A3) ganha follow-up + routing sem semeadura**: candidatos só existiam em `contactos`, nunca em `leads` — sem thread semeada, uma resposta tipo "Sim" ao 1º template caía na Maria (A2). `guards.agente_de_lead` (chamado pelo webhook antes do router, já usado por A1/A4) ganhou fallback para `contactos` via `contacto_recrutamento_aberto`; `contactos` ganhou `respondeu_em`/`follow_up_em` (migration `0039`). Novo fluxo n8n "FigueiraHome — follow-up recrutamento (diário)" (`3pKTcPNSU850s0ha`), inactivo até corrida manual confirmada — mesmo ritual dos fluxos `01`-`03`. Detalhe: `docs/fases/recrutamento-followup-resumo.md`.
 
 ### Produção
 

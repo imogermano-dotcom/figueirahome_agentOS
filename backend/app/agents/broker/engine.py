@@ -19,6 +19,7 @@ import httpx
 
 from app.agents.broker.assistants import (
     A1,
+    A3,
     APRESENTACAO_A1,
     ASSISTENTES,
     MAX_TOKENS,
@@ -30,7 +31,9 @@ from app.agents.broker.conversation import load_conversation, save_conversation
 from app.agents.broker.custos import calcular_custo, somar_usage
 from app.agents.broker.guards import (
     campos_mql_da_ficha,
+    contacto_recrutamento_aberto,
     lead_aberta,
+    marcar_contacto_respondeu,
     marcar_lead_respondeu,
     normalizar_telefone,
     promover_se_qualificada,
@@ -447,6 +450,12 @@ async def responder(
     # A lead vem de `_contexto_inicial`, que já a leu: não há consulta extra.
     if lead:
         await marcar_lead_respondeu(lead["id"], conversa_id)
+    elif agente == A3 and telefone:
+        # Recrutamento não passa por `_contexto_inicial`/`leads` — mesmo sinal,
+        # tabela diferente (`contactos`, sem semeadura). Ver `guards.py`.
+        contacto = await contacto_recrutamento_aberto(telefone)
+        if contacto:
+            await marcar_contacto_respondeu(contacto["id"])
 
     # A lead da Meta chega com o MQL já preenchido pelo formulário: o A1 não tem
     # dados para escrever, `find_or_create_cliente` nunca corre e a promoção

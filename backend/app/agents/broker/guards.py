@@ -236,20 +236,82 @@ async def lead_aberta(telefone: str | None) -> dict | None:
     return resp.data[0] if resp.data else None
 
 
+async def contacto_recrutamento_aberto(telefone: str | None) -> dict | None:
+    """Candidato de recrutamento ainda em aberto deste número, ou `None`.
+
+    Espelha `lead_aberta`, mas contra `contactos` — é onde `lead_meta_recrutamento`
+    (RPC) escreve, nunca em `leads`. Sem máquina de estados equivalente a
+    `_ESTADOS_LEAD_ABERTA` (recrutamento não tem hoje forma de "fechar" um
+    candidato); fica só a janela de tempo e o template já enviado.
+    """
+    numero = normalizar_telefone(telefone)
+    if not numero:
+        return None
+
+    limite = (datetime.now(timezone.utc) - timedelta(days=_JANELA_LEAD_DIAS)).isoformat()
+
+    def _fetch():
+        return (
+            get_supabase()
+            .table("contactos")
+            .select("id,nome,template_enviado,respondeu_em")
+            .in_("telefone", variantes_telefone(numero))
+            .contains("tipo_contacto", ["recrutamento"])
+            .not_.is_("template_enviado_em", "null")
+            .gte("criado_em", limite)
+            .limit(1)
+            .execute()
+        )
+
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    except Exception:
+        logger.exception("Falha a procurar contacto de recrutamento para %s", numero)
+        return None
+
+    return resp.data[0] if resp.data else None
+
+
 async def agente_de_lead(telefone: str | None) -> str | None:
-    """Assistente dono da lead ainda em aberto deste número, ou `None`.
+    """Assistente dono da lead/candidato ainda em aberto deste número, ou `None`.
 
     Devolve `None` em qualquer outro caso, para o router decidir como decidia.
     """
     lead = await lead_aberta(telefone)
-    if not lead:
+    if lead:
+        tipo = lead.get("tipo")
+        if tipo in ("compra", "arrendamento"):
+            return "a1_vendedor"
+        if tipo == "angariacao":
+            return "a4_angariador"
         return None
-    tipo = lead.get("tipo")
-    if tipo in ("compra", "arrendamento"):
-        return "a1_vendedor"
-    if tipo == "angariacao":
-        return "a4_angariador"
+    if await contacto_recrutamento_aberto(telefone):
+        return "a3_recrutamento"
     return None
+
+
+async def marcar_contacto_respondeu(contacto_id: str) -> None:
+    """Regista a primeira resposta de um candidato de recrutamento.
+
+    Espelha `marcar_lead_respondeu` — mesmo propósito, tabela `contactos`.
+    Sem isto o follow-up diário reenviaria a quem já está a falar com a Inês.
+    """
+    agora = datetime.now(timezone.utc).isoformat()
+
+    def _marcar():
+        return (
+            get_supabase()
+            .table("contactos")
+            .update({"respondeu_em": agora})
+            .eq("id", contacto_id)
+            .is_("respondeu_em", "null")
+            .execute()
+        )
+
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _marcar)
+    except Exception:
+        logger.exception("Falha a marcar resposta do contacto %s", contacto_id)
 
 
 async def marcar_lead_respondeu(lead_id: str, conversa_id: str | None) -> None:
