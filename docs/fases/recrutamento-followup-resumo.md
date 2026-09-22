@@ -34,15 +34,22 @@ Template aprovado usado: `figueirahome_recrutamento_followup|pt_PT`, 1
 variável (nome): *"Olá {{1}}, Ainda estamos disponíveis para falar sobre a
 sua candidatura à FigueiraHome. Responda quando puder."*
 
+## Testado 22/09 — tudo confirmado
+
+Migration `0039` corrida, deploy feito, routing testado ao vivo ("Sim" a um
+candidato com `contactos` aberto caiu em `a3_recrutamento`, não A2;
+`respondeu_em` gravado). Fluxo n8n corrido à mão (`Limit=5`): mensagem
+entregue, `follow_up_em` gravado. Dados de teste limpos a seguir.
+
+Janela alterada de 48h para **24h** a 22/09 (`template_enviado_em=lt.{{
+$now.minus(24, 'hours')... }}` no nó `Ler candidatos sem resposta`) — decisão
+do utilizador, para abrir espaço a um **3º fluxo a 72h** (não construído
+ainda).
+
 ## Por fazer
 
-- **Correr a `0039`** no editor SQL.
-- **Deploy do backend.**
-- Teste de routing ao vivo: candidato com `contactos` aberto responde no
-  WhatsApp → confirmar `a3_recrutamento`, não A2.
-- Corrida manual do fluxo novo (`Limit=5`, já no ficheiro) sobre um
-  candidato de teste → confirmar WhatsApp entregue e `follow_up_em` gravado.
-- Só depois: activar o `Schedule Trigger`.
+- Activar o `Schedule Trigger` (confirmação explícita, por decidir quando).
+- 3º fluxo de follow-up a 72h (pedido, não desenhado ainda).
 
 ## Como testar
 

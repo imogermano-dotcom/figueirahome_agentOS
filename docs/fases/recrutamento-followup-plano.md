@@ -147,7 +147,8 @@ antes de activar (fica inactivo de qualquer forma até à corrida manual).
    WhatsApp → confirmar que cai em `a3_recrutamento`, não A2; confirmar
    `contactos.respondeu_em` gravado no fim do turno.
 5. Corrida manual do novo fluxo n8n com `Limit=1` sobre um candidato de
-   teste sem resposta e `template_enviado_em` > 48h — confirmar WhatsApp
+   teste sem resposta e `template_enviado_em` > 24h (alterado de 48h para
+   24h a 22/09 — abre espaço para um 3º fluxo a 72h) — confirmar WhatsApp
    entregue, `contactos.follow_up_em` gravado, e que uma segunda corrida não
    reenvia (guarda) nem envia a quem entretanto respondeu.
 6. Só depois de tudo confirmado: activar o `Schedule Trigger` (confirmação
