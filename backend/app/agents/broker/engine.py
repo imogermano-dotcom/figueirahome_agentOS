@@ -20,6 +20,7 @@ import httpx
 from app.agents.broker.assistants import (
     A1,
     A3,
+    A4,
     APRESENTACAO_A1,
     ASSISTENTES,
     MAX_TOKENS,
@@ -31,7 +32,7 @@ from app.agents.broker.conversation import load_conversation, save_conversation
 from app.agents.broker.custos import calcular_custo, somar_usage
 from app.agents.broker.guards import (
     campos_mql_da_ficha,
-    contacto_recrutamento_aberto,
+    contacto_meta_aberto,
     lead_aberta,
     marcar_contacto_respondeu,
     marcar_lead_respondeu,
@@ -453,7 +454,13 @@ async def responder(
     elif agente == A3 and telefone:
         # Recrutamento não passa por `_contexto_inicial`/`leads` — mesmo sinal,
         # tabela diferente (`contactos`, sem semeadura). Ver `guards.py`.
-        contacto = await contacto_recrutamento_aberto(telefone)
+        contacto = await contacto_meta_aberto(telefone, "recrutamento")
+        if contacto:
+            await marcar_contacto_respondeu(contacto["id"])
+    elif agente == A4 and telefone:
+        # Angariação via Meta (`lead_meta_angariacao`) tem o mesmo problema:
+        # só escreve em `contactos`, nunca em `leads`.
+        contacto = await contacto_meta_aberto(telefone, "vendedor")
         if contacto:
             await marcar_contacto_respondeu(contacto["id"])
 

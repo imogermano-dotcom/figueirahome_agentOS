@@ -107,8 +107,8 @@ def test_vocabulario_do_painel_cobre_o_das_guardas():
     assert not set(_ESTADOS_LEAD_ABERTA) & set(ESTADOS_FECHADOS)
 
 
-# ── recrutamento sem semeadura ──────────────────────────────────────────────
-# `contacto_recrutamento_aberto`/`marcar_contacto_respondeu`/`agente_de_lead`
+# ── recrutamento/angariação sem semeadura ───────────────────────────────────
+# `contacto_meta_aberto`/`marcar_contacto_respondeu`/`agente_de_lead`
 # não têm fixture de monkeypatch (ficheiro corre também sem pytest, ver
 # `__main__` no fim) — patch manual com try/finally.
 
@@ -121,48 +121,72 @@ def test_agente_de_lead_cai_para_recrutamento_sem_lead():
     """Sem lead aberta em `leads`, tenta `contactos` antes de desistir — é o
     fallback que substitui a semeadura para a Inês (sem ele, "Sim" ao 1º
     template cai na Maria/A2, mesmo bug que a semeadura evitava para o A1."""
-    original_lead, original_contacto = guards.lead_aberta, guards.contacto_recrutamento_aberto
+    original_lead, original_contacto = guards.lead_aberta, guards.contacto_meta_aberto
 
     async def _sem_lead(_tel):
         return None
 
-    async def _candidato(_tel):
-        return {"id": "contacto-1"}
+    async def _so_recrutamento(_tel, tipo):
+        return {"id": "contacto-1"} if tipo == "recrutamento" else None
+
+    async def _nenhum(_tel, _tipo):
+        return None
 
     try:
         guards.lead_aberta = _sem_lead
-        guards.contacto_recrutamento_aberto = _candidato
+        guards.contacto_meta_aberto = _so_recrutamento
         assert asyncio.run(guards.agente_de_lead("912345678")) == "a3_recrutamento"
 
-        guards.contacto_recrutamento_aberto = _sem_lead
+        guards.contacto_meta_aberto = _nenhum
         assert asyncio.run(guards.agente_de_lead("912345678")) is None
     finally:
         guards.lead_aberta = original_lead
-        guards.contacto_recrutamento_aberto = original_contacto
+        guards.contacto_meta_aberto = original_contacto
+
+
+def test_agente_de_lead_cai_para_angariacao_sem_lead_nem_recrutamento():
+    """Mesmo fallback, para a Bárbara: sem lead em `leads` e sem candidato de
+    recrutamento, tenta `contactos` com `tipo_contacto='vendedor'` antes de
+    desistir — `lead_meta_angariacao` também só escreve em `contactos`."""
+    original_lead, original_contacto = guards.lead_aberta, guards.contacto_meta_aberto
+
+    async def _sem_lead(_tel):
+        return None
+
+    async def _so_vendedor(_tel, tipo):
+        return {"id": "contacto-2"} if tipo == "vendedor" else None
+
+    try:
+        guards.lead_aberta = _sem_lead
+        guards.contacto_meta_aberto = _so_vendedor
+        assert asyncio.run(guards.agente_de_lead("912345678")) == "a4_angariador"
+    finally:
+        guards.lead_aberta = original_lead
+        guards.contacto_meta_aberto = original_contacto
 
 
 def test_agente_de_lead_leads_ganha_a_contactos():
     """Uma lead aberta em `leads` (A1/A4) não é sequer substituída por olhar a
     `contactos` — o fallback só corre quando `leads` não tem nada."""
-    original_lead, original_contacto = guards.lead_aberta, guards.contacto_recrutamento_aberto
+    original_lead, original_contacto = guards.lead_aberta, guards.contacto_meta_aberto
 
     async def _lead(_tel):
         return {"tipo": "compra"}
 
     chamado = []
 
-    async def _nao_devia_correr(_tel):
+    async def _nao_devia_correr(_tel, _tipo):
         chamado.append(True)
         return {"id": "x"}
 
     try:
         guards.lead_aberta = _lead
-        guards.contacto_recrutamento_aberto = _nao_devia_correr
+        guards.contacto_meta_aberto = _nao_devia_correr
         assert asyncio.run(guards.agente_de_lead("912345678")) == "a1_vendedor"
         assert not chamado
     finally:
         guards.lead_aberta = original_lead
-        guards.contacto_recrutamento_aberto = original_contacto
+        guards.contacto_meta_aberto = original_contacto
 
 
 def test_marcar_contacto_respondeu_so_escreve_na_primeira_vez():
@@ -198,9 +222,9 @@ def test_marcar_contacto_respondeu_so_escreve_na_primeira_vez():
     assert chamadas["dados"]["respondeu_em"]
 
 
-def test_contacto_recrutamento_aberto_filtra_por_tipo_e_template():
-    """A query real: `tipo_contacto` tem de conter `recrutamento` e
-    `template_enviado_em` tem de estar preenchido — sem isto um candidato que
+def test_contacto_meta_aberto_filtra_por_tipo_e_template():
+    """A query real: `tipo_contacto` tem de conter o tipo pedido e
+    `template_enviado_em` tem de estar preenchido — sem isto um contacto que
     nunca recebeu template seria tratado como se já estivesse em conversa."""
     chamadas = {}
 
@@ -239,7 +263,7 @@ def test_contacto_recrutamento_aberto_filtra_por_tipo_e_template():
     original = guards.get_supabase
     try:
         guards.get_supabase = lambda: type("S", (), {"table": lambda s, n: _Q_INSTANCE})()
-        resultado = asyncio.run(guards.contacto_recrutamento_aberto("912345678"))
+        resultado = asyncio.run(guards.contacto_meta_aberto("912345678", "recrutamento"))
     finally:
         guards.get_supabase = original
 

@@ -236,13 +236,15 @@ async def lead_aberta(telefone: str | None) -> dict | None:
     return resp.data[0] if resp.data else None
 
 
-async def contacto_recrutamento_aberto(telefone: str | None) -> dict | None:
-    """Candidato de recrutamento ainda em aberto deste número, ou `None`.
+async def contacto_meta_aberto(telefone: str | None, tipo_contacto: str) -> dict | None:
+    """Contacto da Meta ainda em aberto deste número, para um dado `tipo_contacto`
+    (`'recrutamento'` ou `'vendedor'`), ou `None`.
 
     Espelha `lead_aberta`, mas contra `contactos` — é onde `lead_meta_recrutamento`
-    (RPC) escreve, nunca em `leads`. Sem máquina de estados equivalente a
-    `_ESTADOS_LEAD_ABERTA` (recrutamento não tem hoje forma de "fechar" um
-    candidato); fica só a janela de tempo e o template já enviado.
+    e `lead_meta_angariacao` (RPCs) escrevem, nunca em `leads`. Sem estado
+    equivalente a `_ESTADOS_LEAD_ABERTA` (nem recrutamento nem angariação via
+    Meta têm hoje forma de "fechar" um contacto); fica só a janela de tempo e
+    o template já enviado.
     """
     numero = normalizar_telefone(telefone)
     if not numero:
@@ -256,7 +258,7 @@ async def contacto_recrutamento_aberto(telefone: str | None) -> dict | None:
             .table("contactos")
             .select("id,nome,template_enviado,respondeu_em")
             .in_("telefone", variantes_telefone(numero))
-            .contains("tipo_contacto", ["recrutamento"])
+            .contains("tipo_contacto", [tipo_contacto])
             .not_.is_("template_enviado_em", "null")
             .gte("criado_em", limite)
             .limit(1)
@@ -266,14 +268,15 @@ async def contacto_recrutamento_aberto(telefone: str | None) -> dict | None:
     try:
         resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
     except Exception:
-        logger.exception("Falha a procurar contacto de recrutamento para %s", numero)
+        logger.exception("Falha a procurar contacto '%s' para %s", tipo_contacto, numero)
         return None
 
     return resp.data[0] if resp.data else None
 
 
 async def agente_de_lead(telefone: str | None) -> str | None:
-    """Assistente dono da lead/candidato ainda em aberto deste número, ou `None`.
+    """Assistente dono da lead/candidato/contacto ainda em aberto deste
+    número, ou `None`.
 
     Devolve `None` em qualquer outro caso, para o router decidir como decidia.
     """
@@ -285,8 +288,10 @@ async def agente_de_lead(telefone: str | None) -> str | None:
         if tipo == "angariacao":
             return "a4_angariador"
         return None
-    if await contacto_recrutamento_aberto(telefone):
+    if await contacto_meta_aberto(telefone, "recrutamento"):
         return "a3_recrutamento"
+    if await contacto_meta_aberto(telefone, "vendedor"):
+        return "a4_angariador"
     return None
 
 
