@@ -6,7 +6,7 @@
         "region": "ams",
         "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/imoveis/sync/egorealestate/api -H \\\"X-Sync-Secret: $EGOREALESTATE_SYNC_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 600\"",
         "command_timeout": 650,
-        "enabled": false,
+        "enabled": true,
         "config": {
             "metadata": { "fly_process_group": "cron" },
             "auto_destroy": true,
@@ -23,7 +23,7 @@
         "region": "ams",
         "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/imoveis/sync/egorealestate/api -H \\\"X-Sync-Secret: $EGOREALESTATE_SYNC_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 600\"",
         "command_timeout": 650,
-        "enabled": false,
+        "enabled": true,
         "config": {
             "metadata": { "fly_process_group": "cron" },
             "auto_destroy": true,
@@ -40,7 +40,7 @@
         "region": "ams",
         "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/oportunidades/sync/completo -H \\\"X-Sync-Secret: $EGOREALESTATE_SYNC_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 420\"",
         "command_timeout": 450,
-        "enabled": false,
+        "enabled": true,
         "config": {
             "metadata": { "fly_process_group": "cron" },
             "auto_destroy": true,
