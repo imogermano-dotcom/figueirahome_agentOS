@@ -130,14 +130,50 @@ function Sync({ linhas }) {
   )
 }
 
+// Vem do UptimeRobot (o utilizador já tem conta, 5/5 min) — não do nosso
+// cron, desactivado 23/09 por ser redundante. `disponivel:false` sem chave
+// configurada: o cartão desaparece em vez de mostrar um erro permanente.
+function SiteUptime({ u }) {
+  if (!u?.disponivel) return null
+
+  const pct = v => (v == null ? '—' : `${v.toFixed(2)}%`)
+  const emBaixo = u.status === 'down'
+  const cor = u.erro ? AMARELO : emBaixo ? VERMELHO : VERDE
+
+  return (
+    <Cartao>
+      <Titulo nota={u.url || 'figueirahome.pt'}>Site — UptimeRobot</Titulo>
+      {u.erro ? (
+        <p className="text-xs" style={{ color: AMARELO }}>{u.erro}</p>
+      ) : (
+        <div className="flex items-center gap-6">
+          <span className="flex items-center gap-1.5 text-sm" style={{ color: cor }}>
+            <span aria-hidden="true">{emBaixo ? '▲' : '●'}</span>
+            {emBaixo ? 'Em baixo' : u.status === 'up' ? 'No ar' : 'Desconhecido'}
+          </span>
+          {[['24h', u.uptime_24h], ['7d', u.uptime_7d], ['30d', u.uptime_30d]].map(([k, v]) => (
+            <div key={k}>
+              <p className="text-xs text-zinc-500">{k}</p>
+              <p className="text-sm text-zinc-200 tabular-nums">{pct(v)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </Cartao>
+  )
+}
+
 export default function Dashboard() {
   const [d, setD] = useState(null)
+  const [uptime, setUptime] = useState(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
     api.get('/api/dashboard')
       .then(setD)
       .catch(() => setError('Erro ao carregar métricas.'))
+    // Pedido à parte — falhar isto nunca deve tirar o resto do dashboard do ar.
+    api.get('/api/site/uptime-status').then(setUptime).catch(() => {})
   }, [])
 
   if (error) return <p className="text-red-400 text-sm">{error}</p>
@@ -203,6 +239,8 @@ export default function Dashboard() {
           <Barras dados={a?.conversas_por_agente?.map(d => ({ ...d, nome: nomeAgente(d.nome) }))} />
         </Cartao>
       </div>
+
+      <SiteUptime u={uptime} />
 
       <div className="grid lg:grid-cols-2 gap-4">
         <Cartao>

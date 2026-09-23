@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # disparar syncs do eGO, e rodar um não obriga a rodar o outro.
     automacao_secret: str = ""
 
+    # UptimeRobot — chave read-only, só getMonitors. O nosso próprio cron de
+    # uptime foi desactivado 23/09 (redundante, o utilizador já tinha isto).
+    uptimerobot_api_key: str = ""
+
     # OpenAI
     openai_api_key: str = ""
 
