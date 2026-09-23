@@ -57,6 +57,7 @@ contacta directamente (pedido do utilizador). Detalhe completo:
 - **`contactos` ganhou `id` uuid** (aditivo, PK antiga `(nome, criado_em)` intacta) — 1º passo de "uniformizar leads → todas em `contactos`". Plano com 3 opções: `contactos-unificado-assistentes-plano.md`.
 - **21/09 — Opção B desse plano, aplicada**: `find_or_create_cliente` passou a espelhar (aditivo, `agente is not null`, nunca merge) em `contactos`, que ganhou coluna `agente`. Corrige "Leads captados" no painel, que vinha idêntico em todos os assistentes (`agente_clientes` não distinguia quem captou o quê). `mqls`/qualificação continuam de `agente_clientes`, ainda sem filtro por agente — limitação conhecida, não resolvida.
 - **22/09 — Recrutamento (A3) ganha follow-up + routing sem semeadura**: candidatos só existiam em `contactos`, nunca em `leads` — sem thread semeada, uma resposta tipo "Sim" ao 1º template caía na Maria (A2). `guards.agente_de_lead` (chamado pelo webhook antes do router, já usado por A1/A4) ganhou fallback para `contactos` via `contacto_recrutamento_aberto`; `contactos` ganhou `respondeu_em`/`follow_up_em`/`follow_up_2_em` (migrations `0039`/`0040`). Dois fluxos n8n activos: "follow-up recrutamento" a 24h (`3pKTcPNSU850s0ha`) e "última tentativa" a 72h (`RuBg6gDOjUmRXZ2U`), testados ao vivo. `template_enviado_em` do 1º template fica imutável de propósito — é a âncora que os dois follow-ups medem, independentes um do outro. Detalhe: `docs/fases/recrutamento-followup-resumo.md`.
+- **23/09 — `origem` errada em `leads` desde 18/08, mesmo padrão agora em `contactos`**: migration `0029` (18/08) fez backfill de uma vez só; o Make (e depois a RPC `lead_meta_compra`) nunca manda `origem` no insert, e cada lead nova da Meta desde então gravava `'manual'` (DEFAULT da coluna) — 187 de 196 erradas até se corrigir. Fix (`0041`): trigger `tgr_normaliza_origem_leads`, mesmo padrão do `tgr_normaliza_aceita_whatsapp` (`0031`) — regra na base, não depende do escritor se lembrar. `contactos` ganhou a mesma coluna + trigger por prevenção (`0042`, antes de ter o mesmo problema): `meta_lead_id`→`meta`, `agente`→`assistente`, `ego_link`→`scraper`, senão `NULL`.
 - **22-23/09 — Cron Manager no Fly (`crons/`), GitHub Actions atrasava horas**: medido via `gh run list` — `sync-imoveis`/`sync-oportunidades` 3-6h40 atrasados todos os dias, `nudge-matilde` a perder ~80% dos gatilhos horários, `site-uptime` a perder >98% (corria de ~4/4h em vez de 5/5 min). Nova app `figueirahome-crons` (`crons/`, [fly-apps/cron-manager](https://github.com/fly-apps/cron-manager)) dispara por cron syntax real. Bug real apanhado: `bin/process-job` apanhava CRLF no checkout Windows, shebang partido, cron falhava em silêncio — corrigido + `.gitattributes`. 4 dos 5 schedules estão **activos e confirmados** (23/09), `schedule` desligado nos 4 `.yml` do GitHub (fica `workflow_dispatch`) — `site-uptime` desactivado (redundante com o UptimeRobot, já em uso; vai alimentar o dashboard via API dele). `AUTOMACAO_SECRET` rodado nos 3 sítios (não havia registo legível em lado nenhum). Custo estimado: cêntimos/mês em compute + ~$0,15/mês do volume; sem breakdown fiável por app/máquina na factura do Fly. Detalhe: `docs/fases/cron-manager-fly-resumo.md`.
 
 ### Produção
@@ -113,7 +114,6 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para a
 
 | Item | Estado |
 |---|---|
-| **Chave Supabase partilhada** | ⚠️ backend e scraper usam a `sb_secret_...` do site (`sitefigueirahome`), temporária — trocar por dedicada quando o utilizador tiver acesso ao dashboard |
 | **Chaves legacy desactivadas** | ⚠️ bloqueia portal do Miguel, Make, bundle das landing pages (fora do repo). Reactivar como stopgap é decisão por tomar |
 | Segredos antigos no Fly (`SUPABASE_SERVICE_ROLE_KEY` etc.) | ⚠️ não removidos em nenhuma das 2 apps — por decisão do utilizador |
 | `whatsapp_permissao` a `True` em **3 de 79** | ⚠️ é o gate do template; sem o Make a marcá-lo à entrada, não sai template e não há A1 |
@@ -124,7 +124,7 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para a
 1. Confirmar pipeline completo do scraper (Playwright+upsert) no próximo cron
    (06:00/13:00 UTC) sob a chave nova.
 2. Confirmar `sync-imoveis`/`sync-oportunidades` na próxima corrida real do Cron Manager (06:17/13:23/03:37 UTC) — só testados à mão até agora, 23/09.
-3. Trocar a chave Supabase partilhada por uma dedicada, assim que o utilizador tiver acesso.
+3. ~~Chave Supabase partilhada~~ — dedicada gerada e gravada 23/09 (backend + scraper), confirmada a ler a BD.
 4. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar.
 5. Remover segredos antigos do Fly (backend + scraper) — só depois de tudo confirmado estável.
 6. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; passos em `docs/n8n/README.md`.
