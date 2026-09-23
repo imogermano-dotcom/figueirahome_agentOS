@@ -66,34 +66,32 @@ silêncio. Corrigido: `sed -i 's/\r$//'` no ficheiro + `crons/.gitattributes`
 checkout. Confirmado ao vivo: `site-uptime` disparou sozinho na marca exacta
 dos 5 minutos depois do redeploy.
 
-## Estado dos 5 schedules
+## Estado dos 5 schedules (23/09 — todos activos)
 
 | Nome | Agendado | Estado |
 |---|---|---|
-| `nudge-matilde` | `12 * * * *` | **activo**, testado (`cm jobs trigger`, exit 0) |
-| `site-uptime` | `*/5 * * * *` | **activo**, testado (exit 0) |
-| `sync-imoveis-manha` | `17 6 * * *` | `enabled:false` — GitHub ainda o corre |
-| `sync-imoveis-tarde` | `23 13 * * *` | `enabled:false` — idem |
-| `sync-oportunidades` | `37 3 * * *` | `enabled:false` — idem |
+| `nudge-matilde` | `12 * * * *` | **activo**, confirmado a disparar sozinho horas seguidas (04:12-08:12) |
+| `site-uptime` | `*/5 * * * *` | **activo**, confirmado a disparar sozinho (grelha exacta dos 5 min) |
+| `sync-imoveis-manha` | `17 6 * * *` | **activo**, testado à mão (`cm jobs trigger`) |
+| `sync-imoveis-tarde` | `23 13 * * *` | **activo** |
+| `sync-oportunidades` | `37 3 * * *` | **activo**, testado à mão, exit 0 |
 
-Os 3 de eGO ficam desligados de propósito: `sync-imoveis` e
-`sync-oportunidades` usam a MESMA conta do eGO backoffice, e correrem juntos
-já derrubou a app principal por OOM (18/08, ver `sync-oportunidades.yml`).
-Activar aqui sem desligar o GitHub duplicava execuções e podia repetir isso.
-
-`.github/workflows/nudge-matilde.yml` e `site-uptime.yml`: `schedule`
-desligado (fica só `workflow_dispatch`, para correr à mão). Os outros dois
-`.yml` (`sync-imoveis`, `sync-oportunidades`) **não foram tocados** — continuam
-a disparar pelo GitHub até os do Fly serem confirmados e activados.
+Os 4 `.yml` do GitHub Actions ficam só com `workflow_dispatch` (schedule
+desligado nos 4). Sequência real ao activar `sync-imoveis`/`sync-oportunidades`
+(23/09): editei o `.yml` localmente mas só fiz push **depois** de testar no
+Fly — nesse intervalo, o `sync-oportunidades` do GitHub (ainda activo,
+disparo atrasado ~5h13 desde as 03:37) correu às 08:50, e o meu teste manual
+no Fly correu às 08:53 — 3 minutos de intervalo, mesma sessão eGO, o risco de
+concorrência exacto que motivou desligar o GitHub primeiro (já tinha
+derrubado a app principal por OOM a 18/08). Desta vez não houve crash
+(`/health` 200 depois), mas foi sorte de tempo, não de desenho — o `.yml`
+devia ter sido desligado (push) antes do teste, não depois. Lição para a
+próxima vez que se mexer nestes dois: push do `.yml` primeiro, sempre.
 
 ## Por fazer
 
-- Confirmar uns dias de `nudge-matilde`/`site-uptime` no Fly (disparo real
-  pelo `cron`, não só o `cm jobs trigger` manual).
-- Decidir horas para `sync-imoveis`/`sync-oportunidades` no Cron Manager com
-  folga suficiente entre si (o `.yml` original já tinha essa preocupação,
-  ver comentário em `sync-oportunidades.yml`), activar, e só depois desligar
-  o `schedule` do GitHub para esses dois.
+- Confirmar `sync-imoveis`/`sync-oportunidades` na próxima corrida real
+  (06:17/13:23/03:37 UTC) — só testados à mão até agora.
 - Ver a factura real do Fly ao fim do mês — confirmar a estimativa de
   cêntimos.
 
