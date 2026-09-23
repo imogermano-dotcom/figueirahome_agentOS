@@ -49,6 +49,23 @@ públicos sob carga global, sem fix do nosso lado dentro da plataforma.
   (`fly tokens create deploy -a figueirahome-crons`), não o token pessoal —
   o pessoal dava `unauthorized` a criar máquinas (achado ao testar).
 
+## Bug real apanhado depois de deployar: CRLF no `process-job`
+
+Schedules registados certo, crontab instalado certo (confirmado por SSH),
+hora do sistema certa — e mesmo assim nada disparava sozinho, só
+`cm jobs trigger` manual. Root cause: `bin/process-job` (shebang
+`#!/bin/bash`) tinha finais de linha **CRLF** no working tree local — o
+`git clone` num Windows com `core.autocrlf=true` converte para CRLF no
+checkout, e o `flyctl deploy .` constrói a partir do disco, não do commit
+(o blob no repo já estava LF, normalizado no `git add` original — só o
+ficheiro em disco ficava corrompido a cada novo checkout). Com
+`#!/bin/bash\r`, o kernel procura um interpretador que não existe e falha
+com `ENOENT` — sem MTA configurado no container, o `cron` engole o erro em
+silêncio. Corrigido: `sed -i 's/\r$//'` no ficheiro + `crons/.gitattributes`
+(`bin/process-job text eol=lf`) para não voltar a acontecer no próximo
+checkout. Confirmado ao vivo: `site-uptime` disparou sozinho na marca exacta
+dos 5 minutos depois do redeploy.
+
 ## Estado dos 5 schedules
 
 | Nome | Agendado | Estado |

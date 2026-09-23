@@ -1,0 +1,6 @@
+# process-job corre dentro do container Linux via cron (shebang #!/bin/bash).
+# Checkout no Windows convertia para CRLF por omissão (core.autocrlf), o que
+# parte o shebang ("/bin/bash\r" não existe) — cron falhava a disparar o job
+# em silêncio, sem mail configurado para reportar o erro. Achado 22/09.
+bin/process-job text eol=lf
+*.sh text eol=lf
