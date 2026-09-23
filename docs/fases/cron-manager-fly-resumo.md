@@ -66,13 +66,13 @@ silêncio. Corrigido: `sed -i 's/\r$//'` no ficheiro + `crons/.gitattributes`
 checkout. Confirmado ao vivo: `site-uptime` disparou sozinho na marca exacta
 dos 5 minutos depois do redeploy.
 
-## Estado dos 5 schedules (23/09 — todos activos)
+## Estado dos 5 schedules (23/09)
 
 | Nome | Agendado | Estado |
 |---|---|---|
 | `nudge-matilde` | `12 * * * *` | **activo**, confirmado a disparar sozinho horas seguidas (04:12-08:12) |
-| `site-uptime` | `*/5 * * * *` | **activo**, confirmado a disparar sozinho (grelha exacta dos 5 min) |
-| `sync-imoveis-manha` | `17 6 * * *` | **activo**, testado à mão (`cm jobs trigger`) |
+| `site-uptime` | `*/5 * * * *` | **desactivado 23/09** — redundante com o UptimeRobot (5/5 min grátis, já em uso), que vai passar a alimentar o dashboard via API. Confirmado a funcionar antes de desligar. 197 linhas de `agente_sync_log` (`tipo=site_uptime`) apagadas. |
+| `sync-imoveis-manha` | `17 6 * * *` | **activo**, testado à mão (`cm jobs trigger`, 56 actualizados, 0 erros) |
 | `sync-imoveis-tarde` | `23 13 * * *` | **activo** |
 | `sync-oportunidades` | `37 3 * * *` | **activo**, testado à mão, exit 0 |
 

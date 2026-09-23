@@ -74,7 +74,7 @@
         "region": "ams",
         "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/site/uptime-check -H \\\"X-Automacao-Secret: $AUTOMACAO_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 30\"",
         "command_timeout": 45,
-        "enabled": true,
+        "enabled": false,
         "config": {
             "metadata": { "fly_process_group": "cron" },
             "auto_destroy": true,
