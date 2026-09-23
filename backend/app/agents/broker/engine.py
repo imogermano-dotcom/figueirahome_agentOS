@@ -451,6 +451,14 @@ async def responder(
     # A lead vem de `_contexto_inicial`, que já a leu: não há consulta extra.
     if lead:
         await marcar_lead_respondeu(lead["id"], conversa_id)
+        if agente == A1 and telefone:
+            # Os follow-ups da Matilde passaram a viver em `contactos`
+            # (23/09, mesmo padrão da Inês/Bárbara) — `respondeu_em` tem de
+            # ficar marcado lá também, ou o follow-up nunca saberia que a
+            # pessoa já respondeu (só olha a `contactos`, não a `leads`).
+            contacto = await contacto_meta_aberto(telefone, "comprador")
+            if contacto:
+                await marcar_contacto_respondeu(contacto["id"])
     elif agente == A3 and telefone:
         # Recrutamento não passa por `_contexto_inicial`/`leads` — mesmo sinal,
         # tabela diferente (`contactos`, sem semeadura). Ver `guards.py`.
