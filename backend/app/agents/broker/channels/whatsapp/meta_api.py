@@ -10,8 +10,9 @@ logger = logging.getLogger(__name__)
 _MAX_MESSAGE_LENGTH = 4000
 
 
-def _url() -> str:
-    return f"https://graph.facebook.com/{settings.meta_api_version}/{settings.meta_phone_number_id}/messages"
+def _url(phone_number_id: str | None = None) -> str:
+    numero = phone_number_id or settings.meta_phone_number_id
+    return f"https://graph.facebook.com/{settings.meta_api_version}/{numero}/messages"
 
 
 def _headers() -> dict:
@@ -21,8 +22,10 @@ def _headers() -> dict:
     }
 
 
-async def send_text_message(to: str, text: str) -> None:
-    url = _url()
+async def send_text_message(to: str, text: str, phone_number_id: str | None = None) -> None:
+    # `phone_number_id` vem do webhook (metadata da mensagem recebida) — responde
+    # sempre pelo número que a recebeu. Sem ele, cai no número único de sempre.
+    url = _url(phone_number_id)
     headers = _headers()
 
     # O modelo escreve Markdown; o WhatsApp não o percebe. Converter aqui, no
@@ -53,8 +56,8 @@ async def send_text_message(to: str, text: str) -> None:
                 logger.debug("Mensagem enviada para %s", to)
 
 
-async def mark_as_read(message_id: str) -> None:
-    url = _url()
+async def mark_as_read(message_id: str, phone_number_id: str | None = None) -> None:
+    url = _url(phone_number_id)
     headers = _headers()
     payload = {
         "messaging_product": "whatsapp",

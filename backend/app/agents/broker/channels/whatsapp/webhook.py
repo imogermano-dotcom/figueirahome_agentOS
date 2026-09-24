@@ -78,6 +78,7 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
     for e in entry:
         for change in e.get("changes", []):
             value = change.get("value", {})
+            phone_number_id = value.get("metadata", {}).get("phone_number_id")
 
             # A Meta manda os recibos de entrega aqui, NÃO em `messages`. Foram
             # ignorados até 2026-08-29, e isso deixou-nos cegos: a 29/08 uma
@@ -97,7 +98,7 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
 
                 if from_number and text_body:
                     background_tasks.add_task(
-                        _handle_message, from_number, message_id, text_body
+                        _handle_message, from_number, message_id, text_body, phone_number_id
                     )
 
     return {"status": "ok"}
@@ -127,12 +128,14 @@ def _ja_processada(message_id: str) -> bool:
         return False
 
 
-async def _handle_message(from_number: str, message_id: str, text: str) -> None:
+async def _handle_message(
+    from_number: str, message_id: str, text: str, phone_number_id: str | None = None
+) -> None:
     if await asyncio.get_event_loop().run_in_executor(None, _ja_processada, message_id):
         logger.info("Mensagem %s já processada — reentrega da Meta, a ignorar.", message_id)
         return
     try:
-        await mark_as_read(message_id)
+        await mark_as_read(message_id, phone_number_id)
         # Normalmente sem `agente=`: o router decide e a escolha fica colada à
         # thread. A excepção são as leads da Meta — a resposta a um template é
         # "Sim" ou "Olá", que `router._A1_RE` não reconhece, e a thread semeada
@@ -141,13 +144,17 @@ async def _handle_message(from_number: str, message_id: str, text: str) -> None:
         response = await responder(
             canal="whatsapp", participante=from_number, mensagem=text, agente=agente
         )
-        await send_text_message(from_number, response)
+        # Responder sempre pelo número que recebeu a mensagem (`phone_number_id`
+        # do webhook), não por um número fixo — necessário para ter 2+ números
+        # activos na mesma app sem trocar a resposta de sítio.
+        await send_text_message(from_number, response, phone_number_id)
     except Exception:
         logger.exception("Erro ao processar mensagem WhatsApp de %s", from_number)
         try:
             await send_text_message(
                 from_number,
                 "Ocorreu um erro interno. Por favor tenta novamente mais tarde.",
+                phone_number_id,
             )
         except Exception:
             pass
