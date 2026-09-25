@@ -249,7 +249,8 @@ def test_contacto_meta_aberto_filtra_por_tipo_e_template():
         def not_(self):
             return _Not()
 
-        def gte(self, *a, **k):
+        def gte(self, campo, valor):
+            chamadas["gte"] = (campo, valor)
             return self
 
         def limit(self, *a, **k):
@@ -270,6 +271,10 @@ def test_contacto_meta_aberto_filtra_por_tipo_e_template():
     assert resultado == {"id": "contacto-9"}
     assert chamadas["contains"] == ("tipo_contacto", ["recrutamento"])
     assert chamadas["not_is"] == ("template_enviado_em", "null")
+    # A janela conta a partir de `template_enviado_em`, não `criado_em` — um
+    # contacto "linkado" pela RPC pode ter anos (achado ao vivo 25/09, Sandra
+    # Pinto: `criado_em` de 2017 fazia a janela nunca bater).
+    assert chamadas["gte"][0] == "template_enviado_em"
 
 
 if __name__ == "__main__":

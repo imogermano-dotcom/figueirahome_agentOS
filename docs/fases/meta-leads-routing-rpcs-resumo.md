@@ -52,6 +52,25 @@ Confirmado ao vivo com leads reais (Sandra Nascimento, recrutamento):
 Ambos corrigidos nas 3 RPCs (mesma origem, copiadas juntas em 17/09).
 Confirmado ao vivo: Sandra Nascimento recebeu o template depois do fix.
 
+## 4. Dois bugs adicionais, achados ao analisar a resposta real da Sandra Pinto
+
+- **`contactos` tinha 2 dedups cegos um ao outro.** As RPCs deduplicam por
+  telefone→email contra toda a `contactos`; o motor conversacional
+  (`_espelhar_em_contactos`, `guards.py`) só reconhece linhas com `agente`
+  preenchido, pra nunca mexer nas do Miguel/scraper. As RPCs nunca gravavam
+  `agente` — por isso uma pessoa "linkada" pela RPC ganhava uma 4ª linha
+  nova assim que falasse directamente com um assistente. Fix: as 3 RPCs
+  passam a gravar `agente` (`'a1_vendedor'`/`'a3_recrutamento'`/`'a4_angariador'`)
+  no insert e no "linked". Só pára duplicação **nova** — não limpa as já
+  existentes (Sandra Pinto tem 6 linhas antigas, fora de escopo aqui).
+- **`guards.contacto_meta_aberto` contava a janela por `criado_em`**, não por
+  `template_enviado_em`. Um contacto "linkado" pode ter `criado_em` de 2017
+  (dono original: scraper/Miguel) — a janela de 30 dias nunca batia, e a
+  resposta ao template caía sempre no router genérico em vez do assistente
+  certo. Confirmado ao vivo: Sandra Pinto respondeu ao template da Inês
+  ("sim podemos falar") e caiu na Matilde. Fix: `.gte("template_enviado_em", ...)`
+  em vez de `.gte("criado_em", ...)`.
+
 ## Por fazer
 
 - Confirmar o nome real do formulário de Angariação no Meta (só recrutamento
@@ -60,3 +79,6 @@ Confirmado ao vivo: Sandra Nascimento recebeu o template depois do fix.
 - Testar o 2º número WhatsApp real quando o utilizador o registar no Meta
   Business Manager (mesma app/WABA → nada a mudar no webhook; app diferente
   → repetir o Callback URL lá).
+- Limpeza das duplicadas já existentes em `contactos` (6 linhas da Sandra
+  Pinto, 3 da Sandra Nascimento) — fora de escopo, precisa de regra de merge
+  a decidir. Ver `docs/fases/contactos-unificado-assistentes-plano.md`.

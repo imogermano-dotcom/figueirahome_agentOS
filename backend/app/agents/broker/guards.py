@@ -245,6 +245,15 @@ async def contacto_meta_aberto(telefone: str | None, tipo_contacto: str) -> dict
     equivalente a `_ESTADOS_LEAD_ABERTA` (nem recrutamento nem angariação via
     Meta têm hoje forma de "fechar" um contacto); fica só a janela de tempo e
     o template já enviado.
+
+    A janela conta a partir de `template_enviado_em`, não `criado_em` —
+    `contactos` é escrita por 3+ pipelines diferentes (scraper, Miguel, RPCs
+    da Meta) e uma RPC pode "linkar" um contacto com anos (`criado_em` de
+    2017, por exemplo). Contar a partir de `criado_em` fazia a janela nunca
+    bater para esses casos — o contacto ficava sempre "fora da janela" mesmo
+    tendo recebido o template hoje. Achado ao vivo 25/09 (Sandra Pinto: RPC
+    linkou-a, ela respondeu ao template, caiu no router genérico em vez da
+    Inês).
     """
     numero = normalizar_telefone(telefone)
     if not numero:
@@ -260,7 +269,7 @@ async def contacto_meta_aberto(telefone: str | None, tipo_contacto: str) -> dict
             .in_("telefone", variantes_telefone(numero))
             .contains("tipo_contacto", [tipo_contacto])
             .not_.is_("template_enviado_em", "null")
-            .gte("criado_em", limite)
+            .gte("template_enviado_em", limite)
             .limit(1)
             .execute()
         )
