@@ -15,6 +15,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from app.agents.broker import guards
+from app.agents.broker.assistants import A1, A3, A4
 from app.agents.broker.channels.whatsapp import meta_api
 from app.agents.broker.conversation import save_conversation
 from app.db.supabase_client import get_supabase
@@ -22,12 +23,22 @@ from app.models.lead import ESTADOS_FECHADOS
 
 logger = logging.getLogger(__name__)
 
-_JANELA_MIN_HORAS = 6
+_JANELA_MIN_HORAS = 2
 _JANELA_MAX_HORAS = 20  # margem de segurança antes das 24h da Cloud API
 
 TEXTO_NUDGE = (
     "Ainda está interessado? Fico a postos para continuar, ou diga-me só que "
     "não para eu não voltar a incomodar."
+)
+
+TEXTO_NUDGE_A3 = (
+    "Ainda tem interesse em avançar com a candidatura? Fico a postos para "
+    "continuar, ou diga-me só que não para eu não voltar a incomodar."
+)
+
+TEXTO_NUDGE_A4 = (
+    "Ainda tem interesse em avançar com a venda do seu imóvel? Fico a postos "
+    "para continuar, ou diga-me só que não para eu não voltar a incomodar."
 )
 
 # Marcadores da despedida da própria Matilde — voz nossa, controlada, por
@@ -41,7 +52,7 @@ def _e_despedida(texto: str) -> bool:
     return any(marca in texto for marca in _MARCAS_FECHO)
 
 
-async def _pode_enviar(telefone: str | None) -> bool:
+async def _pode_enviar_a1(telefone: str | None) -> bool:
     """Só recusa quando há mesmo lead **fechada** ou já entregue a um humano.
 
     Não usar `guards.lead_aberta`: devolve `None` tanto para "nunca houve
@@ -76,7 +87,19 @@ async def _pode_enviar(telefone: str | None) -> bool:
     return not lead.get("contacto_humano_em")
 
 
-async def _candidatos() -> list[dict]:
+# Config por assistente — "um motor, N assistentes", mesmo princípio do
+# resto do broker. `guarda` é opcional: A3/A4 não têm hoje nenhum sinal de
+# "conversa encerrada" em `contactos` (nada escreve lá um estado fechado),
+# por isso ficam só com a detecção de despedida — travão real, não código
+# morto à espera de um `estado` que ninguém grava.
+_AGENTES = {
+    A1: {"texto": TEXTO_NUDGE, "log_tipo": "nudge_matilde", "guarda": _pode_enviar_a1},
+    A3: {"texto": TEXTO_NUDGE_A3, "log_tipo": "nudge_ines", "guarda": None},
+    A4: {"texto": TEXTO_NUDGE_A4, "log_tipo": "nudge_barbara", "guarda": None},
+}
+
+
+async def _candidatos(agente: str, guarda) -> list[dict]:
     agora = datetime.now(timezone.utc)
     desde = (agora - timedelta(hours=_JANELA_MAX_HORAS)).isoformat()
     ate = (agora - timedelta(hours=_JANELA_MIN_HORAS)).isoformat()
@@ -86,7 +109,7 @@ async def _candidatos() -> list[dict]:
             get_supabase()
             .table("agente_conversas")
             .select("id,participante,mensagens")
-            .eq("agente", "a1_vendedor")
+            .eq("agente", agente)
             .eq("canal", "whatsapp")
             .is_("nudge_em", "null")
             .gte("atualizado_em", desde)
@@ -106,14 +129,17 @@ async def _candidatos() -> list[dict]:
             continue
         if _e_despedida(ultima.get("content", "")):
             continue
-        if not await _pode_enviar(row["participante"]):
+        if guarda is not None and not await guarda(row["participante"]):
             continue
         candidatos.append(row)
     return candidatos
 
 
-async def enviar_nudges() -> dict:
-    candidatos = await _candidatos()
+async def enviar_nudges(agente: str) -> dict:
+    config = _AGENTES[agente]
+    texto, log_tipo, guarda = config["texto"], config["log_tipo"], config["guarda"]
+
+    candidatos = await _candidatos(agente, guarda)
     enviados = 0
     erros = 0
     detalhes: list[dict] = []
@@ -121,9 +147,9 @@ async def enviar_nudges() -> dict:
 
     for row in candidatos:
         try:
-            await meta_api.send_text_message(row["participante"], TEXTO_NUDGE)
-            mensagens = [*row["mensagens"], {"role": "assistant", "timestamp": now, "content": TEXTO_NUDGE}]
-            await save_conversation(row["id"], "whatsapp", row["participante"], mensagens, "a1_vendedor")
+            await meta_api.send_text_message(row["participante"], texto)
+            mensagens = [*row["mensagens"], {"role": "assistant", "timestamp": now, "content": texto}]
+            await save_conversation(row["id"], "whatsapp", row["participante"], mensagens, agente)
 
             def _marcar(conversa_id=row["id"]):
                 get_supabase().table("agente_conversas").update({"nudge_em": now}).eq("id", conversa_id).execute()
@@ -140,7 +166,7 @@ async def enviar_nudges() -> dict:
 
     def _log():
         return get_supabase().table("agente_sync_log").insert({
-            "tipo": "nudge_matilde", "resumo": resumo, "detalhes": detalhes, "origem": "cron",
+            "tipo": log_tipo, "resumo": resumo, "detalhes": detalhes, "origem": "cron",
         }).execute()
 
     try:
@@ -149,6 +175,13 @@ async def enviar_nudges() -> dict:
         logger.exception("Falha a gravar o log do nudge — o envio em si correu.")
 
     return resumo
+
+
+async def enviar_todos_nudges() -> dict:
+    resultados = {}
+    for agente in _AGENTES:
+        resultados[agente] = await enviar_nudges(agente)
+    return resultados
 
 
 def demo() -> None:

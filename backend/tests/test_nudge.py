@@ -104,7 +104,7 @@ def test_candidato_elegivel_e_enviado(monkeypatch):
     leads = {"351900000001": {"estado": "contactada", "contacto_humano_em": None}}
     estado = _montar(monkeypatch, conversas, leads)
 
-    resumo = asyncio.run(nudge.enviar_nudges())
+    resumo = asyncio.run(nudge.enviar_nudges(nudge.A1))
 
     assert resumo == {"candidatos": 1, "enviados": 1, "erros": 0}
     assert estado["enviados"] == [("351900000001", nudge.TEXTO_NUDGE)]
@@ -120,7 +120,7 @@ def test_sem_lead_nenhuma_ainda_recebe_nudge(monkeypatch):
     conversas = [_conversa("c1", "351900000001")]
     estado = _montar(monkeypatch, conversas, {})  # nenhuma lead para este número
 
-    resumo = asyncio.run(nudge.enviar_nudges())
+    resumo = asyncio.run(nudge.enviar_nudges(nudge.A1))
 
     assert resumo == {"candidatos": 1, "enviados": 1, "erros": 0}
     assert estado["enviados"] == [("351900000001", nudge.TEXTO_NUDGE)]
@@ -131,7 +131,7 @@ def test_despedida_nao_recebe_nudge(monkeypatch):
     leads = {"351900000001": {"estado": "contactada", "contacto_humano_em": None}}
     estado = _montar(monkeypatch, conversas, leads)
 
-    resumo = asyncio.run(nudge.enviar_nudges())
+    resumo = asyncio.run(nudge.enviar_nudges(nudge.A1))
 
     assert resumo == {"candidatos": 0, "enviados": 0, "erros": 0}
     assert "enviados" not in estado
@@ -142,7 +142,7 @@ def test_lead_com_contacto_humano_nao_recebe_nudge(monkeypatch):
     leads = {"351900000001": {"estado": "contactada", "contacto_humano_em": "2026-09-01T00:00:00Z"}}
     _montar(monkeypatch, conversas, leads)
 
-    resumo = asyncio.run(nudge.enviar_nudges())
+    resumo = asyncio.run(nudge.enviar_nudges(nudge.A1))
 
     assert resumo == {"candidatos": 0, "enviados": 0, "erros": 0}
 
@@ -152,6 +152,31 @@ def test_lead_fechada_nao_recebe_nudge(monkeypatch):
     leads = {"351900000001": {"estado": "engano", "contacto_humano_em": None}}
     _montar(monkeypatch, conversas, leads)
 
-    resumo = asyncio.run(nudge.enviar_nudges())
+    resumo = asyncio.run(nudge.enviar_nudges(nudge.A1))
 
     assert resumo == {"candidatos": 0, "enviados": 0, "erros": 0}
+
+
+def test_a3_a4_sem_guarda_nao_bloqueiam_por_leads(monkeypatch):
+    """Inês/Bárbara não têm `_pode_enviar_a1` associada — mesmo com uma
+    lead 'fechada' registada nesse número (de um contacto totalmente
+    diferente), o candidato passa; só a despedida trava."""
+    conversas = [_conversa("c1", "351900000002")]
+    leads = {"351900000002": {"estado": "engano", "contacto_humano_em": None}}
+    estado = _montar(monkeypatch, conversas, leads)
+
+    resumo = asyncio.run(nudge.enviar_nudges(nudge.A3))
+
+    assert resumo == {"candidatos": 1, "enviados": 1, "erros": 0}
+    assert estado["enviados"] == [("351900000002", nudge.TEXTO_NUDGE_A3)]
+
+
+def test_enviar_todos_nudges_agrega_os_3(monkeypatch):
+    conversas = [_conversa("c1", "351900000003")]
+    estado = _montar(monkeypatch, conversas, {})
+
+    resumo = asyncio.run(nudge.enviar_todos_nudges())
+
+    assert set(resumo.keys()) == {nudge.A1, nudge.A3, nudge.A4}
+    for parcial in resumo.values():
+        assert set(parcial.keys()) == {"candidatos", "enviados", "erros"}

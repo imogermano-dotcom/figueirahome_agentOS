@@ -31,7 +31,7 @@ backend/app/
 ├── agents/voice/    ← webhook Telnyx, audio_ws, save_call, claude_agent (só voz)
 ├── agents/broker/   ← engine (motor único), assistants, router, guards (dedup +
 │                      80% + qualificação), custos, tools, conversation, nudge
-│                      (lembrete 24h), channels/whatsapp/ (webhook, meta_api, formatacao)
+│                      (lembrete A1/A3/A4), channels/whatsapp/ (webhook, meta_api, formatacao)
 ├── integrations/    ← egorealestate.py (cliente API), imoveis_sync.py (upsert + extras)
 ├── db/supabase_client.py  ← get_supabase(), cliente único (projecto de dados + Auth fundidos)
 └── models/          ← Pydantic (imovel, cliente, lead, tarefa, ...)
@@ -42,36 +42,29 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-09-20
+## Estado actual — Handoff 2026-09-25
 
-Os 3 ramos de leads da Meta (n8n) estão completos, incluindo envio de
-template — Recrutamento (`figueirahome_lead_recruta|pt_PT`, persona "Inês")
-ficou pronto e testado 18-20/09, fechando o que tinha ficado por fazer em
-17/09. A1 já não agenda visita — regista o pedido, garante lead, a consultora
-contacta directamente (pedido do utilizador). Detalhe completo:
-`docs/fases/handoff-2026-09-20-resumo.md`.
+Continuação do handoff de 20/09 (`docs/fases/handoff-2026-09-20-resumo.md`, detalhe das fases 18-20/09 abaixo). Hoje: bug de routing/RPCs nas leads da Meta apanhado ao testar um 2º número WhatsApp, e nudge generalizado.
 
-- **`pedir_visita`** (era `agendar_visita`): sem negociação de horário, garante lead via `_criar_lead_se_preciso` (fechava sem lead sempre que `guardar_dados_cliente` nunca corria na conversa).
-- **Bug de filtro em `agente_sync_log`**: partilhada por 5+ automações; o log de sync de imóveis lia-a sem filtrar `tipo` — misturava nudge/uptime/oportunidades no painel, e o `DELETE` apagava tudo. Corrigido nos dois.
-- **Crons atrasavam 4-5h** — todos agendados no minuto `0`, pico de carga global do GitHub. Desviados para minutos 17/23/37/12.
-- **`contactos` ganhou `id` uuid** (aditivo, PK antiga `(nome, criado_em)` intacta) — 1º passo de "uniformizar leads → todas em `contactos`". Plano com 3 opções: `contactos-unificado-assistentes-plano.md`.
-- **21/09 — Opção B desse plano, aplicada**: `find_or_create_cliente` passou a espelhar (aditivo, `agente is not null`, nunca merge) em `contactos`, que ganhou coluna `agente`. Corrige "Leads captados" no painel, que vinha idêntico em todos os assistentes (`agente_clientes` não distinguia quem captou o quê). `mqls`/qualificação continuam de `agente_clientes`, ainda sem filtro por agente — limitação conhecida, não resolvida.
-- **22/09 — Recrutamento (A3) ganha follow-up + routing sem semeadura**: candidatos só existiam em `contactos`, nunca em `leads` — sem thread semeada, uma resposta tipo "Sim" ao 1º template caía na Maria (A2). `guards.agente_de_lead` (chamado pelo webhook antes do router, já usado por A1/A4) ganhou fallback para `contactos` via `contacto_recrutamento_aberto`; `contactos` ganhou `respondeu_em`/`follow_up_em`/`follow_up_2_em` (migrations `0039`/`0040`). Dois fluxos n8n activos: "follow-up recrutamento" a 24h (`3pKTcPNSU850s0ha`) e "última tentativa" a 72h (`RuBg6gDOjUmRXZ2U`), testados ao vivo. `template_enviado_em` do 1º template fica imutável de propósito — é a âncora que os dois follow-ups medem, independentes um do outro. Detalhe: `docs/fases/recrutamento-followup-resumo.md`.
-- **23/09 — Angariação (A4) ganha o mesmo fix de routing + follow-up da Inês**: `lead_meta_angariacao` também só escreve em `contactos` (`tipo_contacto='vendedor'`) — a suposição de 22/09 de que o A4 já estava coberto estava errada. `guards.contacto_recrutamento_aberto` generalizada → `contacto_meta_aberto(telefone, tipo_contacto)`. Dois fluxos n8n novos (24h/72h), testados ao vivo. Detalhe: `docs/fases/angariacao-followup-resumo.md`.
-- **23/09 — `origem` errada em `leads` desde 18/08, mesmo padrão agora em `contactos`**: migration `0029` (18/08) fez backfill de uma vez só; o Make (e depois a RPC `lead_meta_compra`) nunca manda `origem` no insert, e cada lead nova da Meta desde então gravava `'manual'` (DEFAULT da coluna) — 187 de 196 erradas até se corrigir. Fix (`0041`): trigger `tgr_normaliza_origem_leads`, mesmo padrão do `tgr_normaliza_aceita_whatsapp` (`0031`) — regra na base, não depende do escritor se lembrar. `contactos` ganhou a mesma coluna + trigger por prevenção (`0042`, antes de ter o mesmo problema): `meta_lead_id`→`meta`, `agente`→`assistente`, `ego_link`→`scraper`, senão `NULL`.
-- **22-23/09 — Cron Manager no Fly (`crons/`), GitHub Actions atrasava horas**: medido via `gh run list` — `sync-imoveis`/`sync-oportunidades` 3-6h40 atrasados todos os dias, `nudge-matilde` a perder ~80% dos gatilhos horários, `site-uptime` a perder >98% (corria de ~4/4h em vez de 5/5 min). Nova app `figueirahome-crons` (`crons/`, [fly-apps/cron-manager](https://github.com/fly-apps/cron-manager)) dispara por cron syntax real. Bug real apanhado: `bin/process-job` apanhava CRLF no checkout Windows, shebang partido, cron falhava em silêncio — corrigido + `.gitattributes`. 4 dos 5 schedules estão **activos e confirmados** (23/09), `schedule` desligado nos 4 `.yml` do GitHub (fica `workflow_dispatch`) — `site-uptime` desactivado (redundante com o UptimeRobot, já em uso; vai alimentar o dashboard via API dele). `AUTOMACAO_SECRET` rodado nos 3 sítios (não havia registo legível em lado nenhum). Custo estimado: cêntimos/mês em compute + ~$0,15/mês do volume; sem breakdown fiável por app/máquina na factura do Fly. Detalhe: `docs/fases/cron-manager-fly-resumo.md`.
+- **25/09 — WhatsApp multi-número + 3 bugs reais nas leads da Meta**: webhook passou a responder pelo número que recebeu a mensagem (`phone_number_id`, pré-requisito para 2º número). Testar com "Enviar lead de teste" do Meta apanhou: leads orgânicas/de teste (sem `campaign_name`) caíam sempre no ramo de Compra do `Switch campanha` (corrigido, aceita também pelo nome do formulário); e as 3 RPCs (`lead_meta_compra`/`recrutamento`/`angariacao`) tinham 2 bugs no branch de contacto já existente — `tipo_contacto` com `array || text` ambíguo (`malformed array literal`) e `meta_lead_id` nunca gravado, que fazia o template **nunca ser enviado** a quem já era contacto (scraper/eGO). Confirmado ao vivo com lead real. Detalhe: `docs/fases/meta-leads-routing-rpcs-resumo.md`.
+- **25/09 — Nudge generalizado**: cobre agora Inês (A3) e Bárbara (A4), não só Matilde; janela mínima 6h→2h. Sem guarda de "conversa fechada" para A3/A4 — `contactos.estado` nunca é escrito com um valor fechado, nada a verificar ainda. Detalhe: `docs/fases/nudge-todos-agentes-resumo.md`.
+- **18-20/09**: `pedir_visita` sem agendamento; fix de filtro em `agente_sync_log`; crons desviados do minuto 0; `contactos.id` uuid.
+- **21/09**: `find_or_create_cliente` espelha em `contactos` (`agente` coluna nova) — corrige "Leads captados" no painel.
+- **22/09 — Recrutamento (A3)**: routing sem semeadura + follow-up 24h/72h. Detalhe: `docs/fases/recrutamento-followup-resumo.md`.
+- **23/09 — Angariação (A4)**: mesmo fix + follow-up. `origem` errada em `leads` desde 18/08 corrigida por trigger (`0041`), `contactos` idem por prevenção (`0042`). Cron Manager no Fly substitui GitHub Actions (atrasos de horas). Detalhe: `docs/fases/angariacao-followup-resumo.md`, `docs/fases/cron-manager-fly-resumo.md`.
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
-| `Meta leads to supabase` (n8n) | ✅ 17/09 — Switch 3 ramos, RPCs graciosas |
+| `Meta leads to supabase` (n8n) | ✅ 25/09 — routing por form + RPCs corrigidas, testado com lead real |
 | `01` enviar template compra/arrendamento (n8n) | ✅ 17/09 |
 | `enviar template Angariação` (n8n) | ✅ 15/09 — WhatsApp real entregue, testado |
-| `enviar template Recrutamento` (n8n) | ✅ 20/09 — WhatsApp real entregue, testado sem lead real |
+| `enviar template Recrutamento` (n8n) | ✅ 25/09 — WhatsApp real entregue, lead real |
 | A1 `pedir_visita` (backend) | ✅ 18/09 — sem agendamento, lead garantida |
+| Nudge (A1/A3/A4) | 25/09 — código pronto, **deploy pendente** |
 | Backend/Scraper/Frontend | ✅ (13/09, chaves novas) |
-| `master` | commit `fb8bd14` + este handoff |
+| `master` | este handoff |
 
 ### Fases anteriores — deployadas, detalhe em `docs/fases/`
 
@@ -109,7 +102,7 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para a
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` (correr de dentro de `backend/` — Dockerfile/`fly.toml` vivem lá, não na raiz) · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`/Fly: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ✅** (09/09, Fly + GitHub Actions), Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **244**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` (correr de dentro de `backend/` — Dockerfile/`fly.toml` vivem lá, não na raiz) · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`/Fly: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ✅** (09/09, Fly + GitHub Actions), Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **276**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -122,19 +115,17 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para a
 
 ### Próximos passos
 
-1. Confirmar pipeline completo do scraper (Playwright+upsert) no próximo cron
-   (06:00/13:00 UTC) sob a chave nova.
+1. Confirmar pipeline completo do scraper (Playwright+upsert) no próximo cron (06:00/13:00 UTC) sob a chave nova.
 2. Confirmar `sync-imoveis`/`sync-oportunidades` na próxima corrida real do Cron Manager (06:17/13:23/03:37 UTC) — só testados à mão até agora, 23/09.
-3. ~~Chave Supabase partilhada~~ — dedicada gerada e gravada 23/09 (backend + scraper), confirmada a ler a BD.
-4. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar.
-5. Remover segredos antigos do Fly (backend + scraper) — só depois de tudo confirmado estável.
-6. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; passos em `docs/n8n/README.md`.
-7. Actualizar `docs/database-schema.md` para reflectir "um projecto, não dois" e as colunas novas de `contactos`.
-8. Auditoria de 06/09 (P0–P6) continua parada — retomar quando decidido.
-9. ~~Crons desviados do minuto 0~~ — não resolveu (ver item 12); resolvido de outra forma.
-10. Testar Recrutamento ponta a ponta com candidatura real da Meta — só testado até agora com dados à mão, sem passar pelo webhook real.
-11. Opção B do plano de `contactos` unificado aplicada 21/09 (captação inicial). Por decidir ainda: `tipos` vs `tipo_contacto` com o Miguel, e se vale a pena ir para a Opção C (migração completa, `mqls` por agente incluído).
-12. ~~`sync-imoveis`/`sync-oportunidades` no GitHub~~ — movidos ao Cron Manager 23/09 (ver item 2). Ao activar, um disparo atrasado do GitHub (ainda ligado nessa altura) e o teste manual no Fly quase correram ao mesmo tempo, mesma sessão eGO — sem crash desta vez, mas por sorte de tempo. Lição: desligar o `schedule` do `.yml` (push) *antes* de testar no Fly, não depois.
+3. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar.
+4. Remover segredos antigos do Fly (backend + scraper) — só depois de tudo confirmado estável.
+5. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; passos em `docs/n8n/README.md`.
+6. Actualizar `docs/database-schema.md` para reflectir "um projecto, não dois" e as colunas novas de `contactos`.
+7. Auditoria de 06/09 (P0–P6) continua parada — retomar quando decidido.
+8. Opção B do plano de `contactos` unificado aplicada 21/09 (captação inicial). Por decidir ainda: `tipos` vs `tipo_contacto` com o Miguel, e se vale a pena ir para a Opção C (migração completa, `mqls` por agente incluído).
+9. Lição do Cron Manager (23/09): desligar o `schedule` do `.yml` do GitHub *antes* de testar no Fly, não depois — um disparo atrasado e o teste manual quase correram em paralelo, mesma sessão eGO.
+10. Deploy do nudge generalizado (25/09) e confirmação ao vivo — ver `docs/fases/nudge-todos-agentes-resumo.md`.
+11. Confirmar nome real do formulário de Angariação no Meta, para reforçar o `Switch campanha` nesse ramo (ver `docs/fases/meta-leads-routing-rpcs-resumo.md`).
 
 ## Decisões arquitecturais
 
