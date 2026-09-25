@@ -443,6 +443,17 @@ async def _responder_sem_lock(
                 claude_messages.append({"role": "user", "content": resultados})
                 continue
 
+            motivo_paragem = data.get("stop_reason")
+            if motivo_paragem not in ("end_turn", "stop_sequence"):
+                # "max_tokens" corta um tool_use a meio em silêncio — sem isto
+                # nunca se sabe que aconteceu (achado ao vivo 25/09, Carla
+                # Pato: candidatura toda recolhida, tool nunca chamada).
+                logger.warning(
+                    "Turno terminou por '%s', não 'tool_use'/'end_turn' — pode ter cortado "
+                    "uma tool a meio (%s, %s)",
+                    motivo_paragem, agente, participante,
+                )
+
             for bloco in blocos:
                 if bloco.get("type") == "text":
                     resposta = bloco["text"]

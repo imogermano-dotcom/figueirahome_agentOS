@@ -304,7 +304,13 @@ ASSISTENTES: dict[str, dict] = {
 # respostas estruturadas mais longas. Site é o visitante público do
 # figueirahome.pt — ecrã pequeno, tolera menos que o painel mas mais que o
 # WhatsApp.
-MAX_TOKENS = {"whatsapp": 512, "web": 1024, "site": 768}
+# `whatsapp` a 512 cortava respostas que fecham a conversa com texto +
+# tool_use na mesma resposta (`guardar_dados_cliente`/`escalar_para_humano`
+# com `resumo` livre) — a API devolve stop_reason "max_tokens" em vez de
+# "tool_use", o código (engine.py) trata isso como resposta normal e o
+# tool_use fica cortado a meio, perdido em silêncio. Achado ao vivo 25/09
+# (Carla Pato: candidatura toda recolhida, tool nunca chamada).
+MAX_TOKENS = {"whatsapp": 1024, "web": 1024, "site": 768}
 
 MENSAGEM_INATIVO = (
     "De momento não estou disponível. Um consultor entrará em contacto consigo."
