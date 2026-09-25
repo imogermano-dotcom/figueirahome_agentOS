@@ -272,6 +272,30 @@ def _garantir_apresentacao(
     return f"{APRESENTACAO_A1}\n\n{resposta}"
 
 
+# Duas mensagens quase simultâneas da mesma pessoa (WhatsApp entrega em bubbles
+# separados, cada um o seu webhook/background task) corriam `load_conversation`
+# em paralelo, nenhuma via a conversa que a outra ainda não tinha gravado, e
+# cada uma inseria a sua própria linha — thread duplicada, duas respostas
+# desencontradas. Achado ao vivo 25/09 (Margarida Lopes: 2 linhas em 3s, cada
+# uma com a sua própria leitura da ficha do imóvel). Lock por (canal,
+# participante) serializa load→responder→save para a mesma pessoa.
+#
+# ponytail: lock em memória do processo, nunca liberto — cresce um `Lock` por
+# número visto, ao longo da vida do processo. Trivial ao volume actual
+# (milhares de números = poucos MB); só serve enquanto for 1 máquina Fly — com
+# 2+ réplicas precisa de lock a nível de BD (ex.: advisory lock do Postgres).
+_locks: dict[tuple[str, str], asyncio.Lock] = {}
+_locks_guard = asyncio.Lock()
+
+
+async def _lock_conversa(canal: str, participante: str) -> asyncio.Lock:
+    chave = (canal, participante)
+    async with _locks_guard:
+        if chave not in _locks:
+            _locks[chave] = asyncio.Lock()
+        return _locks[chave]
+
+
 async def responder(
     canal: str,
     participante: str,
@@ -281,7 +305,19 @@ async def responder(
     """Responde a uma mensagem e persiste a conversa.
 
     `agente=None` deixa o router decidir (e a decisão fica colada à thread).
+    Serializado por (canal, participante) — ver `_lock_conversa`.
     """
+    lock = await _lock_conversa(canal, participante)
+    async with lock:
+        return await _responder_sem_lock(canal, participante, mensagem, agente)
+
+
+async def _responder_sem_lock(
+    canal: str,
+    participante: str,
+    mensagem: str,
+    agente: str | None = None,
+) -> str:
     conversa_id, mensagens, agente_atual = await load_conversation(canal, participante)
 
     agente = agente or route(mensagem, agente_atual)
