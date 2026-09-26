@@ -435,6 +435,18 @@ def group(classified: list[dict]) -> dict:
     if ignoradas:
         print(f"  {ignoradas} linha(s) sem oportunidade_ref ignoradas")
 
+    # Angariação: o eGO nunca preenche "Potencial Cliente" (cliente_nome) —
+    # o "cliente" é o dono do imóvel, só existe em imovel_proprietario. Sem
+    # isto, quem lê oportunidades por cliente_nome via a esta info para
+    # Angariação (achado 26/09, CAP_22225/Joaquim Carvalho).
+    for oport in oportunidades.values():
+        if (
+            not oport.get("cliente_nome")
+            and oport.get("tipo_oportunidade") == "Angariação"
+            and oport.get("imovel_proprietario")
+        ):
+            oport["cliente_nome"] = oport["imovel_proprietario"]
+
     # cliente_nome/tipo_oportunidade/url em notas/tarefas vêm da linha
     # individual do relatório — se essa linha em particular tiver o campo
     # vazio (comum quando a linha só existe p/ carregar uma nota), preenche
@@ -501,6 +513,30 @@ def demo() -> None:
     # 26/09, Joaquim Carvalho) — tem de mapear para `contactos.telemovel`.
     mapeado = map_row({"Nome": "Joaquim Carvalho", "Telefone": "00351934418496"})
     assert mapeado["telemovel"] == "00351934418496", mapeado.get("telemovel")
+
+    # Angariação: cliente_nome vazio herda imovel_proprietario (achado 26/09).
+    ang = [{
+        "oportunidade": {"oportunidade_ref": "CAP_1", "tipo_oportunidade": "Angariação",
+                          "imovel_proprietario": "Joaquim Carvalho"},
+        "visita": None, "nota": None, "tarefa": None, "pref": None, "contacto": None,
+    }]
+    lote_ang = group(ang)
+    assert lote_ang["oportunidades"][0]["cliente_nome"] == "Joaquim Carvalho"
+
+    # Não mexe quando já vem preenchido, nem fora de Angariação.
+    com_cliente = [{
+        "oportunidade": {"oportunidade_ref": "CAP_2", "tipo_oportunidade": "Angariação",
+                          "cliente_nome": "Ana", "imovel_proprietario": "Outro Nome"},
+        "visita": None, "nota": None, "tarefa": None, "pref": None, "contacto": None,
+    }]
+    assert group(com_cliente)["oportunidades"][0]["cliente_nome"] == "Ana"
+
+    fora_angariacao = [{
+        "oportunidade": {"oportunidade_ref": "VEN_1", "tipo_oportunidade": "Venda",
+                          "imovel_proprietario": "Não é o cliente"},
+        "visita": None, "nota": None, "tarefa": None, "pref": None, "contacto": None,
+    }]
+    assert group(fora_angariacao)["oportunidades"][0].get("cliente_nome") is None
 
     print("mapping_todas_colunas OK")
 
