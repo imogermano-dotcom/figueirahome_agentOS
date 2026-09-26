@@ -51,13 +51,15 @@ function Transcricao({ id, onFechar }) {
                   }`}>
                     {m.content}
                   </div>
-                  {t && (
-                    <p className="text-xs text-zinc-600 mt-1 px-1">
+                  <p className={`text-xs text-zinc-600 mt-1 px-1 ${m.role === 'user' ? 'text-right' : ''}`}>
+                    {m.timestamp && dataCurta(m.timestamp)}
+                    {t && <>
+                      {m.timestamp && ' · '}
                       {usd(t.custo_usd)} · {t.latencia_ms}ms · {t.iteracoes} iter
                       {t.tools_usadas?.length > 0 && ` · ${t.tools_usadas.join(', ')}`}
                       {t.erro && <span style={{ color: VERMELHO }}> · erro</span>}
-                    </p>
-                  )}
+                    </>}
+                  </p>
                 </div>
               </div>
             )
