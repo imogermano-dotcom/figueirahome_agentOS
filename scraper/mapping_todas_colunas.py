@@ -109,9 +109,13 @@ _KNOWN_OPORTUNIDADE = {
 }
 
 # Bloco B — Contacto (só os 5 campos documentados; resto fica em extra).
+# "telemovel": "telemovel" nunca bateu — a coluna do relatório chama-se
+# "Telefone", não "Telemóvel" (confirmado ao vivo 26/09: Joaquim Carvalho
+# tinha "00351934418496" na coluna "Telefone", caía em `extra`, `contactos`
+# ficava sem telefone mesmo o eGO tendo-o). Alias novo aponta a coluna real.
 _ALIASES_CONTACTO = {
     "nome": "nome",
-    "telemovel": "telemovel",
+    "telefone": "telemovel",
     "email": "email",
     "link_2": "ego_link",
     "alterado_em": "ego_atualizado_em",
@@ -492,6 +496,11 @@ def demo() -> None:
                "visita": {"visita_anulada": "Não"},
                "nota": None, "tarefa": None, "pref": None, "contacto": None}]
     assert group(sem_id)["visitas"] == []
+
+    # Coluna do relatório chama-se "Telefone", não "Telemóvel" (achado
+    # 26/09, Joaquim Carvalho) — tem de mapear para `contactos.telemovel`.
+    mapeado = map_row({"Nome": "Joaquim Carvalho", "Telefone": "00351934418496"})
+    assert mapeado["telemovel"] == "00351934418496", mapeado.get("telemovel")
 
     print("mapping_todas_colunas OK")
 
