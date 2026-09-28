@@ -36,7 +36,7 @@ from playwright.async_api import async_playwright
 import config
 import ego_auth
 
-REPORT_NAME = "jmarques_op_tudo"  # 28/09: novo relatório, igual ao antigo + bloco Tarefas
+REPORT_NAME = "todas_as_colunas"  # 28/09: 2ª tentativa de relatório com bloco Tarefas
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
 
@@ -143,9 +143,13 @@ async def _desseleccionar_minhas(page) -> None:
     )
 
 
-async def _trigger_and_download(headless: bool = True) -> Path:
+async def _trigger_and_download(headless: bool = True, report_name: str = REPORT_NAME) -> Path:
     """Dispara o relatório e descarrega o .xlsx via httpx a partir da URL
     devolvida pelo próprio POST /egocore/report/export.
+
+    `report_name` por omissão é o de Oportunidades (`REPORT_NAME`) — passar
+    outro nome (ex: "tarefas todas") reaproveita toda a navegação/filtros
+    para descarregar um relatório eGO diferente (`tarefas.py`, 28/09).
 
     Não depende do popup que a página abre nem do evento `download` do
     browser — confirmado ao vivo (Fly.io) que esse popup fica sempre em
@@ -246,7 +250,7 @@ async def _trigger_and_download(headless: bool = True) -> Path:
             raise RuntimeError('Link "Relatórios" não encontrado — selecção pode ter falhado (0 resultados?).')
         await page.wait_for_timeout(3000)
 
-        print(f'A clicar no relatório "{REPORT_NAME}"...')
+        print(f'A clicar no relatório "{report_name}"...')
         clicked_report = await page.evaluate(
             """(nome) => {
                 const items = Array.from(document.querySelectorAll('#ReportsList .popupReportItem, #ReportsPopup .popupReportItem'));
@@ -254,10 +258,10 @@ async def _trigger_and_download(headless: bool = True) -> Path:
                 if (item) { (item.querySelector('a') || item).click(); return true; }
                 return false;
             }""",
-            REPORT_NAME,
+            report_name,
         )
         if not clicked_report:
-            raise RuntimeError(f'Relatório "{REPORT_NAME}" não encontrado na lista de relatórios gravados.')
+            raise RuntimeError(f'Relatório "{report_name}" não encontrado na lista de relatórios gravados.')
 
         try:
             file_url = await asyncio.wait_for(export_url_future, timeout=90)
