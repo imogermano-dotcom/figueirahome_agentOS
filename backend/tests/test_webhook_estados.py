@@ -12,6 +12,7 @@ diferença entre isso e *entregue* só aparece nos `statuses`.
 Corre com `pytest backend/tests/` ou `python backend/tests/test_webhook_estados.py`.
 """
 
+import asyncio
 import logging
 import sys
 from pathlib import Path
@@ -67,6 +68,44 @@ def test_um_recibo_nao_e_confundido_com_uma_mensagem_recebida():
     value = payload["entry"][0]["changes"][0]["value"]
     assert value.get("messages", []) == []
     assert len(value["statuses"]) == 1
+
+
+def test_erro_no_responder_fica_gravado_em_sync_log(monkeypatch):
+    """`flyctl logs --no-tail` só guarda ~30min — sem isto, um erro de horas
+    atrás (achado 28/09, conversa da Inês) fica sem forma de investigar."""
+    gravados = []
+
+    class _Tabela:
+        def insert(self, registo):
+            gravados.append(registo)
+            return self
+
+        def execute(self):
+            return None
+
+    monkeypatch.setattr(webhook, "get_supabase", lambda: type(
+        "S", (), {"table": lambda self, nome: _Tabela()}
+    )())
+    monkeypatch.setattr(webhook, "_ja_processada", lambda message_id: False)
+
+    async def _responder_quebrado(*a, **kw):
+        raise RuntimeError("falha simulada")
+
+    async def _noop(*a, **kw):
+        return None
+
+    monkeypatch.setattr(webhook, "responder", _responder_quebrado)
+    monkeypatch.setattr(webhook, "mark_as_read", _noop)
+    monkeypatch.setattr(webhook, "send_text_message", _noop)
+    monkeypatch.setattr(webhook, "agente_de_lead", _noop)
+
+    asyncio.run(webhook._handle_message("351900000000", "wamid.YYY", "oi"))
+
+    assert len(gravados) == 1
+    assert gravados[0]["tipo"] == "erro_whatsapp"
+    assert gravados[0]["resumo"]["participante"] == "351900000000"
+    assert "falha simulada" in gravados[0]["resumo"]["erro"]
+    assert "RuntimeError" in gravados[0]["detalhes"][0]["traceback"]
 
 
 if __name__ == "__main__":

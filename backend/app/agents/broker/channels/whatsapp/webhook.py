@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import traceback
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response
 
@@ -128,6 +129,21 @@ def _ja_processada(message_id: str) -> bool:
         return False
 
 
+def _registar_erro_persistente(participante: str, erro: str, tb: str) -> None:
+    """`flyctl logs --no-tail` só guarda ~30min — insuficiente para investigar
+    um erro de horas atrás (achado 28/09, conversa da Inês). Grava em
+    `agente_sync_log` (mesma tabela dos syncs), que não expira."""
+    try:
+        get_supabase().table("agente_sync_log").insert({
+            "tipo": "erro_whatsapp",
+            "origem": "whatsapp",
+            "resumo": {"participante": participante, "erro": erro[:500]},
+            "detalhes": [{"traceback": tb[:4000]}],
+        }).execute()
+    except Exception:
+        logger.exception("Falha a registar erro de WhatsApp em agente_sync_log")
+
+
 async def _handle_message(
     from_number: str, message_id: str, text: str, phone_number_id: str | None = None
 ) -> None:
@@ -148,8 +164,11 @@ async def _handle_message(
         # do webhook), não por um número fixo — necessário para ter 2+ números
         # activos na mesma app sem trocar a resposta de sítio.
         await send_text_message(from_number, response, phone_number_id)
-    except Exception:
+    except Exception as exc:
         logger.exception("Erro ao processar mensagem WhatsApp de %s", from_number)
+        await asyncio.get_event_loop().run_in_executor(
+            None, _registar_erro_persistente, from_number, str(exc), traceback.format_exc()
+        )
         try:
             await send_text_message(
                 from_number,
