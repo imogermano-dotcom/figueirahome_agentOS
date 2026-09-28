@@ -23,8 +23,13 @@ from pydantic import BaseModel
 # `sem_resposta` e `engano` são os desfechos da spec §2.2 que faltavam. Nenhum
 # precisa de migration: a `0021` descreve os estados num comentário, não numa
 # CHECK constraint.
+#
+# `pausa` (28/09): a pessoa continua interessada mas pediu para não ser
+# contactada por agora — mesmo grupo do `sem_resposta`, fica fora de
+# `ESTADOS_FECHADOS` (routing/dedup continuam a reconhecê-la), só o nudge a
+# trata à parte (`nudge._pode_enviar_a1`).
 ESTADOS = (
-    "nova", "contactada", "sem_resposta", "qualificada",
+    "nova", "contactada", "sem_resposta", "pausa", "qualificada",
     "visita", "proposta",
     "fechada", "perdida", "sem_interesse", "engano",
 )

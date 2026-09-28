@@ -168,7 +168,11 @@ _JANELA_LEAD_DIAS = 30
 # responde uma semana depois tem de manter a A1 e o `imovel_ref` do anúncio.
 # Como esta mesma tupla é o filtro de `promover_se_qualificada`, uma resposta
 # tardia que traga o MQL completo continua a ser promovida.
-_ESTADOS_LEAD_ABERTA = ("nova", "contactada", "sem_resposta")
+#
+# `pausa` (achado 28/09) pelo mesmo motivo: sem isto, `lead_aberta` devolvia
+# `None` quando a pessoa voltasse a escrever, e ela chegava ao A2 sem contexto
+# do imóvel — exactamente o que aconteceria a alguém "sem_resposta".
+_ESTADOS_LEAD_ABERTA = ("nova", "contactada", "sem_resposta", "pausa")
 
 
 # `ficha` (respostas do formulário da Meta) → colunas do MQL. Vive aqui, ao lado
@@ -400,24 +404,34 @@ async def promover_se_qualificada(telefone: str | None, agente: str | None = Non
         logger.exception("Falha ao promover lead de %s", numero)
 
 
-_MOTIVOS_ENCERRAMENTO = ("engano", "sem_interesse")
+_MOTIVOS_ENCERRAMENTO = ("engano", "sem_interesse", "pausa")
 
 
 async def encerrar_lead_do_telefone(
     telefone: str | None, motivo: str, nota: str | None = None
 ) -> bool:
-    """Fecha a lead deste número. Desfecho "Engano" da spec §2.2.
+    """Regista o desfecho da lead deste número. Desfecho "Engano"/"Sem
+    interesse" da spec §2.2, mais "pausa" (achado 28/09 — Sandra Nascimento,
+    problema de saúde em família, pediu para não ser contactada por 60 dias).
 
     A spec diz "Regista o contacto na base de dados com o estado 'engano'. Sem
     mais ações" — e é à letra: nem cliente, nem tarefa, nem email. O único efeito
     é o estado, e o estado é o que faz a pessoa deixar de ser perseguida:
-    `engano` está em `ESTADOS_FECHADOS`, logo `lead_aberta` passa a devolver
-    `None` (o router larga a A1), `_criar_lead_se_preciso` não reabre, e o
-    follow-up das 48h filtra por `estado in (nova, contactada)`.
+    `engano`/`sem_interesse` estão em `ESTADOS_FECHADOS`, logo `lead_aberta`
+    passa a devolver `None` (o router larga a A1), `_criar_lead_se_preciso` não
+    reabre, e o follow-up das 48h filtra por `estado in (nova, contactada)`.
 
-    Quem decide que houve engano é o modelo, via tool; quem escreve é isto. Só
-    mexe em leads abertas: uma segunda chamada sobre algo já fechado não reescreve
-    o motivo original.
+    `pausa` fica de fora de propósito, mesmo princípio do `sem_resposta`: a
+    pessoa continua interessada, só não agora — fechar rompia `lead_aberta` e
+    ela chegava ao A2 sem contexto quando voltasse a escrever. O único
+    consumidor de `pausa` é o nudge (`nudge._pode_enviar_a1`), que passa a
+    recusar enviar. Sem expiração automática: ao fim do prazo que ela pediu,
+    ou volta a escrever (routing normal, sem nudge), ou ninguém a incomoda —
+    aceitável, é melhor que insistir.
+
+    Quem decide o desfecho é o modelo, via tool; quem escreve é isto. Só mexe
+    em leads abertas: uma segunda chamada sobre algo já fechado/pausado não
+    reescreve o motivo original.
     """
     numero = normalizar_telefone(telefone)
     if not numero or motivo not in _MOTIVOS_ENCERRAMENTO:

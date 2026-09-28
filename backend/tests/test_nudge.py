@@ -157,6 +157,19 @@ def test_lead_fechada_nao_recebe_nudge(monkeypatch):
     assert resumo == {"candidatos": 0, "enviados": 0, "erros": 0}
 
 
+def test_lead_pausada_nao_recebe_nudge(monkeypatch):
+    """`pausa` fica fora de `ESTADOS_FECHADOS` (routing tem de a reconhecer
+    quando a pessoa voltar), mas o nudge tem de a recusar na mesma — achado
+    28/09, Sandra Nascimento pediu para não ser contactada por 60 dias."""
+    conversas = [_conversa("c1", "351900000001")]
+    leads = {"351900000001": {"estado": "pausa", "contacto_humano_em": None}}
+    _montar(monkeypatch, conversas, leads)
+
+    resumo = asyncio.run(nudge.enviar_nudges(nudge.A1))
+
+    assert resumo == {"candidatos": 0, "enviados": 0, "erros": 0}
+
+
 def test_a3_a4_sem_guarda_nao_bloqueiam_por_leads(monkeypatch):
     """Inês/Bárbara não têm `_pode_enviar_a1` associada — mesmo com uma
     lead 'fechada' registada nesse número (de um contacto totalmente

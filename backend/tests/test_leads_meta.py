@@ -725,6 +725,20 @@ def test_lead_sem_resposta_ainda_pode_ser_encerrada(encerramento):
     assert estado["lead"]["estado"] == "engano"
 
 
+def test_pausa_regista_estado_sem_fechar(encerramento):
+    """`pausa` (achado 28/09 — Sandra Nascimento pediu 60 dias por doença na
+    família) escreve o estado como as outras, mas fica fora de
+    `ESTADOS_FECHADOS`: routing/dedup continuam a reconhecer a lead quando ela
+    voltar a escrever, só o nudge é que passa a recusar (`nudge.py`)."""
+    fechar, estado = encerramento
+
+    assert fechar("pausa", "mãe internada, volta em 60 dias") is True
+
+    assert estado["lead"]["estado"] == "pausa"
+    assert estado["lead"]["notas"] == "mãe internada, volta em 60 dias"
+    assert not estado["inserts"], "sem mais ações, igual ao engano/sem_interesse"
+
+
 def test_motivo_desconhecido_nao_escreve_nada(encerramento):
     """O enum da tool é a fronteira, mas o modelo escolhe o valor. Um motivo
     fora da lista não pode inventar um estado que o painel não conhece."""

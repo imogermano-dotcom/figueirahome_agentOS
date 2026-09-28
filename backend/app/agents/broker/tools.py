@@ -177,19 +177,22 @@ TOOL_DEFINITIONS = [
     {
         "name": "encerrar_lead",
         "description": (
-            "Encerra o contacto. Usa quando a pessoa diz que foi engano (número errado, "
-            "não preencheu formulário nenhum, não é com ela) ou que não tem interesse "
-            "nenhum. Depois de chamares, despede-te numa frase e não voltes a insistir."
+            "Regista o desfecho do contacto. Usa 'engano' (número errado, não preencheu "
+            "formulário nenhum, não é com ela) ou 'sem_interesse' (é a pessoa certa mas não "
+            "quer) para encerrar de vez — despede-te numa frase e não voltes a insistir. Usa "
+            "'pausa' quando a pessoa continua interessada mas pede para não ser contactada por "
+            "agora (viagem, doença, indisponibilidade) — não a voltamos a incomodar sozinhos, "
+            "mas a conversa fica aberta e ela pode voltar a escrever quando quiser."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "motivo": {
                     "type": "string",
-                    "enum": ["engano", "sem_interesse"],
-                    "description": "'engano' se não é a pessoa certa; 'sem_interesse' se é mas não quer",
+                    "enum": ["engano", "sem_interesse", "pausa"],
+                    "description": "'engano' se não é a pessoa certa; 'sem_interesse' se é mas não quer; 'pausa' se quer, mas não agora",
                 },
-                "nota": {"type": "string", "description": "O que a pessoa disse, em poucas palavras"},
+                "nota": {"type": "string", "description": "O que a pessoa disse, em poucas palavras — inclui prazo/motivo se houver"},
             },
             "required": ["motivo"],
         },

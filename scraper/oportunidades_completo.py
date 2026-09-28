@@ -36,7 +36,7 @@ from playwright.async_api import async_playwright
 import config
 import ego_auth
 
-REPORT_NAME = "jmarques_todas_as_colunas"
+REPORT_NAME = "jmarques_op_tudo"  # 28/09: novo relatório, igual ao antigo + bloco Tarefas
 OUTPUT_DIR = Path(__file__).resolve().parent / "output"
 
 

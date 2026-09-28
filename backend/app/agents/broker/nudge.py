@@ -53,7 +53,8 @@ def _e_despedida(texto: str) -> bool:
 
 
 async def _pode_enviar_a1(telefone: str | None) -> bool:
-    """Só recusa quando há mesmo lead **fechada** ou já entregue a um humano.
+    """Só recusa quando há mesmo lead **fechada**, **pausada** ou já entregue
+    a um humano.
 
     Não usar `guards.lead_aberta`: devolve `None` tanto para "nunca houve
     lead" como para "lead fechada" — indistinguíveis, e é precisamente a
@@ -62,6 +63,11 @@ async def _pode_enviar_a1(telefone: str | None) -> bool:
     nome/telefone nunca chegaram a ser pedidos com sucesso) nunca teve
     `cliente_id` nem `leads` associada — com `lead_aberta` ficaria sempre de
     fora, o oposto do que se queria.
+
+    `pausa` (achado 28/09, Sandra Nascimento — pediu para não ser contactada
+    por 60 dias) fica FORA de `ESTADOS_FECHADOS` de propósito (routing tem de
+    a reconhecer quando ela voltar) — por isso o nudge trata-a à parte aqui,
+    e não com o resto dos fechados.
     """
     numero = guards.normalizar_telefone(telefone)
     if not numero:
@@ -82,7 +88,7 @@ async def _pode_enviar_a1(telefone: str | None) -> bool:
     if not resp.data:
         return True  # nunca houve lead — nada a respeitar, nada a apagar
     lead = resp.data[0]
-    if lead.get("estado") in ESTADOS_FECHADOS:
+    if lead.get("estado") in ESTADOS_FECHADOS or lead.get("estado") == "pausa":
         return False
     return not lead.get("contacto_humano_em")
 
