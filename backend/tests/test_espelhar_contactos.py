@@ -105,6 +105,9 @@ def test_contacto_novo_insere_com_tipo_contacto_mapeado():
     )
     assert supabase.inserted["nome"] == "Ana Luísa"
     assert supabase.inserted["telefone"] == "912345678"
+    # telefone/telemovel são a mesma coisa para nós (achado 28/09) — gravar
+    # as duas evita cegar quem só leia uma.
+    assert supabase.inserted["telemovel"] == "912345678"
     assert supabase.inserted["agente"] == "a4_angariador"
     assert supabase.inserted["estado"] == "nova"
     assert supabase.inserted["tipo_contacto"] == ["vendedor"]
@@ -123,6 +126,7 @@ def test_contacto_existente_actualiza_em_vez_de_duplicar():
     assert supabase.inserted is None
     assert supabase.updated_eq == ("id", "existente-1")
     assert supabase.updated["agente"] == "a1_vendedor"
+    assert supabase.updated["telemovel"] == "912345678"
     # "arrendamento" mapeia para "comprador" — já lá estava, junta sem duplicar.
     assert supabase.updated["tipo_contacto"] == ["comprador"]
 

@@ -266,11 +266,19 @@ async def contacto_meta_aberto(telefone: str | None, tipo_contacto: str) -> dict
     limite = (datetime.now(timezone.utc) - timedelta(days=_JANELA_LEAD_DIAS)).isoformat()
 
     def _fetch():
+        # `telefone`/`telemovel` por quem escreveu (achado 28/09): scraper só
+        # grava `telemovel`, `_espelhar_em_contactos` só `telefone`, as RPCs
+        # da Meta gravam os dois. Procurar só `telefone` deixava de fora um
+        # contacto que só tivesse `telemovel` — sem prova de ter acontecido
+        # em produção (RPCs sempre preenchem os dois ao ligar), mas é o
+        # mesmo tipo de assunção frágil que já rebentou com `criado_em` a
+        # 25/09 (Sandra Pinto).
+        variantes = ",".join(variantes_telefone(numero))
         return (
             get_supabase()
             .table("contactos")
             .select("id,nome,template_enviado,respondeu_em")
-            .in_("telefone", variantes_telefone(numero))
+            .or_(f"telefone.in.({variantes}),telemovel.in.({variantes})")
             .contains("tipo_contacto", [tipo_contacto])
             .not_.is_("template_enviado_em", "null")
             .gte("template_enviado_em", limite)
@@ -579,11 +587,16 @@ def _espelhar_em_contactos(
         dados = {"agente": agente, "tipo_contacto": sorted(tipos)}
         if nome and not existente.get("nome"):
             dados["nome"] = nome
+        if telefone:
+            # `telefone`/`telemovel` são a mesma coisa para nós — gravar as
+            # duas evita cegar quem só leia uma (achado 28/09).
+            dados["telemovel"] = telefone
         supabase.table("contactos").update(dados).eq("id", existente["id"]).execute()
     else:
         dados = {
             "nome": nome,
             "telefone": telefone,
+            "telemovel": telefone,
             "email": email,
             "agente": agente,
             "estado": "nova",

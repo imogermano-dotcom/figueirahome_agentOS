@@ -301,6 +301,11 @@ def classify(record: dict) -> dict:
                 oportunidade[campo] = iso
 
     contacto = {k: record.get(k) for k in _KNOWN_CONTACTO if record.get(k) is not None}
+    if contacto.get("telemovel"):
+        # `telefone` e `telemovel` são duas colunas para o mesmo número —
+        # gravar as duas evita que quem só leia uma (achado 28/09,
+        # `contacto_meta_aberto`) fique cego a contactos só do scraper.
+        contacto["telefone"] = contacto["telemovel"]
     if contacto.get("ego_atualizado_em"):
         # produção guarda ISO (timestamptz) — confirmado ao vivo — mesma
         # fonte alimenta `criado_em` (doc §3.4, I(458)).
@@ -386,6 +391,7 @@ def group(classified: list[dict]) -> dict:
     visitas: list[dict] = []
     prefs: dict[str, dict] = {}
     contactos: dict[str, dict] = {}
+    contactos_por_oportunidade: dict[str, list[dict]] = {}
     ignoradas = 0
 
     for c in classified:
@@ -431,6 +437,7 @@ def group(classified: list[dict]) -> dict:
             link = c["contacto"]["ego_link"]
             if link not in contactos:
                 contactos[link] = dict(c["contacto"])
+            contactos_por_oportunidade.setdefault(ref, []).append(c["contacto"])
 
     if ignoradas:
         print(f"  {ignoradas} linha(s) sem oportunidade_ref ignoradas")
@@ -446,6 +453,25 @@ def group(classified: list[dict]) -> dict:
             and oport.get("imovel_proprietario")
         ):
             oport["cliente_nome"] = oport["imovel_proprietario"]
+
+    # `oportunidades.cliente_telefone`/`cliente_email` nunca vêm de nenhuma
+    # coluna do relatório (achado 28/09: só ~14% preenchidas nas recentes,
+    # resto é lixo de um pipeline antigo morto) — mas já temos o telefone/
+    # email certo em `contactos`, ligado pelo `ego_link`. Espelha aqui: entre
+    # os contactos ligados a esta oportunidade, o que tem o nome igual ao
+    # cliente (comprador ou, em Angariação, o proprietário) é o "cliente".
+    for ref, oport in oportunidades.items():
+        cliente_nome = (oport.get("cliente_nome") or "").strip().casefold()
+        if not cliente_nome:
+            continue
+        for contacto in contactos_por_oportunidade.get(ref, []):
+            if (contacto.get("nome") or "").strip().casefold() != cliente_nome:
+                continue
+            if contacto.get("telemovel"):
+                oport.setdefault("cliente_telefone", contacto["telemovel"])
+            if contacto.get("email"):
+                oport.setdefault("cliente_email", contacto["email"])
+            break
 
     # cliente_nome/tipo_oportunidade/url em notas/tarefas vêm da linha
     # individual do relatório — se essa linha em particular tiver o campo
@@ -514,6 +540,12 @@ def demo() -> None:
     mapeado = map_row({"Nome": "Joaquim Carvalho", "Telefone": "00351934418496"})
     assert mapeado["telemovel"] == "00351934418496", mapeado.get("telemovel")
 
+    # telefone/telemovel são a mesma coisa para nós (achado 28/09) — o
+    # classify() grava as duas, quem só leia uma não fica cego.
+    classificado = classify(mapeado)
+    assert classificado["contacto"]["telefone"] == "00351934418496"
+    assert classificado["contacto"]["telemovel"] == "00351934418496"
+
     # Angariação: cliente_nome vazio herda imovel_proprietario (achado 26/09).
     ang = [{
         "oportunidade": {"oportunidade_ref": "CAP_1", "tipo_oportunidade": "Angariação",
@@ -537,6 +569,27 @@ def demo() -> None:
         "visita": None, "nota": None, "tarefa": None, "pref": None, "contacto": None,
     }]
     assert group(fora_angariacao)["oportunidades"][0].get("cliente_nome") is None
+
+    # cliente_telefone/cliente_email espelhados do contacto cujo nome bate
+    # com cliente_nome (achado 28/09) — o outro contacto (staff) é ignorado.
+    com_dois_contactos = [
+        {
+            "oportunidade": {"oportunidade_ref": "CAP_1", "tipo_oportunidade": "Angariação",
+                              "imovel_proprietario": "Maria Delgado"},
+            "visita": None, "nota": None, "tarefa": None, "pref": None,
+            "contacto": {"nome": "Maria Delgado", "telemovel": "912345678",
+                         "ego_link": "L1"},
+        },
+        {
+            "oportunidade": {"oportunidade_ref": "CAP_1"},
+            "visita": None, "nota": None, "tarefa": None, "pref": None,
+            "contacto": {"nome": "Alexsandra Ferreira", "telemovel": "913135252",
+                         "email": "alexsandra@figueirahome.pt", "ego_link": "L2"},
+        },
+    ]
+    oport = group(com_dois_contactos)["oportunidades"][0]
+    assert oport["cliente_telefone"] == "912345678", oport
+    assert "cliente_email" not in oport, "Maria não tem email nesta linha, não pode inventar"
 
     print("mapping_todas_colunas OK")
 

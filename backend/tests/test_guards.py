@@ -241,6 +241,10 @@ def test_contacto_meta_aberto_filtra_por_tipo_e_template():
             chamadas["in_"] = (campo, valores)
             return self
 
+        def or_(self, filtro):
+            chamadas["or_"] = filtro
+            return self
+
         def contains(self, campo, valor):
             chamadas["contains"] = (campo, valor)
             return self
@@ -275,6 +279,10 @@ def test_contacto_meta_aberto_filtra_por_tipo_e_template():
     # contacto "linkado" pela RPC pode ter anos (achado ao vivo 25/09, Sandra
     # Pinto: `criado_em` de 2017 fazia a janela nunca bater).
     assert chamadas["gte"][0] == "template_enviado_em"
+    # Procura em `telefone` E `telemovel` (achado 28/09) — o scraper só grava
+    # telemovel, um `.in_("telefone", ...)` sozinho deixava esses de fora.
+    assert "telefone.in.(" in chamadas["or_"]
+    assert "telemovel.in.(" in chamadas["or_"]
 
 
 if __name__ == "__main__":
