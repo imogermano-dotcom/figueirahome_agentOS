@@ -308,6 +308,8 @@ async def agente_de_lead(telefone: str | None) -> str | None:
             return "a1_vendedor"
         if tipo == "angariacao":
             return "a4_angariador"
+        if tipo == "recrutamento":
+            return "a3_recrutamento"
         return None
     if await contacto_meta_aberto(telefone, "recrutamento"):
         return "a3_recrutamento"

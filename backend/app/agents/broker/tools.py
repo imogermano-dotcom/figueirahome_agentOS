@@ -622,11 +622,13 @@ async def _guardar_dados_cliente(inputs: dict, contexto: dict) -> str:
         return "Dados registados nesta conversa."
 
     if inputs.get("tipo_interesse"):
-        await _run(_criar_lead_se_preciso, cliente, inputs.get("resumo"))
+        await _run(_criar_lead_se_preciso, cliente, inputs.get("resumo"), inputs["tipo_interesse"])
     return "Dados guardados com sucesso."
 
 
-def _criar_lead_se_preciso(cliente: dict, resumo: str | None) -> None:
+def _criar_lead_se_preciso(
+    cliente: dict, resumo: str | None, tipo_interesse: str | None = None
+) -> None:
     """Uma lead aberta por pessoa — nunca duas para o mesmo contacto.
 
     Bug real (2026-09-02): procurava lead aberta só por `cliente_id`, e uma
@@ -661,9 +663,12 @@ def _criar_lead_se_preciso(cliente: dict, resumo: str | None) -> None:
             supabase.table("leads").update({"cliente_id": cliente_id}).eq("id", aberta["id"]).execute()
         return
 
-    supabase.table("leads").insert(
-        {"cliente_id": cliente_id, "estado": "nova", "origem": "assistente", "notas": resumo}
-    ).execute()
+    nova = {"cliente_id": cliente_id, "estado": "nova", "origem": "assistente", "notas": resumo}
+    # Sem isto a candidata nascia com o default 'compra' e `agente_de_lead`
+    # devolvia-a à Matilde. Só recrutamento: os outros tipos mantêm o default.
+    if tipo_interesse == "recrutamento":
+        nova["tipo"] = "recrutamento"
+    supabase.table("leads").insert(nova).execute()
 
 
 def _preco_do_imovel(ref: str) -> dict | None:

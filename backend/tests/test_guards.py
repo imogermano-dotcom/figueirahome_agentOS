@@ -144,6 +144,20 @@ def test_agente_de_lead_cai_para_recrutamento_sem_lead():
         guards.contacto_meta_aberto = original_contacto
 
 
+def test_agente_de_lead_lead_recrutamento_fica_com_a_ines():
+    """29/09: a lead da candidata nascia com tipo 'compra' e ia parar à Matilde."""
+    original = guards.lead_aberta
+
+    async def _lead(_tel):
+        return {"id": "l1", "tipo": "recrutamento"}
+
+    try:
+        guards.lead_aberta = _lead
+        assert asyncio.run(guards.agente_de_lead("912345678")) == "a3_recrutamento"
+    finally:
+        guards.lead_aberta = original
+
+
 def test_agente_de_lead_cai_para_angariacao_sem_lead_nem_recrutamento():
     """Mesmo fallback, para a Bárbara: sem lead em `leads` e sem candidato de
     recrutamento, tenta `contactos` com `tipo_contacto='vendedor'` antes de

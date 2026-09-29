@@ -413,6 +413,33 @@ def _contexto(monkeypatch, *, cliente="", lead=None, thread_nova=True):
     return perfil, template
 
 
+def test_ines_recebe_template_e_nome_do_contacto(monkeypatch):
+    """29/09: a candidatura da Meta vive em `contactos`. Sem isto
+    a Inês perguntava o nome que o template já usava e apresentava-se duas vezes."""
+    monkeypatch.setattr(engine, "_perfil_cliente", lambda tel: "")
+
+    async def _sem_lead(_tel):
+        return None
+
+    async def _contacto(_tel, tipo):
+        assert tipo == "recrutamento"
+        return {"nome": "Ana Exemplo", "template_enviado": "Olá Ana, sou a Inês, assistente virtual."}
+
+    monkeypatch.setattr(engine, "lead_aberta", _sem_lead)
+    monkeypatch.setattr(engine, "contacto_meta_aberto", _contacto)
+    perfil, template, _ = asyncio.run(
+        engine._contexto_inicial("912345678", thread_nova=True, agente=engine.A3)
+    )
+    assert "Ana Exemplo" in perfil and "não o perguntes" in perfil
+    assert "não voltes a apresentar-te" in perfil
+    assert template["role"] == "assistant" and "sou a Inês" in template["content"]
+
+    _, template, _ = asyncio.run(
+        engine._contexto_inicial("912345678", thread_nova=False, agente=engine.A3)
+    )
+    assert template is None  # já está no histórico gravado
+
+
 def test_perfil_vem_da_ficha_quando_nao_ha_cliente(monkeypatch):
     """O caso central: sem semeadura, `agente_clientes` está vazio e o A1
     perguntaria outra vez o que a pessoa acabou de escrever no formulário."""

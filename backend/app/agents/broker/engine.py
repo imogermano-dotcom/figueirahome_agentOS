@@ -26,6 +26,7 @@ from app.agents.broker.assistants import (
     MAX_TOKENS,
     MENSAGEM_INATIVO,
     NOME_A1,
+    NOME_A3,
     load_config,
 )
 from app.agents.broker.conversation import load_conversation, save_conversation
@@ -137,8 +138,40 @@ def _montar_system_prompt(spec: dict, perfil: str, extra: str, canal: str) -> st
     return system_prompt
 
 
+async def _contexto_recrutamento(
+    telefone: str, perfil: str, thread_nova: bool
+) -> tuple[str, dict | None, dict | None]:
+    """Contexto da Inês. A candidatura da Meta vive em `contactos` (RPC
+    `lead_meta_recrutamento`), nunca em `leads` — sem isto a Inês não sabia
+    quem era: perguntou o nome a uma candidata a quem o template já chamava
+    pelo nome e apresentou-se duas vezes (29/09).
+
+    Mesmo desenho do A1: o template entra como mensagem do assistente só no
+    1.º turno, e diz-se ao modelo, sem margem para inferência, se já se
+    apresentou. `lead` continua a ser a de `leads` — é o que o fim de turno usa.
+    """
+    lead = await lead_aberta(telefone)
+    contacto = await contacto_meta_aberto(telefone, "recrutamento")
+    if not contacto:
+        return perfil, None, lead
+
+    if contacto.get("nome"):
+        perfil += (
+            f"\n\nEsta pessoa candidatou-se por um anúncio da Meta. Nome no formulário: "
+            f"{contacto['nome']}. Já o sabes — não o perguntes."
+        )
+
+    template = contacto.get("template_enviado")
+    if thread_nova and template:
+        if NOME_A3.lower() in template.lower():
+            perfil += f"\n\nJá te apresentaste como {NOME_A3} na mensagem inicial — não voltes a apresentar-te."
+        now = datetime.now(timezone.utc).isoformat()
+        return perfil, {"role": "assistant", "content": template, "timestamp": now}, lead
+    return perfil, None, lead
+
+
 async def _contexto_inicial(
-    telefone: str, thread_nova: bool
+    telefone: str, thread_nova: bool, agente: str | None = None
 ) -> tuple[str, dict | None, dict | None]:
     """Perfil para o prompt e, se for caso disso, o template já enviado.
 
@@ -156,6 +189,9 @@ async def _contexto_inicial(
     seguintes já está no histórico gravado.
     """
     perfil = await asyncio.get_event_loop().run_in_executor(None, _perfil_cliente, telefone)
+
+    if agente == A3:
+        return await _contexto_recrutamento(telefone, perfil, thread_nova)
 
     lead = await lead_aberta(telefone)
     if not lead:
@@ -336,7 +372,9 @@ async def _responder_sem_lock(
     lead = None
     thread_nova = not mensagens
     if telefone:
-        perfil, template, lead = await _contexto_inicial(telefone, thread_nova=thread_nova)
+        perfil, template, lead = await _contexto_inicial(
+            telefone, thread_nova=thread_nova, agente=agente
+        )
         if template:
             # Antes da mensagem do utilizador: o template foi o que veio primeiro.
             mensagens.append(template)
@@ -459,6 +497,30 @@ async def _responder_sem_lock(
                     resposta = bloco["text"]
                     break
             break
+
+        # Sem texto e sem excepção: ou o modelo fechou com `end_turn` vazio depois
+        # das tools (achado 29/09, Inês a responder "Obrigada!" após escalar), ou
+        # esgotou as iterações só a chamar tools. Nos dois casos o histórico acaba
+        # num tool_result — uma chamada final sem tools obriga-o a escrever, em vez
+        # de a candidata receber "Ocorreu um erro".
+        if resposta == _ERRO and erro is None:
+            erro = "sem_texto"
+            try:
+                http_resp = await client.post(
+                    _URL, headers=headers,
+                    json={**payload, "tool_choice": {"type": "none"}},
+                )
+                http_resp.raise_for_status()
+                data = http_resp.json()
+                somar_usage(tokens, data.get("usage"))
+                iteracoes += 1
+                for bloco in data.get("content", []):
+                    if bloco.get("type") == "text" and bloco["text"].strip():
+                        resposta = bloco["text"]
+                        break
+            except Exception as exc:
+                logger.exception("Erro na chamada final sem tools (%s, %s)", agente, participante)
+                erro = f"sem_texto; {type(exc).__name__}: {exc}"[:500]
 
     latencia_ms = int((time.monotonic() - inicio) * 1000)
 
