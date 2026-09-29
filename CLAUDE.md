@@ -42,39 +42,38 @@ scraper/  app Fly.io separada, Playwright + upsert do eGO · cloudflare/ ⑂
 
 **⑂ = só existe no ramo `feat/landing-pages`, não em `master`.**
 
-## Estado actual — Handoff 2026-09-28
+## Estado actual — Handoff 2026-09-29
 
-Continuação do handoff de 25/09 (detalhe em Fases anteriores). Hoje: bug real de mapping no scraper de oportunidades (telefone/cliente_nome), gap sem fix no bloco Tarefas do relatório eGO, ajuste ao prompt da Inês, log persistente de erros do WhatsApp, e novo estado `pausa` para leads.
+Continuação do handoff de 28/09 (detalhe completo: `docs/fases/handoff-2026-09-29-resumo.md`). Hoje: atribuição de anúncios Meta em `contactos` (fase completa, deployada), fixes de qualidade de dados (`telefone`/`telemovel`, `cliente_telefone`/`cliente_email`), scraper de tarefas eGO escrito mas parado.
 
-- **26/09 — Scraper: `Telefone` ≠ `Telemóvel`**: a coluna do relatório eGO chama-se "Telefone", o alias só apanhava "telemovel" — `contactos.telemovel` ficava sempre `null`, para todos os tipos (não só Angariação). Fix + backfill dos contactos de hoje. Detalhe: `docs/fases/meta-leads-routing-rpcs-resumo.md` §4.
-- **26/09 — Scraper: `cliente_nome` de Angariação sempre `null`**: o eGO só preenche "Potencial Cliente" do lado comprador — para Angariação o nome só existe em `imovel_proprietario`. Fix: herda automaticamente quando `cliente_nome` vem vazio. Backfill do mês aplicado (19 oportunidades).
-- **28/09 — Scraper: bloco Tarefas do relatório eGO nunca vem preenchido**: `agente_sync_log` mostra `tarefas: 0` em todas as corridas desde pelo menos 11/09, mesmo com tarefas reais confirmadas no eGO (CAP_22235) e um relatório novo (`jmarques_op_tudo`) com o bloco Tarefas explicitamente activado. Não é bug do nosso mapping — é o motor de relatórios do eGO a não emitir os valores. Por decidir: suporte eGO ou scraper à parte da lista "Minhas tarefas" (não implementado).
-- **28/09 — Inês (A3) deixa de falar em comissão/ordenado variável** — remete sempre para a entrevista com o responsável de recrutamento; continua a fazer as perguntas de qualificação normais.
-- **28/09 — Erro no WhatsApp fica persistido**: `_handle_message` grava excepções em `agente_sync_log` (`tipo=erro_whatsapp`, com traceback) — `flyctl logs --no-tail` só guardava ~30min, insuficiente para investigar horas depois.
-- **28/09 — Novo estado `pausa` para `leads`**: pessoa continua interessada mas pede para não ser contactada por agora — fica fora de `ESTADOS_FECHADOS` (routing/dedup continuam a reconhecer quando ela voltar), só o nudge a recusa. Achado ao analisar a Sandra Nascimento (mãe na UTI, pediu 60 dias) — aplicado ao caso real. Detalhe: `docs/fases/lead-pausa-resumo.md`.
+- **29/09 — Atribuição de anúncio Meta em `contactos`**: `ad_id`/`ad_name`/`adset_id`/`adset_name` (a Graph API já os pedia, só não iam para a frente). Migration `0045` + 3 RPCs `lead_meta_*` + 3 pares Set/HTTP no n8n (`9DQlBhON12R1Pane`) — tudo deployado. Backfill de 15 leads de Recrutamento antigas feito via REST (n8n falhou por permissão da credencial). Testada com lead real (candidata de recrutamento, 29/09): `ad_*`, `meta_lead_id` e form gravados, contacto antigo do eGO actualizado no sítio, sem duplicar. Detalhe: `docs/fases/contactos-atribuicao-ads-resumo.md`.
+- **29/09 — Inês (A3) com contexto da candidatura Meta, sem "Ocorreu um erro" em resposta vazia**: o A3 não recebia nada de `contactos` (perguntou o nome que o template já dizia); `engine` faz chamada final sem tools quando o turno acaba sem texto (`erro=sem_texto` em `agente_interacoes`); lead de recrutamento nasce `tipo='recrutamento'` e `agente_de_lead` devolve-a à Inês. Deploy v106. Apagados 2 duplicados de `contactos` (2 candidatas) criados pela Inês antes das correcções do mesmo dia. **A4 tem o mesmo buraco de contexto**, por fazer.
+- **29/09 — `telefone`/`telemovel` inconsistentes em `contactos`**: 3 escritores, 2 só gravavam 1 coluna. Fix de escrita (scraper + `_espelhar_em_contactos`) e de leitura (`guards.contacto_meta_aberto` só via `telefone` — bug real, sem incidente ainda). Backfill de Setembro (61 registos, 0 falhas). Detalhe: `docs/fases/telefone-telemovel-unificado-resumo.md`.
+- **29/09 — `oportunidades.cliente_telefone`/`cliente_email` quase sempre `null`**: pipeline actual nunca escrevia lá (14% vs 56% histórico). Fix: espelha do `contactos` ligado por nome, em `mapping_todas_colunas.py::group()`.
+- **29/09 — Tarefas pendentes do eGO**: relatório "Oportunidades" nunca traz tarefas por abrir, em nenhuma configuração testada (3 diferentes) — só tarefas concluídas, disfarçadas de nota. Existe relatório eGO separado ("tarefas todas") que traz — `scraper/tarefas.py` escrito e auto-testado, **não ligado**: falta saber a navegação até essa página no eGO.
+- **28/09 — Inês (A3) sem falar em comissão/ordenado variável**, log persistente de erros do WhatsApp (`agente_sync_log`, `tipo=erro_whatsapp`), novo estado `pausa` para `leads` (fora de `ESTADOS_FECHADOS`, só o nudge recusa) — `docs/fases/lead-pausa-resumo.md`.
 
 ### Produção
 
 | Componente | Estado |
 |---|---|
+| Atribuição Meta ads (`contactos`) | ✅ 29/09 — schema+RPCs+n8n deployados, testado com lead real |
 | `Meta leads to supabase` (n8n) | ✅ 25/09 — routing por form + RPCs corrigidas, testado com lead real |
 | `01` enviar template compra/arrendamento (n8n) | ✅ 17/09 |
-| `enviar template Angariação` (n8n) | ✅ 15/09 — WhatsApp real entregue, testado |
-| `enviar template Recrutamento` (n8n) | ✅ 25/09 — WhatsApp real entregue, lead real |
+| `enviar template Angariação`/`Recrutamento` (n8n) | ✅ 15/09 e 25/09 — WhatsApp real entregue |
 | A1 `pedir_visita` (backend) | ✅ 18/09 — sem agendamento, lead garantida |
-| Nudge (A1/A3/A4) | ✅ 25/09 — deployado, janela 2h, confirmado |
-| Backend/Scraper/Frontend | ✅ (28/09, chaves novas) |
+| Nudge (A1/A3/A4), estado `pausa` | ✅ 25/09 e 28/09 |
+| Backend/Scraper/Frontend | ✅ (29/09) |
 | `master` | este handoff |
 
 ### Fases anteriores — deployadas, detalhe em `docs/fases/`
 
+- **Comissão fora do prompt da Inês, log erro WhatsApp, estado `pausa` (28/09)** — `lead-pausa-resumo.md`
 - **WhatsApp multi-número, routing/RPCs das leads Meta, nudge A1/A3/A4, lock de conversas, MAX_TOKENS (25/09)** — `meta-leads-routing-rpcs-resumo.md`, `nudge-todos-agentes-resumo.md`, `lock-conversas-concorrentes-resumo.md`, `max-tokens-whatsapp-resumo.md`
 - **`contactos` espelhado por `find_or_create_cliente` (21/09), Recrutamento A3 (22/09), Angariação A4 + Cron Manager (23/09)** — `recrutamento-followup-resumo.md`, `angariacao-followup-resumo.md`, `cron-manager-fly-resumo.md`
 - **A1 sem agendamento, envio Recrutamento, filtro do sync log, crons desviados, `contactos.id` (18–20/09)** — `handoff-2026-09-20-resumo.md`
 - **Leads Meta → n8n nativo, `contactos` unificado, 3 RPCs graciosas (14–17/09)** — `leads-meta-n8n-resumo.md`
 - **A4 "Bárbara" + fix datas + uptime monitor + migração chaves Supabase (13/09)** — `handoff-2026-09-13-resumo.md`
-- **Matilde: nudge 24h dentro da conversa (09/09)** — `matilde-followup-resumo.md`
-- **Auditoria "Leads de Campanha", 12 achados, planos P0–P6 (06/09)** — `handoff-2026-09-06-resumo.md`
 - **Landing pages**: no ar, fora deste repo; construtor (`feat/landing-pages`) parado por decisão do cliente.
 
 ### Invariantes que não são óbvias a ler o código
@@ -104,7 +103,7 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para a
 
 ### Ambiente local
 
-- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` (correr de dentro de `backend/` — Dockerfile/`fly.toml` vivem lá, não na raiz) · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`/Fly: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ✅** (09/09, Fly + GitHub Actions), Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **281**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
+- Python `...\Python312\python.exe` · fly `C:\Users\joaoa\.fly\bin\flyctl.exe deploy --app <nome>` (correr de dentro de `backend/` — Dockerfile/`fly.toml` vivem lá, não na raiz) · Supabase CLI ligado ao projecto de dados (só leitura — ver decisões). `.env`/Fly: Supabase ✅, Anthropic ✅, OpenAI ✅, eGO API+CRM ✅, SCRAPER_* ✅, **AUTOMACAO_SECRET ✅** (09/09, Fly + GitHub Actions), Telnyx ❌, Meta ❌. Testes: `pytest backend/tests/` de `backend/` — **283**. Scraper: `python upsert.py` e `python mapping_todas_colunas.py` de `scraper/`
 
 ### Bloqueadores activos
 
@@ -117,15 +116,16 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica — para a
 
 ### Próximos passos
 
-1. Decidir bloco Tarefas do scraper de oportunidades: contactar suporte eGO ou construir scraper à parte da lista "Minhas tarefas" (achado 28/09, sem fix — ver Estado actual).
-2. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar.
-3. Remover segredos antigos do Fly (backend + scraper) — só depois de tudo confirmado estável.
-4. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; passos em `docs/n8n/README.md`.
-5. Actualizar `docs/database-schema.md` para reflectir "um projecto, não dois" e as colunas novas de `contactos`.
-6. Auditoria de 06/09 (P0–P6) continua parada — retomar quando decidido.
-7. Opção B do plano de `contactos` unificado aplicada 21/09 (captação inicial). Por decidir ainda: `tipos` vs `tipo_contacto` com o Miguel, e se vale a pena ir para a Opção C (migração completa, `mqls` por agente incluído) — reforçado pelo achado 28/09 (Sandra Nascimento: mesma pessoa com fio A1 e A3 sem se saberem relacionados).
-8. Confirmar nome real do formulário de Angariação no Meta, para reforçar o `Switch campanha` nesse ramo (ver `docs/fases/meta-leads-routing-rpcs-resumo.md`).
-9. `guards._JANELA_LEAD_DIAS = 30` esconde leads pausadas que só respondam depois disso — a Sandra pediu 60 dias. Não alterado (afectaria todas as leads); ver `docs/fases/lead-pausa-resumo.md`.
+1. Ligar `scraper/tarefas.py` ao eGO real — falta o utilizador descrever a navegação até "tarefas todas".
+2. Dar à Bárbara (A4) o contexto de `contactos` que a Inês já tem (`engine._contexto_recrutamento`, `tipo_contacto='vendedor'`).
+3. Retomar limpeza de duplicados em `contactos` (uma pessoa com 6 linhas, etc.) — auditoria de fill-rate de email/telefone (29/09) era o pré-requisito, ainda não iniciada.
+4. Decidir backfill histórico completo (~4233 linhas) de `cliente_nome`/`cliente_telefone`/`cliente_email` em `oportunidades`, ou deixar só daqui para a frente.
+5. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar.
+6. Remover segredos antigos do Fly (backend + scraper) — só depois de tudo confirmado estável.
+7. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; passos em `docs/n8n/README.md`.
+8. Actualizar `docs/database-schema.md` para reflectir "um projecto, não dois" e as colunas novas de `contactos`.
+9. Opção B do plano de `contactos` unificado aplicada 21/09 (captação inicial). Por decidir: `tipos` vs `tipo_contacto` com o Miguel, Opção C (migração completa).
+10. `guards._JANELA_LEAD_DIAS = 30` esconde leads pausadas que só respondam depois disso — a Sandra pediu 60 dias. Não alterado; ver `docs/fases/lead-pausa-resumo.md`.
 
 ## Decisões arquitecturais
 
