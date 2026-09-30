@@ -143,13 +143,49 @@ async def _desseleccionar_minhas(page) -> None:
     )
 
 
-async def _trigger_and_download(headless: bool = True, report_name: str = REPORT_NAME) -> Path:
+async def _filtros_oportunidades(page) -> None:
+    """Filtros da página de Oportunidades: sem "Minhas" e só "Últimas 48 horas"."""
+    # "Todas as opções disponíveis" refere-se às COLUNAS do relatório
+    # (jmarques_todas_as_colunas tem todas, ao contrário de
+    # jmarques_oportunidades_notas), não a um pull sem filtro de tempo —
+    # confirmado ao vivo: sem período, o eGO não devolve download directo
+    # (portefólio grande demais), manda antes por email. Por isso aplica-se
+    # o MESMO filtro "Últimas 48 horas" do scraper existente
+    # (export_relatorio_oportunidades.py) — mesmo padrão de desselecção de
+    # "Minhas oportunidades" (clicar na tag já seleccionada, "Todas as
+    # oportunidades" não resolve).
+    print('A desseleccionar "Minhas oportunidades"...')
+    await _desseleccionar_minhas(page)
+    await page.wait_for_timeout(2000)
+
+    print('A aplicar filtro "Editado em > Últimas 48 horas"...')
+    aplicou_periodo = await page.evaluate(
+        """() => {
+            const span = Array.from(document.querySelectorAll('span.sideTag'))
+                .find(e => e.textContent.trim() === 'Últimas 48 horas');
+            if (!span) return false;
+            const link = span.querySelector('a') || span;
+            link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            return true;
+        }"""
+    )
+    if not aplicou_periodo:
+        raise RuntimeError('Filtro "Últimas 48 horas" não encontrado.')
+    await page.wait_for_timeout(2000)
+
+
+async def _trigger_and_download(
+    headless: bool = True,
+    report_name: str = REPORT_NAME,
+    page_path: str = "/egocore/leads",
+    preparar=_filtros_oportunidades,
+) -> Path:
     """Dispara o relatório e descarrega o .xlsx via httpx a partir da URL
     devolvida pelo próprio POST /egocore/report/export.
 
-    `report_name` por omissão é o de Oportunidades (`REPORT_NAME`) — passar
-    outro nome (ex: "tarefas todas") reaproveita toda a navegação/filtros
-    para descarregar um relatório eGO diferente (`tarefas.py`, 28/09).
+    `report_name`, `page_path` e `preparar` (filtros da página) por omissão são os
+    de Oportunidades. `tarefas.py` passa os de `/egocore/tasks` — cada módulo do
+    eGO tem a sua própria lista de relatórios gravados.
 
     Não depende do popup que a página abre nem do evento `download` do
     browser — confirmado ao vivo (Fly.io) que esse popup fica sempre em
@@ -182,9 +218,9 @@ async def _trigger_and_download(headless: bool = True, report_name: str = REPORT
 
         context.on("response", _on_response)
 
-        print("A navegar para Oportunidades...")
+        print(f"A navegar para {page_path}...")
         await page.goto(
-            f"{config.egorealestate_crm_base_url}/egocore/leads",
+            f"{config.egorealestate_crm_base_url}{page_path}",
             wait_until="networkidle",
             timeout=30000,
         )
@@ -192,32 +228,7 @@ async def _trigger_and_download(headless: bool = True, report_name: str = REPORT
             raise RuntimeError("Sessão não autenticou — cookies inválidas ou login mudou.")
         await page.wait_for_timeout(2000)
 
-        # "Todas as opções disponíveis" refere-se às COLUNAS do relatório
-        # (jmarques_todas_as_colunas tem todas, ao contrário de
-        # jmarques_oportunidades_notas), não a um pull sem filtro de tempo —
-        # confirmado ao vivo: sem período, o eGO não devolve download directo
-        # (portefólio grande demais), manda antes por email. Por isso aplica-se
-        # o MESMO filtro "Últimas 48 horas" do scraper existente
-        # (export_relatorio_oportunidades.py) — mesmo padrão de desselecção de
-        # "Minhas oportunidades" (clicar na tag já seleccionada, "Todas as
-        # oportunidades" não resolve).
-        print('A desseleccionar "Minhas oportunidades"...')
-        await _desseleccionar_minhas(page)
-        await page.wait_for_timeout(2000)
-
-        print('A aplicar filtro "Editado em > Últimas 48 horas"...')
-        aplicou_periodo = await page.evaluate(
-            """() => {
-                const span = Array.from(document.querySelectorAll('span.sideTag'))
-                    .find(e => e.textContent.trim() === 'Últimas 48 horas');
-                if (!span) return false;
-                const link = span.querySelector('a') || span;
-                link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
-                return true;
-            }"""
-        )
-        if not aplicou_periodo:
-            raise RuntimeError('Filtro "Últimas 48 horas" não encontrado.')
+        await preparar(page)
         await page.wait_for_timeout(2000)
 
         print("A limpar selecção...")
