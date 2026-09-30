@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 
-async def _log_execucao(resumo: dict, origem: str) -> None:
+async def _log_execucao(resumo: dict, origem: str, tipo: str = "egorealestate_oportunidades_completo") -> None:
     def _insert():
         return get_supabase().table("agente_sync_log").insert({
-            "tipo": "egorealestate_oportunidades_completo", "resumo": resumo, "origem": origem,
+            "tipo": tipo, "resumo": resumo, "origem": origem,
         }).execute()
 
     await asyncio.get_event_loop().run_in_executor(None, _insert)
@@ -43,6 +43,34 @@ async def sync_oportunidades_completo_endpoint(acesso=Depends(require_sync_acces
         raise HTTPException(status_code=502, detail="Falha ao contactar o serviço de scraping.")
 
     await _log_execucao(resumo, origem)
+    return resumo
+
+
+@router.post("/oportunidades/sync/tarefas")
+async def sync_tarefas_endpoint(acesso=Depends(require_sync_access)):
+    """Snapshot das tarefas activas do eGO (4 relatórios em fatias, ~150 s no PC;
+    tecto de 600 s para o Fly). Mesmo desenho do `completo`: o backend guarda o
+    segredo do scraper e grava o resumo em `agente_sync_log`."""
+    origem = "cron" if acesso == "sync-secret" else "manual"
+    if not settings.scraper_service_url or not settings.scraper_service_secret:
+        raise HTTPException(status_code=502, detail="SCRAPER_SERVICE_URL/SECRET não configurados.")
+
+    try:
+        async with httpx.AsyncClient(timeout=600) as client:
+            resp = await client.post(
+                f"{settings.scraper_service_url}/run/tarefas",
+                headers={"X-Scraper-Secret": settings.scraper_service_secret},
+            )
+            resp.raise_for_status()
+            resumo = resp.json()
+    except httpx.HTTPStatusError as e:
+        logger.exception("Scraper devolveu erro no sync de tarefas")
+        raise HTTPException(status_code=502, detail=e.response.text)
+    except Exception:
+        logger.exception("Falha ao contactar o serviço de scraping de tarefas")
+        raise HTTPException(status_code=502, detail="Falha ao contactar o serviço de scraping.")
+
+    await _log_execucao(resumo, origem, tipo="egorealestate_tarefas")
     return resumo
 
 

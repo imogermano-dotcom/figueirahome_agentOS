@@ -37,7 +37,7 @@ linhas. A completude de cada fatia confere-se pelas linhas **sem** `Referência`
 - Tarefa **reagendada** muda `tarefa_due_raw` (parte da chave): a linha antiga
   fecha, nasce outra.
 - Tarefas sem `Referência` ou com referência ausente de `oportunidades` (FK) são saltadas: 2192 activas → 2125 gravadas (01/10).
-- Não agendado no cron (passo seguinte).
+- Cron: `sync-tarefas`, `7 5 * * *` UTC (Cron Manager, job 6) → `POST /api/oportunidades/sync/tarefas` (backend, `X-Sync-Secret`) → `POST /run/tarefas` (scraper). 05:07 UTC = 06:07 Lisboa no verão, 05:07 no inverno; fica 70 min antes do `sync-imoveis` (06:17) para não partilhar sessão eGO. Teste manual 01/10: ~135 s, `origem=cron`, idempotente.
 
 ## Resultado da 1.ª execução (01/10)
 +363 inseridas, 1762 actualizadas, 321 fechadas (`pendente`→`concluida`); `Ativas`/`Arquivadas` intactas.

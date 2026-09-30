@@ -5,6 +5,7 @@ from fastapi import FastAPI, Header, HTTPException
 
 import config
 import oportunidades_completo
+import tarefas
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -35,3 +36,17 @@ async def run_oportunidades_completo(x_scraper_secret: str = Header(None, alias=
     except Exception:
         logger.exception("Falha no scrape de oportunidades (relatório completo)")
         raise HTTPException(status_code=502, detail="Falha ao correr o scraper de oportunidades.")
+
+
+@app.post("/run/tarefas")
+async def run_tarefas(x_scraper_secret: str = Header(None, alias="X-Scraper-Secret")):
+    """Snapshot das tarefas activas do eGO -> `tarefas` (ver `tarefas.py`). ~150 s."""
+    _check_secret(x_scraper_secret)
+    try:
+        return await tarefas.run(headless=True)
+    except RuntimeError as e:
+        logger.error("Falha no sync de tarefas: %s", e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception:
+        logger.exception("Falha no sync de tarefas")
+        raise HTTPException(status_code=502, detail="Falha ao correr o scraper de tarefas.")

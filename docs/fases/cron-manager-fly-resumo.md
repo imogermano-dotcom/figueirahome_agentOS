@@ -75,6 +75,7 @@ dos 5 minutos depois do redeploy.
 | `sync-imoveis-manha` | `17 6 * * *` | **activo**, testado à mão (`cm jobs trigger`, 56 actualizados, 0 erros) |
 | `sync-imoveis-tarde` | `23 13 * * *` | **activo** |
 | `sync-oportunidades` | `37 3 * * *` | **activo**, testado à mão, exit 0 |
+| `sync-tarefas` | `7 5 * * *` | **activo** desde 01/10 (job 6), testado à mão ponta a ponta (~135 s) — ver `tarefas-sync-plano.md` |
 
 Os 4 `.yml` do GitHub Actions ficam só com `workflow_dispatch` (schedule
 desligado nos 4). Sequência real ao activar `sync-imoveis`/`sync-oportunidades`
