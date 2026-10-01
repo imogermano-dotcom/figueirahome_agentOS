@@ -22,13 +22,20 @@
 
 set statement_timeout = '300s';
 
+-- `trg_oportunidades_updated` (set_atualizado_em) carimbava ~21 000 oportunidades como
+-- "actualizadas agora" e podia disparar reprocessamentos em quem lê `atualizado_em`
+-- (portal do Miguel). Desliga-se SÓ durante os passos 1-3 e volta a ligar-se logo a seguir.
+-- Correr fora das janelas dos syncs (03:37 e 05:07 UTC). Se algo falhar a meio, ligar à mão:
+--   alter table oportunidades enable trigger trg_oportunidades_updated;
+alter table oportunidades disable trigger trg_oportunidades_updated;
+
 -- ══ PASSO 1 — telefone ═════════════════════════════════════════════════════
 create temp table _k_tel as
 with k as (
-  select right(regexp_replace(telefone, '\D', '', 'g'), 9) as chave, id, ego_link from contactos
+  select right(regexp_replace(telefone, '\D', '', 'g'), 9) as chave, id, ego_link from public.contactos
    where length(regexp_replace(coalesce(telefone, ''), '\D', '', 'g')) >= 9
   union all
-  select right(regexp_replace(telemovel, '\D', '', 'g'), 9), id, ego_link from contactos
+  select right(regexp_replace(telemovel, '\D', '', 'g'), 9), id, ego_link from public.contactos
    where length(regexp_replace(coalesce(telemovel, ''), '\D', '', 'g')) >= 9
 ), d as (select distinct chave, id, ego_link from k)
 select chave,
@@ -49,7 +56,7 @@ select contacto_match, count(*) from oportunidades group by 1 order by 2 desc;  
 
 -- ══ PASSO 2 — email ════════════════════════════════════════════════════════
 create temp table _k_mail as
-with d as (select distinct lower(trim(email)) as chave, id, ego_link from contactos where coalesce(trim(email), '') <> '')
+with d as (select distinct lower(trim(email)) as chave, id, ego_link from public.contactos where coalesce(trim(email), '') <> '')
 select chave,
        case when count(*) = 1 then (array_agg(id))[1]
             when count(*) filter (where ego_link is not null) = 1
@@ -68,7 +75,7 @@ select contacto_match, count(*) from oportunidades group by 1 order by 2 desc;  
 -- ══ PASSO 3 — nome (BAIXA CONFIANÇA — rever a amostra antes de manter) ═════
 create temp table _k_nome as
 with d as (select distinct lower(regexp_replace(trim(nome), '\s+', ' ', 'g')) as chave, id, ego_link
-             from contactos where coalesce(trim(nome), '') <> '')
+             from public.contactos where coalesce(trim(nome), '') <> '')
 select chave,
        case when count(*) = 1 then (array_agg(id))[1]
             when count(*) filter (where ego_link is not null) = 1
@@ -85,9 +92,13 @@ update oportunidades o
 
 select contacto_match, count(*) from oportunidades group by 1 order by 2 desc;   -- esperado: nome ~8 700
 
+alter table oportunidades enable trigger trg_oportunidades_updated;   -- volta a ligar
+select t.tgname, t.tgenabled from pg_trigger t join pg_class c on c.oid = t.tgrelid
+ where c.relname = 'oportunidades' and not t.tgisinternal;               -- tgenabled = 'O'
+
 -- Amostra para olhar antes de aceitar a camada 'nome' (cliente_nome vs contacto):
 select o.oportunidade_ref, o.cliente_nome, c.nome as contacto_nome, c.ego_link is not null as canonico
-  from oportunidades o join contactos c on c.id = o.contacto_id
+  from oportunidades o join public.contactos c on c.id = o.contacto_id
  where o.contacto_match = 'nome' order by random() limit 20;
 
 -- ══ PASSO 4 — propagar para tarefas / notas / visitas ══════════════════════
@@ -99,4 +110,4 @@ union all select 'tarefas',  count(*), count(contacto_id) from tarefas
 union all select 'notas',    count(*), count(contacto_id) from notas
 union all select 'visitas',  count(*), count(contacto_id) from visitas;
 
-select t.tarefa_titulo, c.nome from tarefas t join contactos c on c.id = t.contacto_id limit 20;
+select t.tarefa_titulo, c.nome from tarefas t join public.contactos c on c.id = t.contacto_id limit 20;

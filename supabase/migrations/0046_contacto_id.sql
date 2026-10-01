@@ -10,7 +10,7 @@
 --     com que confiança se ligou: 'ego_link' | 'telefone' | 'email' | 'nome').
 --   * `tarefas`/`notas`/`visitas` herdam-no por `oportunidade_ref` (FK que já
 --     existe), denormalizado para se poderem juntar directamente a `contactos`.
---   * FK para `contactos(id)` (uuid, UNIQUE, não muda num UPSERT) e NÃO para a PK
+--   * FK para `public.contactos(id)` (uuid, UNIQUE, não muda num UPSERT) e NÃO para a PK
 --     `(nome, criado_em)`: o scraper regrava `criado_em` a cada edição e a FK
 --     composta de `leads_angariacao` já partiu por isso (23503, docs/decisoes.md).
 --   * Tudo NULLABLE e `IF NOT EXISTS`: não parte nenhuma leitura (portal do Miguel,
@@ -19,16 +19,19 @@
 --   * Escrita só pela RPC (nunca no upsert em lote): uma chave presente só em
 --     alguns registos escreveria NULL nos outros e apagaria o que o backfill pôs.
 --
+-- ATENÇÃO: existe também um schema `prospeccao` com outra tabela `contactos` (PK `id`).
+-- Tudo aqui está qualificado como `public.` de propósito.
+--
 -- Idempotente. Corre-se à mão no editor SQL (db push proibido). Antes: ver a query
 -- de inspecção no plano (triggers/constraints das 5 tabelas). Depois: backfill em
 -- docs/fases/contacto-id-backfill.sql.
 -- ──────────────────────────────────────────────────────────────────────────
 
-alter table oportunidades add column if not exists contacto_id    uuid references contactos(id) on delete set null;
+alter table oportunidades add column if not exists contacto_id    uuid references public.contactos(id) on delete set null;
 alter table oportunidades add column if not exists contacto_match text;
-alter table tarefas       add column if not exists contacto_id    uuid references contactos(id) on delete set null;
-alter table notas         add column if not exists contacto_id    uuid references contactos(id) on delete set null;
-alter table visitas       add column if not exists contacto_id    uuid references contactos(id) on delete set null;
+alter table tarefas       add column if not exists contacto_id    uuid references public.contactos(id) on delete set null;
+alter table notas         add column if not exists contacto_id    uuid references public.contactos(id) on delete set null;
+alter table visitas       add column if not exists contacto_id    uuid references public.contactos(id) on delete set null;
 
 create index if not exists idx_oportunidades_contacto_id on oportunidades(contacto_id);
 create index if not exists idx_tarefas_contacto_id       on tarefas(contacto_id);
@@ -43,6 +46,7 @@ comment on column oportunidades.contacto_match is 'Como se ligou: ego_link (cert
 create or replace function propagar_contacto_id() returns jsonb
 language plpgsql
 set statement_timeout = '300s'
+set search_path = public
 as $$
 declare
   n_tarefas int; n_notas int; n_visitas int;
@@ -78,6 +82,7 @@ $$;
 create or replace function set_contacto_oportunidades(pares jsonb) returns jsonb
 language plpgsql
 set statement_timeout = '300s'
+set search_path = public
 as $$
 declare
   n_oport int;

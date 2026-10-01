@@ -56,6 +56,15 @@ repetidos em `contactos`).
 5. Disparar `sync-oportunidades` à mão (`cm jobs trigger 3`) e ver `contacto_match='ego_link'`.
 6. 24 h depois: `COUNT(contacto_id)` não desce (prova de que o pipeline do Miguel não o apaga).
 
+## Inspecção feita (01/10) — resultado
+- Existem **duas tabelas `contactos`** (`public`, PK `(nome, criado_em)`; e `prospeccao`, PK `id`): a
+  migration qualifica tudo como `public.` e fixa `search_path` nas funções.
+- `notas`: triggers `tgr_classify_lead` e `tgr_extract_prefs` são **só `AFTER INSERT`** (chamam edge
+  functions de IA via `net.http_post`): um UPDATE de `contacto_id` não os dispara.
+- `oportunidades`: `trg_oportunidades_updated` (`BEFORE UPDATE`, só `atualizado_em = now()`):
+  o backfill desliga-o durante os updates para não carimbar ~21 000 linhas como "actualizadas agora".
+- `tarefas`/`visitas`: sem triggers. FKs de `notas`/`tarefas` a `oportunidades` são `ON DELETE CASCADE`.
+
 ## Limites conhecidos
 - 33% do histórico fica ligado só por nome (`contacto_match='nome'`): filtrável/anulável, nunca
   usar para acções automáticas.
