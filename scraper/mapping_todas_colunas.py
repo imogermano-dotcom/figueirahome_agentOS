@@ -460,6 +460,13 @@ def group(classified: list[dict]) -> dict:
     # email certo em `contactos`, ligado pelo `ego_link`. Espelha aqui: entre
     # os contactos ligados a esta oportunidade, o que tem o nome igual ao
     # cliente (comprador ou, em Angariação, o proprietário) é o "cliente".
+    #
+    # O mesmo contacto (nome == cliente) é a PESSOA da oportunidade: guarda-se o
+    # `ego_link` dele em `contacto_por_oportunidade` para `upsert` o ligar por ID
+    # (`oportunidades.contacto_id`, migration 0046). Fica fora do dict da
+    # oportunidade de propósito — não é coluna, e uma chave a mais no upsert em
+    # lote rebentava (ou escrevia NULL nas outras linhas).
+    contacto_por_oportunidade: dict[str, str] = {}
     for ref, oport in oportunidades.items():
         cliente_nome = (oport.get("cliente_nome") or "").strip().casefold()
         if not cliente_nome:
@@ -467,6 +474,7 @@ def group(classified: list[dict]) -> dict:
         for contacto in contactos_por_oportunidade.get(ref, []):
             if (contacto.get("nome") or "").strip().casefold() != cliente_nome:
                 continue
+            contacto_por_oportunidade[ref] = contacto["ego_link"]
             if contacto.get("telemovel"):
                 oport.setdefault("cliente_telefone", contacto["telemovel"])
             if contacto.get("email"):
@@ -493,6 +501,7 @@ def group(classified: list[dict]) -> dict:
         "visitas": visitas,
         "prefs": [{**v, "oportunidade_ref": ref} for ref, v in prefs.items()],
         "contactos": list(contactos.values()),
+        "contacto_por_oportunidade": contacto_por_oportunidade,
     }
 
 
@@ -590,6 +599,13 @@ def demo() -> None:
     oport = group(com_dois_contactos)["oportunidades"][0]
     assert oport["cliente_telefone"] == "912345678", oport
     assert "cliente_email" not in oport, "Maria não tem email nesta linha, não pode inventar"
+
+    # A pessoa da oportunidade é a do nome == cliente (Maria, L1), não a staff (L2).
+    lote_dois = group(com_dois_contactos)
+    assert lote_dois["contacto_por_oportunidade"] == {"CAP_1": "L1"}, lote_dois["contacto_por_oportunidade"]
+    assert "contacto_por_oportunidade" not in lote_dois["oportunidades"][0], "não é coluna"
+    # Sem contacto a bater com o cliente → sem elo (nunca se adivinha).
+    assert group(fora_angariacao)["contacto_por_oportunidade"] == {}
 
     print("mapping_todas_colunas OK")
 

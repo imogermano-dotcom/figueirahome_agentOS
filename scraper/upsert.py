@@ -126,8 +126,46 @@ def _bulk_update_prefs(supabase, prefs: list[dict]) -> int:
     return len(limpos)
 
 
+_LOTE_LINKS = 50  # ego_link tem ~60 caracteres: 50 por pedido cabem na URL do PostgREST
+
+
+def _ligar_contactos(supabase, pares: dict[str, str]) -> dict:
+    """`oportunidade_ref -> ego_link` (de `group()`) para `oportunidades.contacto_id`.
+
+    Lê o `id` de `contactos` pelo `ego_link` e entrega tudo à RPC
+    `set_contacto_oportunidades` (migration 0046), que escreve `contacto_id`/
+    `contacto_match='ego_link'` e propaga para `notas`/`tarefas`/`visitas`.
+    **Não** vai no upsert em lote: uma chave presente só em alguns registos
+    escreveria NULL nos outros e apagaria os `contacto_id` do backfill.
+
+    Sem linha em `contactos` (ex.: colisão 23505 no upsert) a oportunidade fica
+    como estava — nunca se inventa o elo.
+    """
+    links = sorted(set(pares.values()))
+    ids: dict[str, str] = {}
+    for i in range(0, len(links), _LOTE_LINKS):
+        lote = supabase.table("contactos").select("id,ego_link").in_("ego_link", links[i : i + _LOTE_LINKS]).execute().data
+        ids.update({r["ego_link"]: r["id"] for r in lote})
+
+    payload = [
+        {"oportunidade_ref": ref, "contacto_id": ids[link], "contacto_match": "ego_link"}
+        for ref, link in pares.items()
+        if link in ids
+    ]
+    if payload:
+        supabase.rpc("set_contacto_oportunidades", {"pares": payload}).execute()
+    return {"ligadas": len(payload), "sem_contacto": len(pares) - len(payload)}
+
+
 def run(supabase, batch: dict) -> dict:
     resumo = {}
+    # `contactos` PRIMEIRO: o elo `contacto_id` precisa de o contacto já existir.
+    try:
+        resumo["contactos"] = _upsert_contactos(supabase, batch["contactos"])
+    except Exception:
+        logger.exception("Falha no upsert de contactos")
+        resumo["contactos"] = f"erro (ver logs) — {len(batch['contactos'])} registos não gravados"
+
     for tabela in ("oportunidades", "notas", "tarefas", "visitas"):
         try:
             resumo[tabela] = _upsert_tabela(supabase, tabela, batch[tabela])
@@ -135,11 +173,13 @@ def run(supabase, batch: dict) -> dict:
             logger.exception(f"Falha no upsert de {tabela}")
             resumo[tabela] = f"erro (ver logs) — {len(batch[tabela])} registos não gravados"
 
+    # Best-effort: sem a migration 0046 aplicada a RPC não existe, e isso nunca
+    # pode derrubar o sync diário (as oportunidades já foram gravadas acima).
     try:
-        resumo["contactos"] = _upsert_contactos(supabase, batch["contactos"])
+        resumo["contacto_id"] = _ligar_contactos(supabase, batch.get("contacto_por_oportunidade") or {})
     except Exception:
-        logger.exception("Falha no upsert de contactos")
-        resumo["contactos"] = f"erro (ver logs) — {len(batch['contactos'])} registos não gravados"
+        logger.exception("Falha a ligar oportunidades a contactos (migration 0046 aplicada?)")
+        resumo["contacto_id"] = "erro (ver logs)"
 
     try:
         resumo["prefs"] = _bulk_update_prefs(supabase, batch["prefs"])
@@ -194,6 +234,75 @@ def demo() -> None:
         pass
     else:
         raise AssertionError("erro desconhecido devia ter rebentado")
+
+    # _ligar_contactos: lê o id pelo ego_link, e só liga o que tem contacto.
+    chamadas = []
+
+    class _Q:
+        def __init__(self, nome):
+            self.nome = nome
+
+        def select(self, *_):
+            return self
+
+        def in_(self, _col, valores):
+            self.valores = valores
+            return self
+
+        def execute(self):
+            return type("R", (), {"data": [{"id": f"id-{v}", "ego_link": v} for v in self.valores if v != "SEM"]})()
+
+    class _S:
+        def table(self, nome):
+            return _Q(nome)
+
+        def rpc(self, nome, args):
+            chamadas.append((nome, args))
+            return type("R", (), {"execute": lambda s: None})()
+
+    r = _ligar_contactos(_S(), {"VEN_1": "L1", "VEN_2": "SEM", "VEN_3": "L1"})
+    assert r == {"ligadas": 2, "sem_contacto": 1}, r
+    nome, args = chamadas[0]
+    assert nome == "set_contacto_oportunidades"
+    assert {p["oportunidade_ref"] for p in args["pares"]} == {"VEN_1", "VEN_3"}
+    assert all(p["contacto_id"] == "id-L1" and p["contacto_match"] == "ego_link" for p in args["pares"])
+    assert _ligar_contactos(_S(), {}) == {"ligadas": 0, "sem_contacto": 0} and len(chamadas) == 1, "sem pares não chama a RPC"
+
+    # run(): contactos grava ANTES das outras tabelas, e a RPC falhar não derruba o resto.
+    ordem = []
+
+    class _T:
+        def __init__(self, n):
+            self.n = n
+
+        def upsert(self, regs, on_conflict=None):
+            ordem.append(self.n)
+            return self
+
+        def select(self, *_):
+            return self
+
+        def in_(self, _col, valores):
+            self.valores = valores
+            return self
+
+        def execute(self):
+            dados = [{"id": f"id-{v}", "ego_link": v} for v in getattr(self, "valores", [])]
+            return type("R", (), {"data": dados})()
+
+    class _S2:
+        def table(self, n):
+            return _T(n)
+
+        def rpc(self, n, a):
+            raise APIError({"message": "function does not exist", "code": "PGRST202"})
+
+    lote = {"oportunidades": [{"oportunidade_ref": "A"}], "notas": [], "tarefas": [], "visitas": [],
+            "contactos": [{"ego_link": "L1", "nome": "Ana"}], "prefs": [],
+            "contacto_por_oportunidade": {"A": "L1"}}
+    res = run(_S2(), lote)
+    assert ordem.index("contactos") < ordem.index("oportunidades"), ordem
+    assert res["contacto_id"] == "erro (ver logs)" and "oportunidades" in res, res
 
     print("upsert OK")
 

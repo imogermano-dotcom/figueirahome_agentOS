@@ -301,7 +301,16 @@ async def run(headless: bool = True, gravar: bool = True) -> dict:
 
     for e in fechar:
         supabase.table("tarefas").update({"tarefa_status": ESTADO_FECHADA}).eq("id", e["id"]).execute()
-    return {"activas": brutas, "com_ref": len(snapshot), "gravadas": gravadas, "fechadas": len(fechar)}
+
+    # `tarefas.contacto_id` herda-se de `oportunidades.contacto_id` (migration 0046).
+    # Best-effort: sem a migration aplicada a RPC não existe e o sync não pode falhar.
+    try:
+        propagado = supabase.rpc("propagar_contacto_id", {}).execute().data
+    except Exception as exc:
+        print(f"contacto_id não propagado (migration 0046 aplicada?): {exc}")
+        propagado = None
+    return {"activas": brutas, "com_ref": len(snapshot), "gravadas": gravadas, "fechadas": len(fechar),
+            "contacto_id": propagado}
 
 
 def demo() -> None:
