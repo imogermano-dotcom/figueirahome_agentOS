@@ -61,7 +61,7 @@ Continuação do handoff de 29/09. Detalhe completo: `docs/fases/handoff-2026-10
 | Atribuição Meta ads, Inês (A3, v106) | ✅ 29/09 |
 | `Meta leads to supabase`, templates `01`/Angariação/Recrutamento (n8n) | ✅ 15/09–25/09 — testados com lead real |
 | A1 `pedir_visita`, Nudge (A1/A3/A4), estado `pausa` | ✅ 18/09–28/09 |
-| Backend/Scraper/Frontend/Crons | ✅ (03/10). `master`: 2 commits locais por enviar (`contacto_id`) |
+| Backend/Scraper/Frontend/Crons | ✅ (03/10). `master` alinhado com `origin` (05/10) |
 
 ### Fases anteriores — deployadas, detalhe em `docs/fases/`
 
@@ -113,14 +113,13 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica), `agente_
 ### Próximos passos
 
 1. **Confirmar o backfill de `contacto_id`** (corrido 05/10): depois dos syncs de 06/10 (03:37 e 05:07 UTC), `COUNT(contacto_id)` em `oportunidades` não desce de 21 022.
-2. `git push` dos 2 commits locais (`contacto_id`).
-3. Dar à Bárbara (A4) o contexto de `contactos` que a Inês já tem (`engine._contexto_recrutamento`, `tipo_contacto='vendedor'`).
-4. Fundir duplicados em `contactos` e repontar `contacto_id` para a canónica — com o Miguel. 2.ª fase: `contacto_id` em `leads`/`leads_angariacao`/`agente_clientes`.
-5. Investigar o `01` do n8n a disparar ~12h tarde (ver Bugs).
-6. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar; depois remover os segredos antigos do Fly.
-7. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; `docs/n8n/README.md`.
-8. Actualizar `docs/database-schema.md` ("um projecto, não dois"; colunas novas de `contactos` e da `0046`).
-9. `guards._JANELA_LEAD_DIAS = 30` esconde leads pausadas que só respondam depois — a Sandra pediu 60 dias, não alterado (`lead-pausa-resumo.md`).
+2. Dar à Bárbara (A4) o contexto de `contactos` que a Inês já tem (`engine._contexto_recrutamento`, `tipo_contacto='vendedor'`).
+3. Fundir duplicados em `contactos` e repontar `contacto_id` para a canónica — com o Miguel. 2.ª fase: `contacto_id` em `leads`/`leads_angariacao`/`agente_clientes`.
+4. Investigar o `01` do n8n a disparar ~12h tarde (ver Bugs).
+5. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar; depois remover os segredos antigos do Fly.
+6. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; `docs/n8n/README.md`.
+7. Actualizar `docs/database-schema.md` ("um projecto, não dois"; colunas novas de `contactos` e da `0046`).
+8. `guards._JANELA_LEAD_DIAS = 30` esconde leads pausadas que só respondam depois — a Sandra pediu 60 dias, não alterado (`lead-pausa-resumo.md`).
 
 ## Decisões arquitecturais
 
