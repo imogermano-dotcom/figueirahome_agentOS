@@ -45,9 +45,9 @@ crons/    Cron Manager no Fly (app figueirahome-crons): schedules.json
 
 ## Estado actual — Handoff 2026-10-03
 
-Continuação do handoff de 29/09. Detalhe completo: `docs/fases/handoff-2026-10-03-resumo.md`. Sessão de 29/09 a 03/10: Inês corrigida, tarefas do eGO sincronizadas por cron, e `contacto_id` para relacionar as tabelas pelo ID do contacto (**backfill do histórico por correr**).
+Continuação do handoff de 29/09. Detalhe completo: `docs/fases/handoff-2026-10-03-resumo.md`. Sessão de 29/09 a 03/10: Inês corrigida, tarefas do eGO sincronizadas por cron, e `contacto_id` para relacionar as tabelas pelo ID do contacto (**backfill do histórico corrido a 05/10**).
 
-- **`contacto_id` em `oportunidades`/`tarefas`/`notas`/`visitas` (01/10)** — migration `0046` (aplicada à mão) + RPCs `set_contacto_oportunidades`/`propagar_contacto_id`. O scraper grava `contactos` primeiro e liga por `ego_link`. A 03/10: **46/26 058 oportunidades ligadas** (`contacto_match='ego_link'`), cresce com as edições. **Falta o backfill do histórico** (`docs/fases/contacto-id-backfill.sql`, ~82% por telefone/email/nome). `contacto-id-plano.md`.
+- **`contacto_id` em `oportunidades`/`tarefas`/`notas`/`visitas` (01/10)** — migration `0046` (aplicada à mão) + RPCs `set_contacto_oportunidades`/`propagar_contacto_id`. O scraper grava `contactos` primeiro e liga por `ego_link`. **Backfill do histórico corrido a 05/10** (`docs/fases/contacto-id-backfill.sql`): **21 022/26 057 oportunidades ligadas** (telefone 11 263, nome 8 786, email 925, `ego_link` 48; 5 035 sem elo), tarefas 18 846/23 723, notas 83 137/103 721, visitas 1 515/1 789. Camada `nome` (baixa confiança) com 197 ligações desfeitas por email/telefone contraditório; reversível por `contacto_match='nome'`. `contacto-id-plano.md`.
 - **Tarefas do eGO (30/09)** — `scraper/tarefas.py sync`: snapshot das 2192 activas em 4 fatias por data de criação, upsert em `tarefas`, fecha (`concluida`) as nossas `pendente` que saíram. Cron `sync-tarefas` 05:07 UTC (job 6): **correu sozinho 01, 02 e 03/10**. `tarefas-sync-plano.md`.
 - **Inês (A3), 29/09 (v106)** — recebe o contexto da candidatura Meta (`engine._contexto_recrutamento`); resposta sem texto já não vira "Ocorreu um erro" (`erro=sem_texto`); lead de recrutamento nasce `tipo='recrutamento'` e volta à Inês (`guards.agente_de_lead`); prompt sem pedir telefone no WhatsApp nem prometer prazos.
 - **Atribuição Meta ads** (`ad_id`/`ad_name`/`adset_*`, `0045`) **testada com lead real (29/09)**, sem duplicar (`contactos-atribuicao-ads-resumo.md`). `telefone`/`telemovel` unificados em `contactos`; `oportunidades.cliente_telefone/email` espelhados do contacto.
@@ -57,7 +57,7 @@ Continuação do handoff de 29/09. Detalhe completo: `docs/fases/handoff-2026-10
 | Componente | Estado |
 |---|---|
 | `sync-tarefas` (cron 05:07 UTC) | ✅ a correr sozinho desde 01/10 |
-| `contacto_id` (`0046`, scraper) | ✅ migration e scraper deployados; ⚠️ backfill do histórico por correr |
+| `contacto_id` (`0046`, scraper) | ✅ migration, scraper e backfill (05/10, 81% ligadas); ⚠️ confirmar que `COUNT(contacto_id)` não desce após os syncs |
 | Atribuição Meta ads, Inês (A3, v106) | ✅ 29/09 |
 | `Meta leads to supabase`, templates `01`/Angariação/Recrutamento (n8n) | ✅ 15/09–25/09 — testados com lead real |
 | A1 `pedir_visita`, Nudge (A1/A3/A4), estado `pausa` | ✅ 18/09–28/09 |
@@ -112,7 +112,7 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica), `agente_
 
 ### Próximos passos
 
-1. **Correr o backfill de `contacto_id`** (`docs/fases/contacto-id-backfill.sql`, passos 1-4; ver a amostra do passo 3 "nome"; fora dos syncs 03:37 e 05:07 UTC). 24 h depois: `COUNT(contacto_id)` não desce.
+1. **Confirmar o backfill de `contacto_id`** (corrido 05/10): depois dos syncs de 06/10 (03:37 e 05:07 UTC), `COUNT(contacto_id)` em `oportunidades` não desce de 21 022.
 2. `git push` dos 2 commits locais (`contacto_id`).
 3. Dar à Bárbara (A4) o contexto de `contactos` que a Inês já tem (`engine._contexto_recrutamento`, `tipo_contacto='vendedor'`).
 4. Fundir duplicados em `contactos` e repontar `contacto_id` para a canónica — com o Miguel. 2.ª fase: `contacto_id` em `leads`/`leads_angariacao`/`agente_clientes`.
