@@ -23,7 +23,8 @@ class _FakeTable:
     def select(self, *a, **k):
         return self
 
-    def eq(self, *a, **k):
+    def eq(self, campo, valor):
+        self._filtros = {**getattr(self, "_filtros", {}), campo: valor}
         return self
 
     def is_(self, *a, **k):
@@ -44,6 +45,8 @@ class _FakeTable:
     def in_(self, campo, valores):
         if self.nome == "leads" and campo == "telefone":
             self._telefone_pedido = valores[0]
+        if self.nome == "agente_tarefas" and campo == "conversa_id":
+            self._ids = valores
         return self
 
     def update(self, dados):
@@ -55,6 +58,14 @@ class _FakeTable:
         return self
 
     def execute(self):
+        if self.nome == "agente_tarefas":
+            if self.estado.get("tarefas_erro"):
+                raise RuntimeError("falha simulada")
+            tipo = getattr(self, "_filtros", {}).get("tipo")
+            return SimpleNamespace(data=[
+                t for t in self.estado.get("tarefas", [])
+                if t["conversa_id"] in getattr(self, "_ids", []) and t["tipo"] == tipo
+            ])
         if self.nome == "leads":
             lead = self.estado["leads_por_participante"].get(getattr(self, "_telefone_pedido", None))
             return SimpleNamespace(data=[lead] if lead else [])
@@ -69,8 +80,9 @@ class _FakeSupabase:
         return _FakeTable(nome, self.estado)
 
 
-def _montar(monkeypatch, conversas, leads_por_participante):
-    estado = {"conversas": conversas, "leads_por_participante": leads_por_participante, "updates": [], "inserts": []}
+def _montar(monkeypatch, conversas, leads_por_participante, tarefas=None, tarefas_erro=False):
+    estado = {"conversas": conversas, "leads_por_participante": leads_por_participante, "updates": [], "inserts": [],
+              "tarefas": tarefas or [], "tarefas_erro": tarefas_erro}
     monkeypatch.setattr(nudge, "get_supabase", lambda: _FakeSupabase(estado))
 
     # Decisão testada aqui é a de `_pode_enviar` (fecho/contacto_humano_em),
@@ -193,3 +205,56 @@ def test_enviar_todos_nudges_agrega_os_3(monkeypatch):
     assert set(resumo.keys()) == {nudge.A1, nudge.A3, nudge.A4}
     for parcial in resumo.values():
         assert set(parcial.keys()) == {"candidatos", "enviados", "erros"}
+
+
+def test_conversa_escalada_nao_recebe_nudge_mesmo_sem_marca_de_despedida(monkeypatch):
+    """Caso real 05/10: a Inês escalou a candidatura e despediu-se com "Boa
+    semana! 🌟" (nenhuma marca de `_MARCAS_FECHO`) — o nudge perguntou-lhe,
+    3h depois, se ainda queria avançar."""
+    conversas = [_conversa("c1", "351900000004", ultimo_texto="Tudo registado! Boa semana, Ana! 🌟")]
+    estado = _montar(monkeypatch, conversas, {}, tarefas=[{"conversa_id": "c1", "tipo": "escalar"}])
+
+    resumo = asyncio.run(nudge.enviar_nudges(nudge.A3))
+
+    assert resumo == {"candidatos": 0, "enviados": 0, "erros": 0}
+    assert "enviados" not in estado
+
+
+def test_a3_sem_escalada_continua_a_receber_nudge(monkeypatch):
+    conversas = [_conversa("c1", "351900000004")]
+    _montar(monkeypatch, conversas, {}, tarefas=[{"conversa_id": "outra", "tipo": "escalar"}])
+
+    assert asyncio.run(nudge.enviar_nudges(nudge.A3))["enviados"] == 1
+
+
+def test_a4_e_a1_escalados_tambem_nao_recebem(monkeypatch):
+    for agente in (nudge.A1, nudge.A4):
+        conversas = [_conversa("c1", "351900000005")]
+        _montar(monkeypatch, conversas, {}, tarefas=[{"conversa_id": "c1", "tipo": "escalar"}])
+        assert asyncio.run(nudge.enviar_nudges(agente))["enviados"] == 0
+
+
+def test_so_a_conversa_escalada_e_poupada(monkeypatch):
+    conversas = [_conversa("c1", "351900000006"), _conversa("c2", "351900000007")]
+    estado = _montar(monkeypatch, conversas, {}, tarefas=[{"conversa_id": "c1", "tipo": "escalar"}])
+
+    asyncio.run(nudge.enviar_nudges(nudge.A3))
+
+    assert [p for p, _ in estado["enviados"]] == ["351900000007"]
+
+
+def test_tarefa_de_outro_tipo_nao_trava_o_nudge(monkeypatch):
+    conversas = [_conversa("c1", "351900000008")]
+    _montar(monkeypatch, conversas, {}, tarefas=[{"conversa_id": "c1", "tipo": "visita"}])
+
+    assert asyncio.run(nudge.enviar_nudges(nudge.A3))["enviados"] == 1
+
+
+def test_falha_a_consultar_escaladas_nao_envia_nada(monkeypatch):
+    conversas = [_conversa("c1", "351900000009")]
+    estado = _montar(monkeypatch, conversas, {}, tarefas_erro=True)
+
+    resumo = asyncio.run(nudge.enviar_nudges(nudge.A3))
+
+    assert resumo == {"candidatos": 0, "enviados": 0, "erros": 0}
+    assert "enviados" not in estado

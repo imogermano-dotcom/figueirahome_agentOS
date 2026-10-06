@@ -105,6 +105,38 @@ _AGENTES = {
 }
 
 
+async def _conversas_escaladas(ids: list[str]) -> set[str]:
+    """Conversas cujo caso já foi entregue a um humano (`escalar_para_humano`).
+
+    Sinal gravado em código, não pelo modelo — ao contrário de `_MARCAS_FECHO`,
+    que falha com cada despedida nova ("Boa semana! 🌟", achado 05/10: a Inês
+    despediu-se de uma candidata já escalada e o nudge perguntou-lhe, 3h
+    depois, se ainda queria avançar). Uma query para todas as conversas.
+
+    Falha fechado: sem saber, não se envia — um nudge a menos custa menos do
+    que um nudge indevido.
+    """
+    if not ids:
+        return set()
+
+    def _fetch():
+        return (
+            get_supabase()
+            .table("agente_tarefas")
+            .select("conversa_id")
+            .in_("conversa_id", ids)
+            .eq("tipo", "escalar")
+            .execute()
+        )
+
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    except Exception:
+        logger.exception("Falha a consultar escaladas — nenhum nudge nesta volta")
+        return set(ids)
+    return {t["conversa_id"] for t in resp.data}
+
+
 async def _candidatos(agente: str, guarda) -> list[dict]:
     agora = datetime.now(timezone.utc)
     desde = (agora - timedelta(hours=_JANELA_MAX_HORAS)).isoformat()
@@ -124,9 +156,12 @@ async def _candidatos(agente: str, guarda) -> list[dict]:
         )
 
     resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    escaladas = await _conversas_escaladas([r["id"] for r in resp.data])
 
     candidatos = []
     for row in resp.data:
+        if row["id"] in escaladas:
+            continue
         mensagens = row.get("mensagens") or []
         if not mensagens:
             continue
