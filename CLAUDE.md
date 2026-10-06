@@ -114,11 +114,10 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica), `agente_
 
 1. Dar à Bárbara (A4) o contexto de `contactos` que a Inês já tem (`engine._contexto_recrutamento`, `tipo_contacto='vendedor'`).
 2. Fundir duplicados em `contactos` e repontar `contacto_id` para a canónica — com o Miguel. 2.ª fase: `contacto_id` em `leads`/`leads_angariacao`/`agente_clientes`.
-3. Investigar o `01` do n8n a disparar ~12h tarde (ver Bugs).
-4. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar; depois remover os segredos antigos do Fly.
-5. Importar `02`/`03` no n8n (`01` já testado) — apagar leads de teste antes; `docs/n8n/README.md`.
-6. Actualizar `docs/database-schema.md` ("um projecto, não dois"; colunas novas de `contactos` e da `0046`).
-7. `guards._JANELA_LEAD_DIAS = 30` esconde leads pausadas que só respondam depois — a Sandra pediu 60 dias, não alterado (`lead-pausa-resumo.md`).
+3. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar; depois remover os segredos antigos do Fly.
+4. Importar `02`/`03` no n8n (`01` já testado) — só faz sentido com a campanha de compra reactivada; apagar leads de teste antes; `docs/n8n/README.md`.
+5. Actualizar `docs/database-schema.md` ("um projecto, não dois"; colunas novas de `contactos` e da `0046`).
+6. `guards._JANELA_LEAD_DIAS = 30` esconde leads pausadas que só respondam depois — a Sandra pediu 60 dias, não alterado (`lead-pausa-resumo.md`).
 
 ## Decisões arquitecturais
 
@@ -148,7 +147,7 @@ na área respectiva — quase todas registam uma tentativa que já falhou ao viv
 ## Bugs conhecidos
 
 - **Da auditoria de 06/09, por corrigir** (`ficheiro:linha` no HTML): recibos de entrega descartados (A9); email só com MQL completo (A5); `_consultar_leads` do broker lê `agente_leads` morta (A1); `_procurar_cliente` pára na 1ª correspondência (A3); `find_or_create_cliente` escreve por cima de telefone/email (A4); `lead_aberta` só por telefone (A8); `contacto_humano_em` por lead, não por pessoa (A6); `03` a 48h vs 24h do doc (A7).
-- **O `01` dispara ~12h depois da lead entrar**, desde 28/08. Como **16 das 17 respostas reais vieram na 1.ª hora**, isto chega para matar a conversão. Por investigar nas execuções do n8n. (O fluxo de Recrutamento dispara em ~12 s — medido a 29/09.)
+- **Matilde sem leads novas da Meta** — a campanha de compra está **parada** (confirmado 06/10; só corre a de recrutamento) e a última lead de compra entrou a 07/09. O "`01` a disparar ~12h tarde" **não se confirma**: nas 150 leads de compra com template a mediana é 0 h (~2 s), e os 7 atrasos >1h são de agosto (5 delas um lote de 28/08, à espera da aprovação do template). O `01` é subfluxo do "Meta leads to supabase" (webhook da Meta), sem nós de espera. 156 leads de compra (153 de agosto) nunca receberam template (`nova`); os follow-ups da Matilde estão inactivos no n8n.
 - **A4 não recebe o contexto de `contactos`** (nome, template), como a Inês não recebia. **`contacto_id`**: ~10 oportunidades por sync ficam sem contacto (colisão `(nome, criado_em)` no upsert de `contactos`); a camada "nome" do backfill é de baixa confiança. **Tarefas** apagadas ou reagendadas no eGO fecham a linha antiga.
 - **Sem `logging.basicConfig`**: a raiz fica em `WARNING`; `sent`/`delivered`/`read` do WhatsApp são invisíveis e só se inferem contando recibos.
 - **`agente_leads` ainda existe**, vazia de uso desde 18/08. **Dedup de clientes sob carga**: um teste falhou e voltou a passar com o mesmo código — se aparecerem duplicados em produção, é por aqui.
