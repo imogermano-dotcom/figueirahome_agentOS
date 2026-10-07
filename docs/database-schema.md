@@ -1,38 +1,400 @@
 # Database Schema — Figueirahome Agent Call (Supabase / PostgreSQL)
 
-> Estrutura completa da base de dados. Nomes de tabelas e colunas em português, snake_case. Todas as tabelas têm `id` UUID e `criado_em` timestamp por defeito.
+> Estrutura da base de dados. Nomes de tabelas e colunas em português, snake_case.
+> **Actualizado a 07/10/2026 a partir do esquema real** (OpenAPI do PostgREST, só leitura)
+> e de `supabase migration list`. Até aqui o documento descrevia o esquema inicial
+> (migration `0001`), que fica preservado em «Histórico» no fim.
+> **O repo não é a fonte de verdade única**: confirmar sempre contra a base antes de
+> escrever SQL (ver «Como confirmar o esquema»).
 
-## Dois projectos Supabase — o que vive onde (desde migration 0006, 2026-07-21)
+## Um projecto Supabase (desde 13/09/2026)
 
-- **Projecto UNIFICADO** (`supabase_imoveis_url/key` no `.env` — nome histórico, é o projecto principal de dados agora): todas as tabelas — `imoveis`, `agente_clientes`, `agente_leads`, `agente_chamadas`, `agente_conversas`, `agente_config`, `agente_tarefas`. `backend/app/db/supabase_client.py::get_supabase()` aponta para aqui.
-- **Projecto ORIGINAL** (`supabase_url/key` — nome histórico, "principal"): fica **só como Auth** — as 10 contas de login dos corretores/admin vivem lá (Supabase não permite copiar hashes de password via API). `get_supabase_auth()` aponta para aqui, usado apenas em `deps.py::require_auth` para validar o token. Sem tabelas de dados novas aqui — as antigas (`agente_clientes` etc.) ficam como backup frio, não lidas nem escritas pelo backend.
-- Isto funciona porque o backend usa sempre `service_role_key` para aceder a dados (nunca passa o JWT do utilizador ao Postgres) — a validação de RLS nunca chega a ser avaliada, por isso não há problema de "RLS não reconhece token doutro projecto".
+- Projecto único `zphasvfopnbzwnaidsnw`: **dados e Auth**. `backend/app/db/supabase_client.py::get_supabase()`
+  é o único cliente (`supabase_url` + `supabase_secret_key`, chave nova `sb_secret_…`, papel
+  `service_role`, que ignora o RLS). O backend nunca passa o JWT do utilizador ao Postgres.
+- A divisão «projecto de dados + projecto de Auth» da migration `0006` (21/07) **já não existe**:
+  o de Auth foi eliminado e integrado neste.
+- **A base é muito maior do que este repo**: 102 tabelas/vistas e ~200 funções. Este repo gere cerca
+  de uma dezena de tabelas; o resto é do espelho do eGO (escrito de fora) e do portal do Miguel e de
+  outras aplicações que partilham o projecto. Não alterar o que não está listado como «deste repo».
+
+## Quem gere o quê
+
+| Grupo | Tabelas | Dono / escritor |
+|---|---|---|
+| **Deste repo** (migrations `0001`–`0046`) | `agente_clientes`, `agente_conversas`, `agente_config`, `agente_interacoes`, `agente_tarefas`, `agente_mensagens_processadas`, `agente_sync_log`, `agente_chamadas` (voz, 1 linha), `leads`, `visitas`, `teste_imoveis`, `teste_oportunidades`; segundo o registo de 25/08 também `imoveis_price_history` e `lead_quality_cache` (sem migration própria no repo) | backend + painel |
+| **Morta** | `agente_leads` (1 linha; sem escritores desde 18/08), `agente_chamadas` quase sem uso | — (por apagar) |
+| **Espelho do eGO** (não gerir daqui) | `oportunidades` (26 061), `tarefas` (23 747), `notas` (103 814), `oportunidade_preferencias` (14 508), `contactos` (28 513), `imoveis` (4 466), `certificados_energeticos` | nosso scraper (`scraper/`), pipeline do Miguel, RPCs da Meta, assistentes e site (ver `contactos`) |
+| **Portal / outras apps** (inferido pelos nomes; confirmar com o Miguel) | `ce_*` (certificados), `fsbo_*`, `idealista_*`, `ruas`, `marketing_*`, `conteudo*`, `conteudos_sociais`, `biblioteca_imagens`, `videos_sociais`, `noticias*`, `plano_*`, `recrut_*`, `recrutamento`, `objecoes_*`, `envios_*`, `meta_lead_*`, `cruz_chamadas`, `custos_portais`, `profiles`, `quiz_reports`, `portal_abas`, `sim_settings`, vistas `v_*` | fora do repo |
+| **Leads de angariação** | `leads_angariacao` (88) | Make + consultora; sem `DELETE` (`0026`) |
+
+Relações entre as tabelas deste repo: `agente_conversas 1 ── N agente_interacoes`; `agente_conversas 1 ── N agente_tarefas`
+(`conversa_id`); `agente_clientes 1 ── N leads` (`cliente_id`); `agente_conversas 1 ── N leads` (`conversa_id`).
+No espelho do eGO: `oportunidades 1 ── N tarefas | notas | oportunidade_preferencias` por `oportunidade_ref`, e
+`contactos.id ── contacto_id` em `oportunidades`, `tarefas`, `notas`, `visitas` (ver adiante).
+
+## Migrations: o que o repo sabe e o que a base tem
+
+- Repo: `0001`–`0046` (a `0020` vive só no ramo `feat/landing-pages`).
+- Base (`supabase migration list`, 07/10): 31 em comum (`0001`–`0030`), **16 só locais** (`0031`–`0046`,
+  corridas à mão no editor SQL e **não registadas** em `supabase_migrations`) e **168 só remotas**
+  (nomes com timestamp, de outras ferramentas/utilizadores, até 07/10; não estão no repo).
+- **`supabase db push` é proibido** (a `0001` aborta) e a CLI usa-se só para leitura. As migrations
+  deste repo são corridas à mão pelo utilizador no editor SQL, depois de explicadas.
+
+## Triggers e funções conhecidos (os que este repo criou ou de que depende)
+
+| Trigger / função | Onde | Para quê |
+|---|---|---|
+| `tgr_normaliza_aceita_whatsapp` (`0031`) | `leads` (insert/update de `ficha`) | **Quarta fronteira de segurança**: o consentimento de WhatsApp vem daqui, não de Python |
+| `tgr_normaliza_origem_leads` (`0041`) | `leads` | preenche `origem` |
+| `tgr_normaliza_origem_contactos` (`0042`) | `contactos` | `origem`: `meta` > `assistente` > `scraper` (por `meta_lead_id`, `agente`, `ego_link`); sem sinal fica `NULL` |
+| `trg_oportunidades_updated` | `oportunidades` (BEFORE UPDATE) | carimba `atualizado_em`; **desligar em updates em massa** (o backfill de `contacto_id` fê-lo) |
+| `tgr_classify_lead`, `tgr_extract_prefs` | `notas` (AFTER INSERT) | chamam edge functions de IA por `net.http_post`; **cada INSERT em `notas` dispara IA** (UPDATE não) |
+
+RPCs que este repo chama: `dashboard_metricas`, `agente_metricas` (`0015`, `0017`, `0019`, `0038`),
+`propagar_contacto_id`, `set_contacto_oportunidades` (`0046`), `bulk_update_prefs` (scraper). Chamadas
+de fora (n8n, Make): `lead_meta_compra`, `lead_meta_recrutamento`, `lead_meta_angariacao` (criadas na
+interface, **não estão em nenhuma migration do repo**). `social_imovel_stats` é do Miguel e lê `visitas`.
 
 ---
 
-## Visão geral das tabelas
+## `contactos`: quem escreve e como se distingue
 
-| Tabela | Propósito |
-|---|---|
-| `clientes` | Pessoas que contactam ou são contactadas pela agência. |
-| `imoveis` | Portefólio de imóveis, de várias fontes. |
-| `leads` | Ligação entre um cliente e um imóvel/interesse. |
-| `chamadas` | Histórico de chamadas atendidas pelo Agente 1. |
-| `conversas` | Histórico de conversas do Agente 2, por canal. |
-| `config_agentes` | Persona e instruções configuráveis de cada agente. |
-| `agente_tarefas` | Tarefas genéricas (não exclusivas de imóveis) do corretor/agência. |
-| `leads` | Leads **não qualificadas**, de qualquer origem (migration 0021). **Tabela única desde 2026-08-18**: o painel, o assistente e a voz escrevem aqui, distinguidos por `origem` (migration 0029 — `meta` \| `assistente` \| `voz` \| `landing` \| `manual`). `agente_leads` ficou sem escritores nem leitores; falta `leads_angariacao`, que é fluxo com outro dono. |
+Chave primária **`(nome, criado_em)`** (não `ego_link`), mais `id uuid` UNIQUE e `ego_link` UNIQUE. O scraper grava
+`criado_em` com a **data de alteração** do eGO, logo a PK muda a cada edição: **juntar sempre por `id`**, nunca pela PK
+(foi o que partiu a FK composta de `leads_angariacao`, erro `23503`). Há também uma `prospeccao.contactos`:
+**qualificar sempre `public.contactos`**.
+
+Cinco escritores, distinguíveis pelas colunas (contagens a 07/10, 28 513 linhas):
+
+| Escritor | Sinal | Particularidades |
+|---|---|---|
+| **Nosso scraper** | `ego_link` preenchido (`/egocore/person/<id>`; 13 são `/company/<id>`); `origem='scraper'` | sobretudo `telemovel`; `criado_em` = alteração do eGO; descarta contactos sem `ego_link` |
+| **Pipeline do Miguel** (formatos antigos) | sem `ego_link`, `origem` NULL, ~15 800 linhas, 2017–2026 | sobretudo `telefone`; `responsavel`, `rgpd_*`; a flag `duplicado` **não** vem do Excel (origem a confirmar) |
+| **RPCs `lead_meta_*`** (Meta) | `meta_lead_id`; `origem='meta'` | `telefone` **e** `telemovel`; `ad_*`/`adset_*`; podem **reaproveitar** uma linha existente (8 de 41 têm `criado_em` anterior a 2026) |
+| **Assistentes** | `agente` preenchido; `origem='assistente'` | espelho aditivo: nunca mexem em linha que não seja sua |
+| **Formulários do site** | `tipos` com `form`/`comprar`/`visita`/`property_detail`/`contacto`/`recrutamento_relatorio`, sem `ego_link` | `mensagem` (com `[Imóvel FHxxxx]` no texto), `imovel_ref` vazio, `whatsapp_permissao` sempre `False`, `origem` NULL (16 linhas desde 09/07) |
+
+A **canónica** de uma pessoa é a linha com `ego_link`. Das 15 867 sem `ego_link`, 11 958 (limite superior, por
+telefone/email) têm uma gémea com `ego_link`: a fusão está por fazer (ver `docs/fases/`). O consentimento de WhatsApp
+está repartido pelas duplicadas (278 linhas sem `ego_link` com `whatsapp_permissao=true`, 328 com).
+
+## `contacto_id` (migration `0046`)
+
+Coluna `contacto_id uuid REFERENCES public.contactos(id) ON DELETE SET NULL` em `oportunidades`, `tarefas`, `notas` e
+`visitas`; `oportunidades.contacto_match` regista a camada (`ego_link` > `telefone` > `email` > `nome`, a última de
+baixa confiança, desfazível). **`oportunidades.contacto_id` é a fonte de verdade**; as filhas herdam-no por
+`oportunidade_ref` (`propagar_contacto_id()`). **Escreve-se só por RPC**, nunca num upsert em lote do PostgREST (uma chave
+presente num só registo escreve `NULL` nos outros). Backfill do histórico a 05/10: 21 022 de 26 057 oportunidades,
+18 846 de 23 723 tarefas, 83 137 de 103 721 notas, 1 515 de 1 789 visitas. Detalhe em `docs/fases/contacto-id-plano.md`.
 
 ---
 
-## Relações
+## Esquema actual das tabelas (gerado do esquema real, 07/10/2026)
 
-```
-clientes 1 ──── N leads N ──── 1 imoveis
-clientes 1 ──── N chamadas
-```
+> Tipos e comentários vêm da base. `oportunidades` (98 colunas), `imoveis` (64) e as tabelas do portal não se
+> listam aqui: são do espelho do eGO / de fora do repo.
+
+#### `agente_clientes` — 30 linhas
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid | PK; NOT NULL; default `extensions.uuid_generate_v4()` |
+| `nome` | text |  |
+| `telefone` | text |  |
+| `email` | text |  |
+| `tipo_interesse` | text |  |
+| `orcamento` | numeric |  |
+| `zona_preferida` | text |  |
+| `notas` | text |  |
+| `origem` | text |  |
+| `criado_em` | timestamp with time zone | default `now()` |
+| `atualizado_em` | timestamp with time zone | default `now()` |
+
+#### `agente_conversas` — 87 linhas
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid | PK; NOT NULL; default `extensions.uuid_generate_v4()` |
+| `canal` | text | NOT NULL |
+| `participante` | text |  |
+| `mensagens` | jsonb |  |
+| `criado_em` | timestamp with time zone | default `now()` |
+| `atualizado_em` | timestamp with time zone | default `now()` |
+| `agente` | text | a1_vendedor \| a2_geral \| broker — assistente que detém a thread (routing sticky) |
+| `nudge_em` | timestamp with time zone |  |
+
+#### `agente_config` — 6 linhas
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid | PK; NOT NULL; default `extensions.uuid_generate_v4()` |
+| `agente` | text | NOT NULL |
+| `persona` | text |  |
+| `instrucoes` | text |  |
+| `idioma` | text | default `pt-PT` |
+| `ativo` | boolean | default `True` |
+| `atualizado_em` | timestamp with time zone | default `now()` |
+
+#### `agente_interacoes` — 411 linhas
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid | PK; NOT NULL; default `extensions.uuid_generate_v4()` |
+| `conversa_id` | uuid | FK → `agente_conversas.id`; id`. |
+| `agente` | text | NOT NULL |
+| `canal` | text | NOT NULL |
+| `modelo` | text | NOT NULL |
+| `tokens_input` | integer | NOT NULL; default `0` |
+| `tokens_output` | integer | NOT NULL; default `0` |
+| `tokens_cache_read` | integer | NOT NULL; default `0` |
+| `tokens_cache_write` | integer | NOT NULL; default `0` |
+| `custo_usd` | numeric | NOT NULL; default `0` |
+| `latencia_ms` | integer |  |
+| `iteracoes` | integer | NOT NULL; default `1` |
+| `tools_usadas` | text[] |  |
+| `tool_forcada` | boolean | NOT NULL; default `False` |
+| `erro` | text |  |
+| `criado_em` | timestamp with time zone | NOT NULL; default `now()` |
+| `tools_detalhe` | jsonb | Tools chamadas com argumentos. Só tools de pesquisa trazem input — nunca PII. |
+
+#### `agente_tarefas` — 78 linhas
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid | PK; NOT NULL; default `extensions.uuid_generate_v4()` |
+| `titulo` | text | NOT NULL |
+| `descricao` | text |  |
+| `imovel_ref` | text |  |
+| `estado` | text | default `pendente` |
+| `prazo` | date |  |
+| `responsavel` | text |  |
+| `criado_em` | timestamp with time zone | default `now()` |
+| `atualizado_em` | timestamp with time zone | default `now()` |
+| `tipo` | text | visita \| escalar — antes só dava para inferir do titulo por ILIKE. |
+| `agente` | text |  |
+| `conversa_id` | uuid | FK → `agente_conversas.id`; Null quando a tarefa nasce no 1.º turno de uma conversa nova (o id só existe depois do save_conversation). id`. |
+| `motivo` | text |  |
+
+#### `agente_chamadas` — 1 linhas — voz, quase sem uso
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid | PK; NOT NULL; default `extensions.uuid_generate_v4()` |
+| `cliente_id` | uuid | FK → `agente_clientes.id`; id`. |
+| `call_control_id` | text |  |
+| `numero_origem` | text |  |
+| `duracao` | integer |  |
+| `transcricao` | text |  |
+| `resumo_ia` | text |  |
+| `gravacao_url` | text |  |
+| `data_hora` | timestamp with time zone | default `now()` |
+
+#### `agente_leads` — 1 linhas — morta desde 18/08
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid | PK; NOT NULL; default `extensions.uuid_generate_v4()` |
+| `cliente_id` | uuid | FK → `agente_clientes.id`; id`. |
+| `imovel_id` | uuid |  |
+| `estado` | text | default `novo` |
+| `notas` | text |  |
+| `criado_em` | timestamp with time zone | default `now()` |
+| `atualizado_em` | timestamp with time zone | default `now()` |
+
+#### `agente_mensagens_processadas` — 234 linhas — dedup de mensagens do WhatsApp
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `message_id` | text | PK; NOT NULL |
+| `criado_em` | timestamp with time zone | NOT NULL; default `now()` |
+
+#### `agente_sync_log` — 1 245 linhas — log dos syncs do eGO
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid | PK; NOT NULL; default `extensions.uuid_generate_v4()` |
+| `tipo` | text | NOT NULL; default `egorealestate` |
+| `executado_em` | timestamp with time zone | default `now()` |
+| `resumo` | jsonb |  |
+| `detalhes` | jsonb |  |
+| `origem` | text |  |
+
+#### `leads` — 330 linhas
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid | PK; NOT NULL; default `gen_random_uuid()` |
+| `tipo` | text | NOT NULL; default `compra` |
+| `estado` | text | NOT NULL; default `nova` |
+| `nome` | text |  |
+| `telefone` | text |  |
+| `email` | text |  |
+| `meta_lead_id` | text |  |
+| `meta_form_name` | text |  |
+| `meta_created_at` | timestamp with time zone |  |
+| `imovel_ref` | text |  |
+| `ficha` | jsonb | NOT NULL |
+| `responsavel` | text |  |
+| `notas` | text |  |
+| `cliente_id` | uuid | FK → `agente_clientes.id`; id`. |
+| `conversa_id` | uuid | FK → `agente_conversas.id`; id`. |
+| `qualificada_em` | timestamp with time zone |  |
+| `criado_em` | timestamp with time zone | NOT NULL; default `now()` |
+| `atualizado_em` | timestamp with time zone | NOT NULL; default `now()` |
+| `template_enviado` | text | Texto do template de WhatsApp enviado pelo n8n. Entra no histórico como mensagem do assistente no primeiro turno (engine._contexto_inicial). |
+| `template_enviado_em` | timestamp with time zone | Quando o template saiu. Único sinal de que a lead foi contactada neste fluxo. |
+| `respondeu_em` | timestamp with time zone | Quando a lead respondeu pela primeira vez. NULL = ainda não falou. É este o sinal para o follow-up, não `conversa_id`. |
+| `origem` | text | NOT NULL; default `manual`; De onde veio a lead: meta \| assistente \| voz \| landing \| manual. Eixo distinto de `tipo`, que é o interesse. |
+| `follow_up_em` | timestamp with time zone | Quando saiu o follow-up das 48h. NULL = ainda não saiu. É o travão do cron do n8n: um follow-up por lead, uma só vez. Não usar o estado para isto — o estado é editável no painel. |
+| `contacto_humano_em` | timestamp with time zone | Quando uma consultora falou com a lead FORA do agente. NULL = ninguém falou. Travão dos fluxos 02/03 do n8n: nenhuma mensagem iniciada por nós sai para quem já está a ser tratado por uma pessoa. Não trava as respostas da Matilde a quem escreve primeiro — ver o comentário desta migration. |
+| `follow_up_2_em` | timestamp with time zone | Quando o fluxo n8n de follow-up da Matilde a 72h mandou a 3ª mensagem (última tentativa). Travão de "só uma vez", independente de follow_up_em. |
+
+#### `leads_angariacao` — 88 linhas — Make + consultora; fora deste repo
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | uuid | PK; NOT NULL; default `gen_random_uuid()` |
+| `created_at` | timestamp with time zone | default `now()` |
+| `contacto_nome` | text | NOT NULL |
+| `contacto_criado_em` | date | NOT NULL |
+| `meta_lead_id` | text |  |
+| `meta_form_name` | text |  |
+| `meta_created_at` | timestamp with time zone |  |
+| `responsavel` | text |  |
+| `atribuido_em` | timestamp with time zone |  |
+| `atribuido_por` | text |  |
+| `estado` | text | NOT NULL; default `nova` |
+| `estado_alterado_em` | timestamp with time zone | default `now()` |
+| `retorno_data` | date |  |
+| `retorno_hora` | time without time zone |  |
+| `retorno_notas` | text |  |
+| `ficha` | jsonb |  |
+| `outcome` | text |  |
+| `reuniao_data` | date |  |
+| `reuniao_hora` | time without time zone |  |
+| `reuniao_local` | text |  |
+| `notas` | text |  |
+| `notas_imovel` | text |  |
+| `nao_atende_count` | integer | default `0` |
+| `template_enviado` | text |  |
+| `template_enviado_em` | timestamp with time zone |  |
+
+#### `contactos` — 28 513 linhas — espelho do eGO + Meta + assistentes + site
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `nome` | text | PK; NOT NULL |
+| `criado_em` | date | PK; NOT NULL |
+| `email` | text |  |
+| `tipos` | text[] |  |
+| `ego_atualizado_em` | timestamp with time zone | default `now()` |
+| `whatsapp_permissao` | boolean | default `False`; Permissão para contacto via WhatsApp (recolhida em campanha) |
+| `whatsapp_data` | date | Data em que a permissão WhatsApp foi obtida |
+| `telefone` | text |  |
+| `telemovel` | text |  |
+| `data_nascimento` | date |  |
+| `nacionalidade` | text |  |
+| `responsavel` | text |  |
+| `rgpd_telefone` | text | RGPD para contacto por telefone: consentido \| nao_consentido \| pre_consentido |
+| `rgpd_telemovel` | text | RGPD para contacto por telemóvel: consentido \| nao_consentido \| pre_consentido |
+| `rgpd_email` | text | RGPD para contacto por email: consentido \| nao_consentido \| pre_consentido |
+| `duplicado` | boolean | default `False` |
+| `ego_link` | text | URL do contacto no EGO CRM (ex: https://admin.egorealestate.com/egocore/person/<id>). Usado como chave de match na importação de Excel. |
+| `mensagem` | text | Texto livre do pedido, escrito pelo visitante no site (nao vem do eGO). |
+| `estado` | text |  |
+| `template_enviado` | text |  |
+| `template_enviado_em` | timestamp with time zone |  |
+| `meta_lead_id` | text |  |
+| `meta_form_name` | text |  |
+| `meta_created_at` | timestamp with time zone |  |
+| `tipo_contacto` | text[] |  |
+| `id` | uuid | NOT NULL; default `extensions.uuid_generate_v4()` |
+| `agente` | text | Slug do assistente que criou/actualizou esta linha (a1_vendedor, a2_geral, a3_recrutamento, a4_angariador). NULL = veio do scraper, do pipeline do Miguel, ou de antes desta coluna existir. |
+| `respondeu_em` | timestamp with time zone | Primeira resposta desta pessoa depois do template — escrito por marcar_contacto_respondeu (guards.py). NULL = nunca respondeu. |
+| `follow_up_em` | timestamp with time zone | Quando o fluxo n8n de follow-up de recrutamento mandou a 2ª mensagem. Travão de "só uma vez" — sem isto o cron diário reenviava. |
+| `follow_up_2_em` | timestamp with time zone | Quando o fluxo n8n de follow-up de recrutamento a 72h mandou a 3ª mensagem (última tentativa). Travão de "só uma vez", independente de follow_up_em. |
+| `origem` | text | De onde veio o contacto: meta \| assistente \| scraper. NULL = escritor externo sem ego_link (scraper antigo ou pipeline do Miguel, indistinguíveis) ou anterior a esta coluna. |
+| `imovel_ref` | text | Referência do imóvel do anúncio, para os follow-ups da Matilde citarem qual. Preenchida pelo fluxo n8n a partir de leads.imovel_ref (por meta_lead_id) na 1ª vez, não por trigger. |
+| `ad_id` | text | ID do anúncio Meta que gerou a lead (RPCs lead_meta_*, campo já pedido pelo n8n à Graph API). Sempre sobrescrito na submissão mais recente. |
+| `ad_name` | text | Nome do anúncio Meta que gerou a lead. |
+| `adset_id` | text | ID do conjunto de anúncios (adset) Meta que gerou a lead. |
+| `adset_name` | text | Nome do conjunto de anúncios (adset) Meta que gerou a lead. |
+
+#### `tarefas` — 23 747 linhas — espelho do eGO
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | PK; NOT NULL |
+| `oportunidade_ref` | text | FK → `oportunidades.oportunidade_ref`; NOT NULL; oportunidade_ref`. |
+| `tipo_oportunidade` | public.tipo_oportunidade_enum |  |
+| `cliente_nome` | text |  |
+| `tarefa_titulo` | text |  |
+| `tarefa_due_raw` | text |  |
+| `tarefa_due_iso` | date |  |
+| `tarefa_status` | public.status_tarefa_enum | default `pendente` |
+| `url` | text |  |
+| `origem_lista` | public.origem_lista_enum | default `Ativas` |
+| `criado_em` | timestamp with time zone | default `now()` |
+| `tarefa_descricao` | text |  |
+| `tarefa_responsavel` | text |  |
+| `tarefa_criado_por` | text |  |
+| `tarefa_criado_em` | date |  |
+| `tarefa_reagendamento_iso` | date |  |
+| `tarefa_reagendada` | text |  |
+| `contacto_id` | uuid | FK → `contactos.id`; id`. |
+
+#### `notas` — 103 814 linhas — espelho do eGO
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | bigint | PK; NOT NULL |
+| `oportunidade_ref` | text | FK → `oportunidades.oportunidade_ref`; NOT NULL; oportunidade_ref`. |
+| `tipo_oportunidade` | public.tipo_oportunidade_enum |  |
+| `cliente_nome` | text |  |
+| `nota_texto` | text | NOT NULL |
+| `nota_data_raw` | text |  |
+| `nota_data_iso` | date |  |
+| `nota_autor` | text |  |
+| `url` | text |  |
+| `origem_lista` | public.origem_lista_enum | default `Ativas` |
+| `criado_em` | timestamp with time zone | default `now()` |
+| `nota_resultado` | text |  |
+| `nota_origem` | text | default `crm` |
+| `nota_anexos` | text |  |
+| `nota_tipo` | text |  |
+| `contacto_id` | uuid | FK → `contactos.id`; id`. |
+
+#### `visitas` — 1 789 linhas
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `visita_ref_ego` | text | PK; NOT NULL |
+| `oportunidade_ref` | text | NOT NULL |
+| `visita_imovel_ref` | text |  |
+| `visita_data` | text |  |
+| `visita_anulada` | text |  |
+| `visita_interessado` | text |  |
+| `visita_cliente` | text |  |
+| `visita_imovel_proprietario` | text |  |
+| `visita_pontos_positivos` | text |  |
+| `visita_pontos_negativos` | text |  |
+| `visita_sobre_negocio` | text |  |
+| `visita_observacoes` | text |  |
+| `visita_responsavel` | text |  |
+| `criado_em` | timestamp with time zone | default `now()` |
+| `atualizado_em` | timestamp with time zone | default `now()` |
+| `contacto_id` | uuid | FK → `contactos.id`; id`. |
+
 
 ---
+
+## Histórico — migration `0001` (esquema inicial, **não** reflecte o estado actual)
+
+> Mantém-se por referência. Correspondência de nomes: `clientes` → `agente_clientes`, `chamadas` → `agente_chamadas`,
+> `conversas` → `agente_conversas`, `config_agentes` → `agente_config`; `imoveis` e `leads` evoluíram muito
+> (`leads` é hoje a tabela única de leads não qualificadas, `0021`/`0029`). Não usar para escrever SQL novo.
 
 ## SQL — Migrations
 
@@ -322,12 +684,12 @@ order by relname;
 -- relrowsecurity = true em todas ✅
 ```
 
----
 
-## Tabelas externas ao repo (mesmo Supabase, não geridas por migration daqui)
-
-- **`oportunidades`** (projecto unificado, ~90 colunas, ~25k linhas — confirmado 2026-07-27): alimentada activamente por um processo próprio do utilizador fora deste repo (não há nenhuma referência a esta tabela em código/migrations do Figueirahome). `id` é `int`, não `uuid` — reforça que o schema não foi desenhado por este projecto. Campos com prefixo `xlsx_`/`visita_`/`pref_`/`ego_` sugerem um ETL que junta várias fontes numa linha por oportunidade (`oportunidade_ref`, `imovel_ref`, `cliente_*`, `xlsx_*`, `visita_*`, `pref_*`...). **Não alterar nem gerir esta tabela a partir deste repo** — só ler para referência (ex: `teste_oportunidades`, migration 0011, clona os nomes de coluna).
-- **`panoramic_url`/`video_url`** em `imoveis`: idem, adicionadas directo em produção sem migration (documentadas em 2026-07-26, ver secção `imoveis` acima).
+> **Aviso (medido a 25/08/2026, ver `docs/decisoes.md` e a migration `0025`)**: esta tabela só cobre as `agente_*`. As tabelas
+> do espelho do eGO (`contactos`, `oportunidades`, `notas`, `tarefas`, `imoveis`…) chegaram a ser **legíveis pela chave `anon`**
+> (pública por desenho no Supabase), e a escrita anónima foi fechada na `0025`. Não está revisto desde então: confirmar o
+> RLS real antes de assumir fronteira nestas tabelas. `imoveis.panoramic_url`/`video_url` foram adicionadas directamente
+> em produção, sem migration.
 
 ## `visitas` (migration 0023, 2026-08-14)
 
@@ -352,8 +714,19 @@ imóvel da oportunidade) perdem-se as visitas de clientes que andavam a ver outr
 coisa — no FH2571 são 7 contra 4. Porquê a tabela existe: `docs/decisoes.md`,
 secção "Visitas do eGO".
 
+
+## Como confirmar o esquema antes de escrever SQL
+
+- **Colunas e comentários reais** (só leitura): `GET {SUPABASE_URL}/rest/v1/` com `apikey`/`Authorization: Bearer <chave>` e
+  `Accept: application/openapi+json` devolve as definições de todas as tabelas e vistas (chaves, FKs e comentários).
+- **Migrations aplicadas**: `supabase migration list` (só leitura). As `0031`–`0046` aparecem como «só local» porque foram
+  corridas à mão; isso não quer dizer que não estejam aplicadas.
+- **Funções e triggers**: não aparecem no OpenAPI de tabelas; ler no editor SQL (`pg_trigger`, `pg_proc`).
+
 ## Notas para o Claude Code
 
-- Criar a migration em `supabase/migrations/0001_initial_schema.sql`.
-- O trigger de `atualizado_em` pode ser adicionado depois; por agora actualizar manualmente no backend.
-- Não criar tabelas extra sem actualizar este documento primeiro.
+- Migrations novas em `supabase/migrations/NNNN_nome.sql`, **explicadas ao utilizador antes** (corre-as ele). Nunca `db push`.
+- Não criar tabelas novas sem actualizar este documento primeiro.
+- `oportunidades`, `contactos`, `tarefas`, `notas` e `imoveis` são partilhadas com o portal do Miguel: colunas novas só
+  nullable e com `ADD COLUMN IF NOT EXISTS`; escrever sempre qualificando `public.contactos`.
+- Sem staging: perguntar antes de escrever em produção (sync, backfill, migration).

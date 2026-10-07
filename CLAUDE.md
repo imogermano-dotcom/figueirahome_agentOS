@@ -116,8 +116,7 @@ Três tabelas de leads, de propósito: **`leads`** (`0021`, genérica), `agente_
 2. Fundir duplicados em `contactos` e repontar `contacto_id` para a canónica — com o Miguel. 2.ª fase: `contacto_id` em `leads`/`leads_angariacao`/`agente_clientes`.
 3. Decidir: reactivar chaves legacy do Supabase (stopgap) ou esperar cada consumidor externo migrar; depois remover os segredos antigos do Fly.
 4. Importar `02`/`03` no n8n (`01` já testado) — só faz sentido com a campanha de compra reactivada; apagar leads de teste antes; `docs/n8n/README.md`.
-5. Actualizar `docs/database-schema.md` ("um projecto, não dois"; colunas novas de `contactos` e da `0046`).
-6. `guards._JANELA_LEAD_DIAS = 30` esconde leads pausadas que só respondam depois — a Sandra pediu 60 dias, não alterado (`lead-pausa-resumo.md`).
+5. `guards._JANELA_LEAD_DIAS = 30` esconde leads pausadas que só respondam depois — a Sandra pediu 60 dias, não alterado (`lead-pausa-resumo.md`).
 
 ## Decisões arquitecturais
 
