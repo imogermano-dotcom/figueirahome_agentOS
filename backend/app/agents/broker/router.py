@@ -27,19 +27,29 @@ A4 = "a4_angariador"
 # Sinais de angariação (venda/arrendamento do PRÓPRIO imóvel) — vão para a
 # Bárbara (A4). Testados ANTES do A1 porque partilham vocabulário com ele
 # ("quanto vale a minha casa" tem "casa").
+#
+# "Vender" sozinho é a opção do menu da A2 (`_PROMPT_A2`) — o menu é a interface
+# com o utilizador, por isso o router tem de a reconhecer (`test_menu_da_a2`).
 _A4_RE = re.compile(
     r"("
     r"quero vender|penso vender|pretendo vender|vender a minha|vender o meu|"
-    r"quanto vale|aval(iar|iação|iacao)|angaria"
+    r"vender (um|uma|o|a)\b|vender (im[óo]vel|casa|apartamento|moradia|terreno)|"
+    r"quanto vale|aval(iar|iação|iacao)|angaria|"
+    r"^\W*vender\W*$"
     r")",
     re.IGNORECASE,
 )
 
-# Sinais de A3 (recrutamento), da tabela §2.2 — Inês.
+# Sinais de A3 (recrutamento), da tabela §2.2 — Inês. "emprego" só em frases
+# específicas: "tenho emprego estável e quero comprar" não pode ir para a Inês.
+# "Trabalhar" sozinho é a opção do menu da A2 ("Trabalhar connosco").
 _A3_RE = re.compile(
     r"("
-    r"quero trabalhar|trabalhar convosco|consultor imobili|recrutamento|"
-    r"candidatura|candidatar"
+    r"quero trabalhar|trabalhar (convosco|connosco|com v[óo]s|com voc[êe]s|"
+    r"na (vossa )?ag[êe]ncia)|fazer parte da (vossa |nossa )?equipa|"
+    r"(procuro|oferta de|vagas? de) emprego|"
+    r"consultor imobili|recrutamento|candidatura|candidatar|"
+    r"^\W*trabalhar\W*$"
     r")",
     re.IGNORECASE,
 )
