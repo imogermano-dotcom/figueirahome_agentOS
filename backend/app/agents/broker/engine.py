@@ -69,6 +69,20 @@ _INSTRUCAO_IDENTIDADE_SITE = (
 )
 
 
+# O par do site, para o WhatsApp: o número de quem escreve é o do canal e as tools
+# usam-no sozinhas (`contexto["telefone"]`), por isso pedi-lo é ruído. Visto a
+# 07/10: a Maria pediu "nome completo e número de telefone" a uma candidata; medido
+# em 411 interacções, o telefone também é pedido na Matilde (3/39) e na Inês (3/27,
+# apesar de o prompt dela já o proibir) — por isso aqui, no motor, e não por prompt.
+# Fala do número DE QUEM ESCREVE: o telefone da agência continua a poder ser dado.
+_INSTRUCAO_TELEFONE_WHATSAPP = (
+    "\n\nEste contacto vem do WhatsApp: o número de telefone de quem te escreve já "
+    "é conhecido (é o do próprio WhatsApp) e é usado sozinho quando registas dados. "
+    "Nunca o peças nem lhe peças para o confirmar; quando precisares de dados de "
+    "contacto, pede só o nome."
+)
+
+
 def _perfil_cliente(telefone: str) -> str:
     """Contexto do cliente já conhecido, para o prompt. Só faz sentido com telefone.
 
@@ -135,6 +149,8 @@ def _montar_system_prompt(spec: dict, perfil: str, extra: str, canal: str) -> st
     system_prompt = spec["prompt"] + perfil + extra + f"\n\n{_data_de_hoje()}"
     if canal == "site":
         system_prompt += _INSTRUCAO_IDENTIDADE_SITE
+    elif canal == "whatsapp":
+        system_prompt += _INSTRUCAO_TELEFONE_WHATSAPP
     return system_prompt
 
 
