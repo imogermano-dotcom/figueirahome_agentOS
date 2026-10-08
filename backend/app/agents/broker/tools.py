@@ -20,6 +20,7 @@ from app.agents.broker.guards import (
     find_or_create_cliente,
     normalizar_email,
     normalizar_telefone,
+    promover_lead_do_cliente,
     variantes_telefone,
     visita_permitida,
 )
@@ -623,7 +624,21 @@ async def _guardar_dados_cliente(inputs: dict, contexto: dict) -> str:
 
     if inputs.get("tipo_interesse"):
         await _run(_criar_lead_se_preciso, cliente, inputs.get("resumo"), inputs["tipo_interesse"])
+        # Só depois de a lead existir: antes, a promoção dentro de `find_or_create_cliente`
+        # não tinha lead `nova` para promover (08/10, `leads-do-assistente-plano.md`).
+        await _run(promover_lead_do_cliente, cliente, contexto.get("agente"))
     return "Dados guardados com sucesso."
+
+
+# `tipo_interesse` do cliente -> `leads.tipo` (o vocabulário que `guards.agente_de_lead`
+# entende). Fora disto (`outro`, vazio) não se cria lead: antes nascia `compra` por omissão
+# da coluna, e das 15 leads `compra` de assistentes só 1 era compra de facto (07/10).
+_TIPO_LEAD = {
+    "compra": "compra",
+    "arrendamento": "arrendamento",
+    "venda": "angariacao",
+    "recrutamento": "recrutamento",
+}
 
 
 def _criar_lead_se_preciso(
@@ -663,12 +678,19 @@ def _criar_lead_se_preciso(
             supabase.table("leads").update({"cliente_id": cliente_id}).eq("id", aberta["id"]).execute()
         return
 
-    nova = {"cliente_id": cliente_id, "estado": "nova", "origem": "assistente", "notas": resumo}
-    # Sem isto a candidata nascia com o default 'compra' e `agente_de_lead`
-    # devolvia-a à Matilde. Só recrutamento: os outros tipos mantêm o default.
-    if tipo_interesse == "recrutamento":
-        nova["tipo"] = "recrutamento"
-    supabase.table("leads").insert(nova).execute()
+    tipo = _TIPO_LEAD.get(tipo_interesse or "")
+    if not tipo:
+        return  # `outro`/vazio: fica em `agente_clientes`, sem lead com etiqueta falsa
+
+    # Nome, telefone e email vão na própria lead: `lead_aberta`, `encerrar_lead_do_telefone`
+    # e o guarda do nudge procuram por telefone, e uma lead só com `cliente_id` era
+    # invisível para todos (25 de 25 leads de assistentes, 07/10). Com o `tipo` certo,
+    # `agente_de_lead` devolve a candidata à Inês e o vendedor à Bárbara — nunca à Matilde.
+    nova = {
+        "cliente_id": cliente_id, "estado": "nova", "origem": "assistente", "notas": resumo,
+        "tipo": tipo, "nome": cliente.get("nome"), "telefone": telefone, "email": email,
+    }
+    supabase.table("leads").insert({k: v for k, v in nova.items() if v is not None}).execute()
 
 
 def _preco_do_imovel(ref: str) -> dict | None:
@@ -733,6 +755,9 @@ async def _pedir_visita(inputs: dict, contexto: dict) -> str:
         await _run(
             _criar_lead_se_preciso, cliente,
             f"Pedido de visita a {imovel.get('imovel_ref')}." + (f" Quando: {quando}." if quando else ""),
+            # Uma visita a um imóvel é compra (ou arrendamento): sem tipo, a lead já não
+            # nasce por omissão como `compra` (ver `_TIPO_LEAD`).
+            cliente.get("tipo_interesse") if cliente.get("tipo_interesse") in ("compra", "arrendamento") else "compra",
         )
 
     # ponytail: a visita vive em agente_tarefas — sem coluna de tempo própria,

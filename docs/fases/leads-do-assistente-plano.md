@@ -62,7 +62,14 @@
    Se copiássemos o telefone antes, `agente_de_lead` mandava essas candidatas para a Matilde.
 2. Depois nome/telefone/email a partir de `agente_clientes` (por `cliente_id`).
 3. As 6 duvidosas (`outro` ou sem tipo) e a 1 com MQL completo: ver decisões 3 e 4.
-Explico o SQL antes (regra do projecto: migrations/dados corridos à mão pelo utilizador).
+4. **Colisões** (achado ao simular, 08/10): uma candidata (registada como `compra` a 21/09) partilha o
+   telefone com **2 leads abertas da Meta**. Copiar-lhe o telefone tornava `lead_aberta` (limit 1)
+   ambíguo entre a Matilde e a Inês; o SQL **exclui** as leads cujo telefone já está noutra lead aberta
+   (resultado esperado: 18 das 19 candidatas a contacto).
+
+SQL pronto e com contagens esperadas em `leads-do-assistente-backfill.sql` (passo 0: cópia de
+segurança; passos 1–2; verificação; como desfazer). Corre-se **depois** do deploy.
+Regra do projecto: dados corridos à mão pelo utilizador, explicados antes.
 
 ## Fora desta fase
 - Fusão de duplicados em `contactos`, `origem = site`, nudge/horas de silêncio.

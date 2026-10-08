@@ -106,12 +106,23 @@ def _fake(monkeypatch, alvo, abertas=None):
 
 def test_assistente_escreve_em_leads_com_origem(monkeypatch):
     estado = _fake(monkeypatch, tools)
-    tools._criar_lead_se_preciso({"id": "cli-1"}, "quer T2 em Buarcos")
+    tools._criar_lead_se_preciso(
+        {"id": "cli-1", "nome": "Ana Exemplo", "telefone": "912345678"}, "quer T2 em Buarcos", "compra",
+    )
 
+    # Desde 08/10 a lead leva `tipo` e o contacto na própria linha (antes só `cliente_id`,
+    # e ficava invisível a `lead_aberta`/router/nudge — `leads-do-assistente-plano.md`).
     assert estado["inserts"] == [("leads", {
-        "cliente_id": "cli-1", "estado": "nova",
-        "origem": "assistente", "notas": "quer T2 em Buarcos",
+        "cliente_id": "cli-1", "estado": "nova", "origem": "assistente", "notas": "quer T2 em Buarcos",
+        "tipo": "compra", "nome": "Ana Exemplo", "telefone": "912345678",
     })]
+
+
+def test_assistente_sem_tipo_de_interesse_conhecido_nao_cria_lead(monkeypatch):
+    estado = _fake(monkeypatch, tools)
+    tools._criar_lead_se_preciso({"id": "cli-1"}, "uma dúvida qualquer")
+    tools._criar_lead_se_preciso({"id": "cli-1"}, "outra", "outro")
+    assert estado["inserts"] == []
 
 
 def test_assistente_nao_reabre_lead_ja_aberta(monkeypatch):

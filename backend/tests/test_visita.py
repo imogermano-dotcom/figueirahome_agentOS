@@ -45,7 +45,7 @@ def visita(monkeypatch):
     )
     monkeypatch.setattr(
         tools, "_criar_lead_se_preciso",
-        lambda cliente, resumo: registo["leads"].append((cliente, resumo)),
+        lambda cliente, resumo, tipo=None: registo["leads"].append((cliente, resumo, tipo)),
     )
     monkeypatch.setattr(tools, "_tarefa_ja_registada", lambda *a: False)
 
@@ -101,9 +101,11 @@ def test_visita_pedida_garante_lead(visita, monkeypatch):
     pedir()
 
     assert len(registo["leads"]) == 1
-    cliente, resumo = registo["leads"][0]
+    cliente, resumo, tipo = registo["leads"][0]
     assert cliente["id"] == "cliente-1"
     assert "FH2572" in resumo
+    # Sem tipo a lead já não nasce `compra` por omissão (`tools._TIPO_LEAD`, 08/10).
+    assert tipo == "compra"
 
 
 def test_visita_ja_registada_nao_duplica(visita, monkeypatch):

@@ -70,6 +70,13 @@ _CAMPOS_MQL = ("tipo_interesse", "orcamento", "zona_preferida")
 
 _TAREFA_QUALIFICADA = "Lead qualificada — passar ao eGO"
 
+# Só estes tipos promovem: o MQL (tipo + orçamento + zona) é de comprador, e a tarefa
+# diz "criar o contacto no eGO e associar a oportunidade". Recrutamento e venda já têm o
+# seu aviso (`escalar_para_humano`: tarefa + email) — promovê-los duplicava notificações,
+# e um candidato nunca tem "orçamento". Decisão de 08/10 (`leads-do-assistente-plano.md`).
+# Uma lead sem `tipo` conta como `compra` (o default da coluna).
+_TIPOS_QUE_PROMOVEM = ("compra", "arrendamento")
+
 
 def lead_qualificada(cliente: dict | None) -> bool:
     """Os três campos do MQL preenchidos. Função pura, sem DB."""
@@ -104,12 +111,25 @@ def _promover_lead(
     # filtro criava a tarefa antes de a pessoa dizer fosse o que fosse — e o
     # `contactada` que o endpoint escreve a seguir apagava a promoção na mesma.
     # `promover_se_qualificada` alarga a `nova` porque aí houve mesmo um turno.
-    q = supabase.table("leads").select("id,estado,cliente_id,imovel_ref").in_("estado", list(estados))
+    colunas = "id,estado,cliente_id,imovel_ref,tipo,origem"
+    q = supabase.table("leads").select(colunas).in_("estado", list(estados))
     q = q.in_("telefone", variantes_telefone(telefone)) if telefone else q.eq("email", email)
     leads = q.limit(1).execute().data
+    if not leads and cliente.get("id"):
+        # As leads criadas por assistentes só traziam `cliente_id` (sem telefone nem
+        # email na linha) — ver `tools._criar_lead_se_preciso`. Sem este fallback a
+        # promoção nunca as encontrava, e no chat do site (sem telefone de canal) a
+        # lead com o MQL completo ficava `nova` para sempre (08/10).
+        leads = (
+            supabase.table("leads").select(colunas)
+            .in_("estado", list(estados)).eq("cliente_id", cliente["id"])
+            .limit(1).execute().data
+        )
     if not leads:
         return
     lead = leads[0]
+    if (lead.get("tipo") or "compra") not in _TIPOS_QUE_PROMOVEM:
+        return
 
     agora = datetime.now(timezone.utc).isoformat()
     supabase.table("leads").update({
@@ -123,7 +143,8 @@ def _promover_lead(
     supabase.table("agente_tarefas").insert({
         "titulo": f"{_TAREFA_QUALIFICADA} — {quem}",
         "descricao": (
-            "Lead da Meta qualificada pelo assistente "
+            f"{'Lead da Meta' if lead.get('origem') == 'meta' else 'Lead'} "
+            "qualificada pelo assistente "
             f"(interesse: {cliente.get('tipo_interesse')}, "
             f"orçamento: {cliente.get('orcamento')}, "
             f"zona: {cliente.get('zona_preferida')}). "
@@ -155,6 +176,28 @@ def _promover_lead(
         )),
         imovel_ref=lead.get("imovel_ref"),
     )
+
+
+def promover_lead_do_cliente(cliente: dict | None, agente: str | None = None) -> None:
+    """Promove a lead que ACABOU de ser criada para este cliente, se o perfil já está completo.
+
+    `_promover_lead` corre dentro de `find_or_create_cliente`, **antes** de
+    `tools._criar_lead_se_preciso` criar a lead (`nova`) no mesmo `guardar_dados_cliente`,
+    e só olha a `contactada`; `promover_se_qualificada` (fim do turno) só corre com
+    telefone de canal. Resultado, medido a 07/10: das 25 leads criadas por assistentes
+    nenhuma foi qualificada, incluindo a do chat do site com tipo + orçamento + zona.
+    Chamada depois de a lead existir, serve WhatsApp e site com o mesmo código.
+
+    Síncrona (corre em executor, via `tools._run`). Idempotente: depois de `qualificada`
+    a lead já não bate no filtro, por isso a tarefa e o email saem uma vez. Nunca levanta:
+    falhar aqui não pode derrubar a gravação do cliente (já feita) nem a conversa.
+    """
+    if not lead_qualificada(cliente):
+        return
+    try:
+        _promover_lead(get_supabase(), cliente, _ESTADOS_LEAD_ABERTA, agente=agente)
+    except Exception:
+        logger.exception("Falha ao promover lead do cliente %s", (cliente or {}).get("id"))
 
 
 # Uma lead da Meta responde ao template quando lhe apetece. A thread semeada
