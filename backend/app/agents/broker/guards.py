@@ -248,6 +248,28 @@ def campos_mql_da_ficha(ficha: dict | None) -> dict:
     return campos
 
 
+async def motivos_escalados(conversa_id: str | None) -> list[str]:
+    """Motivos já escalados a um humano nesta conversa (`agente_tarefas` tipo `escalar`),
+    distintos e ORDENADOS (texto estável: a nota que daqui sai vai no system prompt e uma
+    ordem instável partia a cache). Falha aberta: sem saber, devolve [] e o turno corre
+    como antes — ao contrário do nudge, o erro aqui não envia nada a ninguém."""
+    if not conversa_id:
+        return []
+
+    def _fetch():
+        return (
+            get_supabase().table("agente_tarefas").select("motivo")
+            .eq("conversa_id", conversa_id).eq("tipo", "escalar").execute()
+        )
+
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    except Exception:
+        logger.exception("Falha a consultar escaladas da conversa %s", conversa_id)
+        return []
+    return sorted({(t.get("motivo") or "").strip()[:80] for t in resp.data} - {""})
+
+
 async def lead_aberta(telefone: str | None) -> dict | None:
     """A lead ainda em aberto deste número, ou `None`.
 

@@ -37,6 +37,7 @@ from app.agents.broker.guards import (
     lead_aberta,
     marcar_contacto_respondeu,
     marcar_lead_respondeu,
+    motivos_escalados,
     normalizar_telefone,
     promover_se_qualificada,
     variantes_telefone,
@@ -58,8 +59,19 @@ _ERRO = "Ocorreu um erro. Tenta novamente."
 _RESPOSTA_ESCALADA = "Fica registado. O responsável entra em contacto consigo e esclarece as suas dúvidas."
 
 
-def _sem_erro_apos_escalar(resposta: str, tools_usadas: list[str]) -> str:
-    if resposta == _ERRO and "escalar_para_humano" in tools_usadas:
+# Nota de estado (`nota-de-estado-escalada-plano.md`): o `tool_use` não fica no histórico, por
+# isso o modelo não sabe que já escalou e repetia as tools (74% dos turnos seguintes, 12 s cada).
+_NOTA_ESCALADA = (
+    "\n\nEstado desta conversa: o caso já foi entregue a um humano (motivo: {motivos}). Isso já "
+    "está registado e o responsável vai contactar a pessoa. Não voltes a chamar escalar_para_humano "
+    "para o mesmo motivo nem guardar_dados_cliente sem dados novos. Responde sempre em texto ao que "
+    "a pessoa escrever (mesmo um agradecimento: uma frase curta). Só chamas tools se surgir um "
+    "assunto novo."
+)
+
+
+def _sem_erro_apos_escalar(resposta: str, tools_usadas: list[str], escalados: list[str] = ()) -> str:
+    if resposta == _ERRO and ("escalar_para_humano" in tools_usadas or escalados):
         return _RESPOSTA_ESCALADA
     return resposta
 
@@ -154,12 +166,16 @@ def _data_de_hoje() -> str:
     return f"Hoje é {_DIAS_SEMANA[hoje.weekday()]}, {hoje.strftime('%d/%m/%Y')}."
 
 
-def _montar_system_prompt(spec: dict, perfil: str, extra: str, canal: str) -> str:
+def _montar_system_prompt(
+    spec: dict, perfil: str, extra: str, canal: str, escalados: list[str] = (),
+) -> str:
     system_prompt = spec["prompt"] + perfil + extra + f"\n\n{_data_de_hoje()}"
     if canal == "site":
         system_prompt += _INSTRUCAO_IDENTIDADE_SITE
     elif canal == "whatsapp":
         system_prompt += _INSTRUCAO_TELEFONE_WHATSAPP
+    if escalados:
+        system_prompt += _NOTA_ESCALADA.format(motivos="; ".join(escalados))
     return system_prompt
 
 
@@ -404,7 +420,8 @@ async def _responder_sem_lock(
             # Antes da mensagem do utilizador: o template foi o que veio primeiro.
             mensagens.append(template)
 
-    system_prompt = _montar_system_prompt(spec, perfil, extra, canal)
+    escalados = await motivos_escalados(conversa_id)
+    system_prompt = _montar_system_prompt(spec, perfil, extra, canal, escalados)
     contexto = {
         "canal": canal,
         "telefone": telefone,
@@ -548,7 +565,7 @@ async def _responder_sem_lock(
                 erro = f"sem_texto; {type(exc).__name__}: {exc}"[:500]
 
     latencia_ms = int((time.monotonic() - inicio) * 1000)
-    resposta = _sem_erro_apos_escalar(resposta, tools_usadas)
+    resposta = _sem_erro_apos_escalar(resposta, tools_usadas, escalados)
 
     # Antes de gravar: o que fica no histórico tem de ser o que a pessoa recebeu.
     resposta = _garantir_apresentacao(resposta, agente, thread_nova, mensagens)
