@@ -53,6 +53,15 @@ _MODEL = "claude-sonnet-4-6"
 _TEMPERATURE = 0.4  # spec §2.3: consistente sem ser robótico
 _MAX_TOOL_ITERATIONS = 4  # A1 encadeia ficha -> guardar -> agendar
 _ERRO = "Ocorreu um erro. Tenta novamente."
+# Turno sem texto depois de o caso ir para um humano (achado 08/10: "Obrigado" a seguir a
+# escalar -> o modelo refez as tools e calou-se; a candidata recebeu `_ERRO`). Neutra de propósito: serve a agradecimentos e a perguntas.
+_RESPOSTA_ESCALADA = "Fica registado. O responsável entra em contacto consigo e esclarece as suas dúvidas."
+
+
+def _sem_erro_apos_escalar(resposta: str, tools_usadas: list[str]) -> str:
+    if resposta == _ERRO and "escalar_para_humano" in tools_usadas:
+        return _RESPOSTA_ESCALADA
+    return resposta
 
 # No WhatsApp o telefone vem sempre de graça — é o próprio `participante`. No
 # site não há canal nenhum a identificar quem escreve, e `guards.find_or_create_cliente`
@@ -539,6 +548,7 @@ async def _responder_sem_lock(
                 erro = f"sem_texto; {type(exc).__name__}: {exc}"[:500]
 
     latencia_ms = int((time.monotonic() - inicio) * 1000)
+    resposta = _sem_erro_apos_escalar(resposta, tools_usadas)
 
     # Antes de gravar: o que fica no histórico tem de ser o que a pessoa recebeu.
     resposta = _garantir_apresentacao(resposta, agente, thread_nova, mensagens)
