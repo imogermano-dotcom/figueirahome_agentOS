@@ -38,6 +38,7 @@ from app.agents.broker.guards import (
     marcar_contacto_respondeu,
     marcar_lead_respondeu,
     motivos_escalados,
+    tools_ja_usadas,
     normalizar_telefone,
     promover_se_qualificada,
     variantes_telefone,
@@ -70,9 +71,44 @@ _NOTA_ESCALADA = (
 )
 
 
-def _sem_erro_apos_escalar(resposta: str, tools_usadas: list[str], escalados: list[str] = ()) -> str:
-    if resposta == _ERRO and ("escalar_para_humano" in tools_usadas or escalados):
+# Uma linha por tool de registo já usada (`estado-da-conversa-e-aviso-unico-plano.md`, 08/10):
+# no chat do site "é tudo" fez repetir `guardar_dados_cliente` e a pessoa viu `_ERRO`.
+_NOTAS_REGISTO = {
+    "guardar_dados_cliente": (
+        "Já guardaste os dados desta pessoa: só voltas a chamar guardar_dados_cliente se ela "
+        "der dados novos ou corrigir algum."
+    ),
+    "pedir_visita": "O pedido de visita já está registado: não o repitas.",
+    "encerrar_lead": "A lead já foi encerrada: não voltes a chamar encerrar_lead.",
+}
+_RESPOSTA_REGISTADA = "Fica registado. Se precisar de mais alguma coisa, é só escrever."
+
+
+def _nota_de_estado(escalados: list[str], ja_usadas: list[str]) -> str:
+    nota = _NOTA_ESCALADA.format(motivos="; ".join(escalados)) if escalados else ""
+    linhas = " ".join(_NOTAS_REGISTO[t] for t in ja_usadas if t in _NOTAS_REGISTO)
+    if linhas and nota:
+        nota += " " + linhas
+    elif linhas:
+        nota = (
+            "\n\nEstado desta conversa: " + linhas + " Responde sempre em texto ao que a pessoa "
+            "escrever (mesmo um agradecimento: uma frase curta)."
+        )
+    return nota
+
+
+def _sem_erro_apos_registo(
+    resposta: str, tools_usadas: list[str], ja_usadas: list[str] = (), escalados: list[str] = (),
+) -> str:
+    """Turno sem texto depois de uma tool de registo: frase neutra em vez de `_ERRO`.
+    Sem nenhuma tool de registo mantém o erro — um turno vazio sem causa conhecida deve ver-se."""
+    if resposta != _ERRO:
+        return resposta
+    usadas = set(tools_usadas) | set(ja_usadas)
+    if escalados or "escalar_para_humano" in usadas:
         return _RESPOSTA_ESCALADA
+    if usadas & set(_NOTAS_REGISTO):
+        return _RESPOSTA_REGISTADA
     return resposta
 
 # No WhatsApp o telefone vem sempre de graça — é o próprio `participante`. No
@@ -167,16 +203,15 @@ def _data_de_hoje() -> str:
 
 
 def _montar_system_prompt(
-    spec: dict, perfil: str, extra: str, canal: str, escalados: list[str] = (),
+    spec: dict, perfil: str, extra: str, canal: str,
+    escalados: list[str] = (), ja_usadas: list[str] = (),
 ) -> str:
     system_prompt = spec["prompt"] + perfil + extra + f"\n\n{_data_de_hoje()}"
     if canal == "site":
         system_prompt += _INSTRUCAO_IDENTIDADE_SITE
     elif canal == "whatsapp":
         system_prompt += _INSTRUCAO_TELEFONE_WHATSAPP
-    if escalados:
-        system_prompt += _NOTA_ESCALADA.format(motivos="; ".join(escalados))
-    return system_prompt
+    return system_prompt + _nota_de_estado(escalados, ja_usadas)
 
 
 async def _contexto_recrutamento(
@@ -420,8 +455,10 @@ async def _responder_sem_lock(
             # Antes da mensagem do utilizador: o template foi o que veio primeiro.
             mensagens.append(template)
 
-    escalados = await motivos_escalados(conversa_id)
-    system_prompt = _montar_system_prompt(spec, perfil, extra, canal, escalados)
+    escalados, ja_usadas = await asyncio.gather(
+        motivos_escalados(conversa_id), tools_ja_usadas(conversa_id),
+    )
+    system_prompt = _montar_system_prompt(spec, perfil, extra, canal, escalados, ja_usadas)
     contexto = {
         "canal": canal,
         "telefone": telefone,
@@ -565,7 +602,7 @@ async def _responder_sem_lock(
                 erro = f"sem_texto; {type(exc).__name__}: {exc}"[:500]
 
     latencia_ms = int((time.monotonic() - inicio) * 1000)
-    resposta = _sem_erro_apos_escalar(resposta, tools_usadas, escalados)
+    resposta = _sem_erro_apos_registo(resposta, tools_usadas, ja_usadas, escalados)
 
     # Antes de gravar: o que fica no histórico tem de ser o que a pessoa recebeu.
     resposta = _garantir_apresentacao(resposta, agente, thread_nova, mensagens)

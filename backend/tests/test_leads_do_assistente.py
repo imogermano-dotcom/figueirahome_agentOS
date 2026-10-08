@@ -236,3 +236,43 @@ def test_vendedor_registado_volta_a_ser_da_barbara(mundo):
     _, _, guardar = mundo
     guardar(tipo_interesse="venda", contexto={"canal": "whatsapp", "agente": "a2_geral"})
     assert asyncio.run(guards.agente_de_lead("912345678")) == "a4_angariador"
+
+
+# ── um aviso por pessoa (estado-da-conversa-e-aviso-unico-plano.md, 08/10) ───
+
+def test_duas_leads_da_mesma_pessoa_dao_um_so_aviso(mundo):
+    """O caso real do teste do site: 3 leads abertas -> 3 tarefas e 3 emails em 29 s."""
+    db, avisos, _ = mundo
+    for i in (1, 2):
+        db["leads"].append({"id": f"m{i}", "estado": "contactada", "tipo": "compra", "origem": "meta",
+                            "telefone": "912345678", "cliente_id": None})
+    guards._promover_lead(guards.get_supabase(), dict(CLIENTE))
+    guards._promover_lead(guards.get_supabase(), dict(CLIENTE))
+    assert [l["estado"] for l in db["leads"]] == ["qualificada", "qualificada"]  # ambas promovidas
+    assert len(db["agente_tarefas"]) == 1 and len(avisos) == 1
+
+
+def test_passadas_24h_o_aviso_volta_a_sair(mundo):
+    db, avisos, _ = mundo
+    db["agente_tarefas"].append({"id": "velha", "titulo": "Lead qualificada — passar ao eGO — Ana Exemplo",
+                                 "criado_em": "2020-01-01T00:00:00+00:00"})
+    db["leads"].append({"id": "m", "estado": "contactada", "tipo": "compra", "origem": "meta",
+                        "telefone": "912345678", "cliente_id": None})
+    guards._promover_lead(guards.get_supabase(), dict(CLIENTE))
+    assert len(db["agente_tarefas"]) == 2 and len(avisos) == 1
+
+
+def test_falha_a_verificar_o_aviso_anterior_avisa_na_mesma(mundo, monkeypatch):
+    db, avisos, _ = mundo
+    db["leads"].append({"id": "m", "estado": "contactada", "tipo": "compra", "origem": "meta",
+                        "telefone": "912345678", "cliente_id": None})
+    original = _Q.gte
+
+    def _rebenta(self, coluna, valor):
+        if self.nome == "agente_tarefas":
+            raise RuntimeError("base em baixo")
+        return original(self, coluna, valor)
+
+    monkeypatch.setattr(_Q, "gte", _rebenta)
+    guards._promover_lead(guards.get_supabase(), dict(CLIENTE))
+    assert len(db["agente_tarefas"]) == 1 and len(avisos) == 1

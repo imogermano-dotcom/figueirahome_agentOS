@@ -69,6 +69,7 @@ def variantes_telefone(numero: str) -> list[str]:
 _CAMPOS_MQL = ("tipo_interesse", "orcamento", "zona_preferida")
 
 _TAREFA_QUALIFICADA = "Lead qualificada — passar ao eGO"
+_JANELA_AVISO_HORAS = 24  # um aviso (tarefa + email) por pessoa nesta janela
 
 # Só estes tipos promovem: o MQL (tipo + orçamento + zona) é de comprador, e a tarefa
 # diz "criar o contacto no eGO e associar a oportunidade". Recrutamento e venda já têm o
@@ -140,8 +141,26 @@ def _promover_lead(
     }).eq("id", lead["id"]).execute()
 
     quem = cliente.get("nome") or telefone or email
+    titulo = f"{_TAREFA_QUALIFICADA} — {quem}"
+    # Um aviso por pessoa: a lead já ficou `qualificada` (cada lead é um registo próprio), mas
+    # várias leads da mesma pessoa ou a tool repetida davam 3 tarefas e 3 emails em 29 s (08/10).
+    # ponytail: a chave é o título (nome ou telefone); duas pessoas com o mesmo nome e sem
+    # telefone na mesma janela partilhariam o aviso — coluna `cliente_id` em agente_tarefas se acontecer.
+    try:
+        desde = (datetime.now(timezone.utc) - timedelta(hours=_JANELA_AVISO_HORAS)).isoformat()
+        ja_avisada = (
+            supabase.table("agente_tarefas").select("id")
+            .eq("titulo", titulo).gte("criado_em", desde).limit(1).execute().data
+        )
+    except Exception:
+        # Falha no sentido seguro: um email a mais custa menos do que uma lead sem aviso.
+        logger.exception("Falha a verificar aviso anterior (%s)", titulo)
+        ja_avisada = []
+    if ja_avisada:
+        logger.info("Lead %s qualificada; aviso já enviado nas últimas %sh", lead["id"], _JANELA_AVISO_HORAS)
+        return
     supabase.table("agente_tarefas").insert({
-        "titulo": f"{_TAREFA_QUALIFICADA} — {quem}",
+        "titulo": titulo,
         "descricao": (
             f"{'Lead da Meta' if lead.get('origem') == 'meta' else 'Lead'} "
             "qualificada pelo assistente "
@@ -268,6 +287,33 @@ async def motivos_escalados(conversa_id: str | None) -> list[str]:
         logger.exception("Falha a consultar escaladas da conversa %s", conversa_id)
         return []
     return sorted({(t.get("motivo") or "").strip()[:80] for t in resp.data} - {""})
+
+
+# Tools de registo: repeti-las à toa duplica efeitos (tarefa, email) ou gasta turnos. A pesquisa
+# de imóveis fica de fora de propósito — repetir uma pesquisa é normal.
+_TOOLS_DE_REGISTO = ("encerrar_lead", "escalar_para_humano", "guardar_dados_cliente", "pedir_visita")
+
+
+async def tools_ja_usadas(conversa_id: str | None) -> list[str]:
+    """Tools de registo já usadas nesta conversa, lidas de `agente_interacoes.tools_usadas`
+    (o `tool_use` não fica no histórico, o modelo não sabe que já correram). Distintas e
+    ORDENADAS, para o texto do prompt ser estável. Falha aberta: erro -> []."""
+    if not conversa_id:
+        return []
+
+    def _fetch():
+        return (
+            get_supabase().table("agente_interacoes").select("tools_usadas")
+            .eq("conversa_id", conversa_id).execute()
+        )
+
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    except Exception:
+        logger.exception("Falha a consultar tools usadas da conversa %s", conversa_id)
+        return []
+    usadas = {t for linha in resp.data for t in (linha.get("tools_usadas") or [])}
+    return sorted(usadas & set(_TOOLS_DE_REGISTO))
 
 
 async def lead_aberta(telefone: str | None) -> dict | None:
