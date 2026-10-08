@@ -17,7 +17,7 @@
 -- ══ PASSO 0 — cópia de segurança (mesmo padrão de oportunidade_preferencias_bak_20260909) ══
 create table if not exists leads_assistente_bak_20261008 as
   select * from leads where origem = 'assistente';
-select count(*) from leads_assistente_bak_20261008;                       -- esperado: 25
+select count(*) from leads_assistente_bak_20261008;                       -- esperado: 26 (eram 25 a 07/10; +1 candidata da Inês a 08/10)
 
 -- ══ PASSO 1 — tipo certo (as candidatas que nasceram `compra`) ═══════════════════════════
 update leads l
@@ -29,7 +29,7 @@ update leads l
    and c.tipo_interesse = 'recrutamento';                                   -- esperado: 8
 
 select tipo, count(*) from leads where origem = 'assistente' group by 1 order by 1;
--- esperado: compra 7 (1 real + 6 duvidosas) · recrutamento 18
+-- esperado: compra 7 (1 real + 6 duvidosas) · recrutamento 19
 
 -- ══ PASSO 2 — nome/telefone/email na própria lead ════════════════════════════════════════
 -- Só clientes com tipo_interesse recrutamento/compra e telefone; e só se esse telefone NÃO estiver
@@ -50,11 +50,11 @@ update leads l
             and o.telefone is not null
             and right(regexp_replace(o.telefone, '\D', '', 'g'), 9)
               = right(regexp_replace(c.telefone, '\D', '', 'g'), 9)
-       );                                                                   -- esperado: 18
+       );                                                                   -- esperado: 19
 
 select tipo, (telefone is not null) as com_telefone, count(*)
   from leads where origem = 'assistente' group by 1, 2 order by 1, 2;
--- esperado: compra/false 6 · compra/true 1 · recrutamento/false 1 · recrutamento/true 17
+-- esperado: compra/false 6 · compra/true 1 · recrutamento/false 1 · recrutamento/true 18
 -- (a recrutamento sem telefone é a que colide com 2 leads abertas da Meta — fica de fora de propósito)
 
 -- ══ Verificação do efeito no routing (sem dados pessoais) ═══════════════════════════════
