@@ -9,7 +9,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from urllib.parse import quote
 
 from anthropic import AsyncAnthropic
@@ -848,6 +848,26 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
     if await _run(
         _tarefa_ja_registada, contexto.get("conversa_id"), "escalar", "motivo", motivo,
     ):
+        # Informação nova depois de escalar (13/10: "só dá para a semana" ficou sem registo e a
+        # candidata foi avisada de que o responsável "teria isso em conta"): acrescenta à tarefa e avisa.
+        resumo_novo = (inputs.get("resumo") or "").strip()
+        if await _run(_atualizar_escalada, contexto.get("conversa_id"), motivo, resumo_novo):
+            prefixo = "URGENTE — " if inputs.get("urgente") else ""
+            await _run(
+                notificar,
+                f"{prefixo}Atualização da escalada — {motivo} — {nome or telefone or 'contacto'}",
+                "\n".join((
+                    f"A conversa escalada ({motivo}) ganhou informação nova.",
+                    "",
+                    f"Contacto: {nome or '—'} — {telefone or '—'}",
+                    "",
+                    f"Nova informação: {resumo_novo}",
+                    "",
+                    "A tarefa no painel foi atualizada com este texto.",
+                )),
+                inputs.get("imovel_ref"),
+            )
+            return "Atualizado: o responsável vê a nova informação. Confirma à pessoa, sem prometer prazos."
         return "Já está registado. Confirma ao cliente que entram em contacto — não repitas o registo nem chames esta tool outra vez."
 
     await find_or_create_cliente(
@@ -907,6 +927,44 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
         "Registado para o consultor. Confirma ao cliente que entram em contacto, "
         "e no próximo dia útil se for fora de horas."
     )
+
+
+_MAX_DESCRICAO_TAREFA = 4000  # ponytail: acima disto deixa de acrescentar; coluna própria se acontecer
+
+
+def _hora_de_lisboa() -> str:
+    try:
+        from zoneinfo import ZoneInfo
+
+        return datetime.now(ZoneInfo("Europe/Lisbon")).strftime("%H:%M")
+    except Exception:  # imagem sem base de fusos: UTC, dito como tal
+        return datetime.now(timezone.utc).strftime("%H:%M UTC")
+
+
+def _atualizar_escalada(conversa_id: str | None, motivo: str, resumo: str) -> bool:
+    """Acrescenta `resumo` à descrição da tarefa de escalada PENDENTE desta conversa e motivo.
+
+    Devolve True só se alterou algo: sem conversa/resumo, tarefa não pendente, resumo já contido
+    (repetição literal) ou descrição cheia -> False e o dedup responde como antes."""
+    if not conversa_id or not resumo:
+        return False
+    sb = get_supabase()
+    linhas = (
+        sb.table("agente_tarefas").select("id,descricao")
+        .eq("conversa_id", conversa_id).eq("tipo", "escalar").eq("motivo", motivo)
+        .eq("estado", "pendente").limit(1).execute().data
+    )
+    if not linhas:
+        return False
+    atual = linhas[0].get("descricao") or ""
+    if resumo in atual:
+        return False
+    nova = f"{atual}\n\nAtualização às {_hora_de_lisboa()}: {resumo}"
+    if len(nova) > _MAX_DESCRICAO_TAREFA:
+        logger.warning("Descrição da tarefa %s cheia: atualização não acrescentada", linhas[0]["id"])
+        return False
+    sb.table("agente_tarefas").update({"descricao": nova}).eq("id", linhas[0]["id"]).execute()
+    return True
 
 
 def _tarefa_ja_registada(conversa_id: str | None, tipo: str, coluna: str, valor: str | None) -> bool:

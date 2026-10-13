@@ -64,10 +64,11 @@ _RESPOSTA_ESCALADA = "Fica registado. O responsável entra em contacto consigo e
 # isso o modelo não sabe que já escalou e repetia as tools (74% dos turnos seguintes, 12 s cada).
 _NOTA_ESCALADA = (
     "\n\nEstado desta conversa: o caso já foi entregue a um humano (motivo: {motivos}). Isso já "
-    "está registado e o responsável vai contactar a pessoa. Não voltes a chamar escalar_para_humano "
-    "para o mesmo motivo nem guardar_dados_cliente sem dados novos. Responde sempre em texto ao que "
-    "a pessoa escrever (mesmo um agradecimento: uma frase curta). Só chamas tools se surgir um "
-    "assunto novo."
+    "está registado e o responsável vai contactar a pessoa. Só voltas a chamar escalar_para_humano se "
+    "a pessoa der informação NOVA para o responsável (por exemplo disponibilidade ou outro contacto): "
+    "nesse caso o resumo leva só o que é novo. Não chames guardar_dados_cliente sem dados novos. "
+    "Responde sempre em texto ao que a pessoa escrever (mesmo um agradecimento: uma frase curta). "
+    "Só chamas outras tools se surgir um assunto novo."
 )
 
 
@@ -82,6 +83,23 @@ _NOTAS_REGISTO = {
     "encerrar_lead": "A lead já foi encerrada: não voltes a chamar encerrar_lead.",
 }
 _RESPOSTA_REGISTADA = "Fica registado. Se precisar de mais alguma coisa, é só escrever."
+
+
+_INSTRUCAO_RESPOSTA_FINAL = (
+    "Escreve agora a resposta à última mensagem da pessoa, em texto, sem usar tools."
+)
+
+
+def _com_instrucao_de_resposta(messages: list[dict]) -> list[dict]:
+    """Cópia do histórico com a instrução no último turno do utilizador (a seguir aos `tool_result`,
+    que têm de vir primeiro). Sem ela, a chamada final sem tools reenvia um histórico que acaba num
+    `tool_result` e o modelo volta a calar-se (13/10: 'Eu não tenho carta de condução')."""
+    if not messages or messages[-1].get("role") != "user":
+        return list(messages)
+    ultimo = messages[-1]["content"]
+    blocos = list(ultimo) if isinstance(ultimo, list) else [{"type": "text", "text": ultimo}]
+    blocos.append({"type": "text", "text": _INSTRUCAO_RESPOSTA_FINAL})
+    return [*messages[:-1], {"role": "user", "content": blocos}]
 
 
 def _nota_de_estado(escalados: list[str], ja_usadas: list[str]) -> str:
@@ -587,7 +605,10 @@ async def _responder_sem_lock(
             try:
                 http_resp = await client.post(
                     _URL, headers=headers,
-                    json={**payload, "tool_choice": {"type": "none"}},
+                    json={
+                        **payload, "tool_choice": {"type": "none"},
+                        "messages": _com_instrucao_de_resposta(claude_messages),
+                    },
                 )
                 http_resp.raise_for_status()
                 data = http_resp.json()
