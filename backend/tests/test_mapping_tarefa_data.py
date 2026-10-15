@@ -36,3 +36,19 @@ def test_sem_data_continua_sem_a_chave():
 
 def test_as_outras_datas_da_tarefa_continuam_convertidas():
     assert _tarefa("15/07/2026")["tarefa_due_iso"] == "2026-07-20"
+
+
+# ── estado da tarefa: o enum da base só aceita 'pendente'/'concluida' (15/10) ──
+
+@pytest.mark.parametrize("cru, esperado", [
+    ("Concluído", "concluida"), ("Pendente", "pendente"), ("Em Curso", "pendente"),
+])
+def test_estado_da_tarefa_sai_no_vocabulario_do_enum(cru, esperado):
+    registo = {"tarefa_status": cru, "tarefa_titulo": "Ligar"}
+    assert m.classify(registo)["tarefa"]["tarefa_status"] == esperado
+
+
+def test_mesmo_vocabulario_do_sync_de_tarefas():
+    import tarefas
+
+    assert m._ESTADO_TAREFA == tarefas._ESTADOS

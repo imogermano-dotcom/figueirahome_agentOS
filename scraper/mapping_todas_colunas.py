@@ -150,6 +150,10 @@ _KNOWN_TAREFA = {
     "tarefa_reagendada",
 }
 _TAREFA_STATUS_VALIDOS = {"Concluído", "Em Curso", "Pendente"}
+# `tarefas.tarefa_status` é um ENUM (`status_tarefa_enum`) com 'pendente'/'concluida': o relatório dá "Concluído" e
+# o upsert rebentava ("invalid input value for enum", 15/10, 325 tarefas por gravar). Mesmo vocabulário de
+# `tarefas.py` (`_ESTADOS`), para os dois escritores não discordarem.
+_ESTADO_TAREFA = {"Em Curso": "pendente", "Pendente": "pendente", "Concluído": "concluida"}
 
 # Bloco E — Preferências (só os 7 campos documentados; escritos via RPC
 # `bulk_update_prefs`, nunca update directo — ver doc §3.7).
@@ -337,6 +341,7 @@ def classify(record: dict) -> dict:
     tarefa = None
     if record.get("tarefa_status") in _TAREFA_STATUS_VALIDOS:
         tarefa = {k: record.get(k) for k in _KNOWN_TAREFA if record.get(k) is not None}
+        tarefa["tarefa_status"] = _ESTADO_TAREFA[tarefa["tarefa_status"]]
         if tarefa.get("tarefa_due_raw"):
             iso = _data_iso(tarefa["tarefa_due_raw"])
             if iso:
