@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     egorealestate_crm_username: str = ""
     egorealestate_crm_password: str = ""
     egorealestate_crm_base_url: str = "https://admin.egorealestate.com"
+    egorealestate_crm_office: str = "FIGUEIRAHOME"  # escritório a escolher quando a conta tem mais de um cliente
 
     # Scraper de relatório eGO (jmarques_todas_as_colunas) — app Fly.io
     # separada e dedicada, Playwright não cabe na RAM da app principal.

@@ -7,6 +7,8 @@ load_dotenv()
 egorealestate_crm_username = os.environ.get("EGOREALESTATE_CRM_USERNAME", "")
 egorealestate_crm_password = os.environ.get("EGOREALESTATE_CRM_PASSWORD", "")
 egorealestate_crm_base_url = os.environ.get("EGOREALESTATE_CRM_BASE_URL", "https://admin.egorealestate.com")
+# Escritório a escolher no 2.º passo do login quando a conta tem mais de um cliente (15/10).
+egorealestate_crm_office = os.environ.get("EGOREALESTATE_CRM_OFFICE", "FIGUEIRAHOME")
 
 # Projecto único desde 13/09 (o de Auth foi eliminado e integrado neste) --
 # chave nova (sb_secret_...), ver docs/fases/migracao-supabase-chaves-novas-plano.md
