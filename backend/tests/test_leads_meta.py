@@ -406,7 +406,11 @@ def _contexto(monkeypatch, *, cliente="", lead=None, thread_nova=True):
     async def _lead(_tel):
         return lead
 
+    async def _sem_contacto(_tel, _tipo):
+        return None
+
     monkeypatch.setattr(engine, "lead_aberta", _lead)
+    monkeypatch.setattr(engine, "contacto_meta_aberto", _sem_contacto)
     perfil, template, _lead_devolvida = asyncio.run(
         engine._contexto_inicial("912345678", thread_nova=thread_nova)
     )
@@ -650,7 +654,11 @@ def test_contexto_devolve_a_lead_para_o_motor_a_marcar(monkeypatch):
     async def _lead(_tel):
         return lead
 
+    async def _sem_contacto(_tel, _tipo):
+        return None
+
     monkeypatch.setattr(engine, "lead_aberta", _lead)
+    monkeypatch.setattr(engine, "contacto_meta_aberto", _sem_contacto)
     _, _, devolvida = asyncio.run(engine._contexto_inicial("912345678", thread_nova=True))
     assert devolvida["id"] == "lead-1"
 
@@ -777,3 +785,50 @@ def test_motivo_desconhecido_nao_escreve_nada(encerramento):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# ── template da compra em `contactos` (template-compra-contactos-plano.md, 15/10) ──
+
+def _contexto_a1(monkeypatch, *, lead, contacto, thread_nova=True):
+    monkeypatch.setattr(engine, "_perfil_cliente", lambda tel: "")
+
+    async def _lead(_tel):
+        return lead
+
+    async def _contacto(_tel, tipo):
+        assert tipo == "comprador"
+        return contacto
+
+    monkeypatch.setattr(engine, "lead_aberta", _lead)
+    monkeypatch.setattr(engine, "contacto_meta_aberto", _contacto)
+    perfil, template, _ = asyncio.run(engine._contexto_inicial("912345678", thread_nova=thread_nova))
+    return perfil, template
+
+
+def test_a1_le_o_template_de_contactos(monkeypatch):
+    lead = {"id": "l1", "nome": "Isabel", "ficha": FICHA, "template_enviado": None}
+    perfil, template = _contexto_a1(
+        monkeypatch, lead=lead, contacto={"template_enviado": "Olá, sou a Matilde, assistente virtual."},
+    )
+    assert "não voltes a apresentar-te" in perfil
+    assert template["role"] == "assistant" and "sou a Matilde" in template["content"]
+
+
+def test_a1_cai_no_template_da_lead_quando_contactos_nao_o_tem(monkeypatch):
+    """As leads anteriores (e as de 13–15/10 até ao backfill) só o têm em `leads`."""
+    lead = {"id": "l1", "nome": "Isabel", "ficha": FICHA, "template_enviado": "Olá, sou a Matilde."}
+    for contacto in (None, {"template_enviado": None}):
+        perfil, template = _contexto_a1(monkeypatch, lead=lead, contacto=contacto)
+        assert template and "sou a Matilde" in template["content"]
+
+
+def test_a1_sem_template_em_lado_nenhum_apresenta_se(monkeypatch):
+    lead = {"id": "l1", "nome": "Isabel", "ficha": FICHA, "template_enviado": None}
+    perfil, template = _contexto_a1(monkeypatch, lead=lead, contacto=None)
+    assert template is None and "não voltes a apresentar-te" not in perfil
+
+
+def test_a1_template_so_no_primeiro_turno(monkeypatch):
+    lead = {"id": "l1", "nome": "Isabel", "ficha": FICHA, "template_enviado": "Olá, sou a Matilde."}
+    _, template = _contexto_a1(monkeypatch, lead=lead, contacto={"template_enviado": "x"}, thread_nova=False)
+    assert template is None

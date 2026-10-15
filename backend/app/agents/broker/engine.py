@@ -306,7 +306,13 @@ async def _contexto_inicial(
             "Não lhe peças a referência: usa `ficha_imovel` e dá-lhe os detalhes."
         )
 
-    template = lead.get("template_enviado")
+    # O template vive em `contactos` (o fluxo 01 do n8n passa a marcá-lo lá, como os de Recrutamento e
+    # Angariação); `leads.template_enviado` fica como fallback para as leads anteriores
+    # (`template-compra-contactos-plano.md`, 15/10).
+    template = None
+    if thread_nova:
+        contacto = await contacto_meta_aberto(telefone, "comprador")
+        template = (contacto or {}).get("template_enviado") or lead.get("template_enviado")
     if thread_nova and template:
         # Dizer ao modelo, sem margem para inferência, se a apresentação já foi
         # feita. Deixá-lo deduzir do histórico dava as duas falhas: repetir
