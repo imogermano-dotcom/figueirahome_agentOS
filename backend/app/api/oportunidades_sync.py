@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import require_auth, require_sync_access
 from app.config import settings
+from app.notificacoes import falha_de_sync
 from app.db.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
@@ -37,9 +38,11 @@ async def sync_oportunidades_completo_endpoint(acesso=Depends(require_sync_acces
             resumo = resp.json()
     except httpx.HTTPStatusError as e:
         logger.exception("Scraper devolveu erro no sync de oportunidades (relatório completo)")
+        await falha_de_sync("egorealestate_oportunidades_completo", "oportunidades", origem, e.response.text)
         raise HTTPException(status_code=502, detail=e.response.text)
-    except Exception:
+    except Exception as e:
         logger.exception("Falha ao contactar o serviço de scraping de oportunidades")
+        await falha_de_sync("egorealestate_oportunidades_completo", "oportunidades", origem, repr(e))
         raise HTTPException(status_code=502, detail="Falha ao contactar o serviço de scraping.")
 
     await _log_execucao(resumo, origem)
@@ -65,9 +68,11 @@ async def sync_tarefas_endpoint(acesso=Depends(require_sync_access)):
             resumo = resp.json()
     except httpx.HTTPStatusError as e:
         logger.exception("Scraper devolveu erro no sync de tarefas")
+        await falha_de_sync("egorealestate_tarefas", "tarefas", origem, e.response.text)
         raise HTTPException(status_code=502, detail=e.response.text)
-    except Exception:
+    except Exception as e:
         logger.exception("Falha ao contactar o serviço de scraping de tarefas")
+        await falha_de_sync("egorealestate_tarefas", "tarefas", origem, repr(e))
         raise HTTPException(status_code=502, detail="Falha ao contactar o serviço de scraping.")
 
     await _log_execucao(resumo, origem, tipo="egorealestate_tarefas")

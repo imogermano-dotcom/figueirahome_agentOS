@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.api.deps import require_auth, require_sync_access
 from app.db.supabase_client import get_supabase
 from app.integrations.imoveis_sync import sync_egorealestate_api, sync_egorealestate_crm
+from app.notificacoes import falha_de_sync
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -25,9 +26,11 @@ async def sync_egorealestate_api_endpoint(request: Request, acesso=Depends(requi
     try:
         return await sync_egorealestate_api(origem)
     except RuntimeError as e:
+        await falha_de_sync("egorealestate_api", "imóveis (Web API)", origem, str(e))
         raise HTTPException(status_code=502, detail=str(e))
-    except Exception:
+    except Exception as e:
         logger.exception("Falha no sync eGO Real Estate (API)")
+        await falha_de_sync("egorealestate_api", "imóveis (Web API)", origem, repr(e))
         raise HTTPException(status_code=502, detail="Falha ao sincronizar com a Web API do eGO Real Estate.")
 
 

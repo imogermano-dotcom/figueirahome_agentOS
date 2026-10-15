@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     resend_remetente: str = ""       # remetente verificado no domínio Resend
     notificacoes_para: str = ""
+    # Quem recebe, além de `notificacoes_para`, os avisos de FALHA do sistema (syncs do eGO). Vazio = só os
+    # destinatários normais. Segredo no Fly, nunca no repo (público).
+    alertas_para: str = ""
 
     # Chat do site (figueirahome.pt) -- chave partilhada com o Worker que faz
     # proxy do widget (header X-Widget-Key). Vazio = nenhum pedido passa

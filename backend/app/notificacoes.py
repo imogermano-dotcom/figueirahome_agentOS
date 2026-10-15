@@ -92,7 +92,9 @@ def configurado() -> bool:
     return bool(settings.resend_api_key and settings.resend_remetente and destinatarios())
 
 
-def notificar(assunto: str, corpo: str, imovel_ref: str | None = None) -> None:
+def notificar(
+    assunto: str, corpo: str, imovel_ref: str | None = None, para_extra: list[str] | None = None,
+) -> None:
     """Manda o aviso. Engole tudo o que corra mal — ver docstring do módulo.
 
     Com `imovel_ref`, acrescenta a consultora que angariou esse imóvel aos
@@ -105,6 +107,7 @@ def notificar(assunto: str, corpo: str, imovel_ref: str | None = None) -> None:
         return
 
     para = list(destinatarios())
+    para += [e for e in (para_extra or []) if e not in para]
     if imovel_ref:
         email, motivo = _consultor_do_imovel(imovel_ref)
         if email:
@@ -137,6 +140,53 @@ def notificar(assunto: str, corpo: str, imovel_ref: str | None = None) -> None:
         )
     except Exception:
         logger.exception("Falha ao notificar (%s) — a tarefa fica na mesma.", assunto)
+
+
+def _alertas_extra() -> list[str]:
+    return [e.strip() for e in settings.alertas_para.split(",") if e.strip()]
+
+
+async def falha_de_sync(tipo: str, nome: str, origem: str, detalhe: str) -> None:
+    """Falha de um sync do eGO: fica no `agente_sync_log` (tipo `<tipo>_erro`, que o painel não lista) e,
+    se veio do cron (ninguém a olhar), manda email ao director e aos `alertas_para`. Uma falha manual já a
+    vê quem carregou no botão. Nunca levanta. A falha de 14–15/10 (login do eGO) passou dois dias sem aviso.
+    ponytail: só apanha o sync que corre e falha; um cron que nem arranca fica por detectar (verificar a
+    idade do último sucesso num cron horário, se acontecer)."""
+    import asyncio
+
+    from app.db.supabase_client import get_supabase
+
+    detalhe = (detalhe or "sem detalhe")[:500]
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: get_supabase().table("agente_sync_log").insert(
+                {"tipo": f"{tipo}_erro", "resumo": {"erro": detalhe}, "origem": origem}
+            ).execute(),
+        )
+    except Exception:
+        logger.exception("Falha a registar o erro do sync %s", tipo)
+    if origem != "cron":
+        return
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: notificar(
+                f"Sync falhou — {nome}",
+                "\n".join((
+                    f"O sync de {nome} (cron) falhou.",
+                    "",
+                    f"Erro: {detalhe}",
+                    "",
+                    "Os dados ficam desatualizados até o sync voltar a correr. Ver os logs de figueirahome-scraper "
+                    "e figueirahome-agentos no Fly.",
+                )),
+                para_extra=_alertas_extra(),
+            ),
+        )
+    except Exception:
+        logger.exception("Falha a avisar do erro do sync %s", tipo)
 
 
 def demo() -> None:
