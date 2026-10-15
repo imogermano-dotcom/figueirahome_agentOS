@@ -345,6 +345,14 @@ def classify(record: dict) -> dict:
             iso = _data_iso(tarefa.pop("tarefa_reagendamento_raw"))
             if iso:
                 tarefa["tarefa_reagendamento_iso"] = iso
+        if tarefa.get("tarefa_criado_em"):
+            # Coluna `date`: "dd/mm/aaaa" cru rebenta o lote inteiro a partir do dia 13 ("date/time field
+            # value out of range", 15/10: 325 tarefas por gravar) e antes disso troca dia e mês em silêncio.
+            iso = _data_iso(tarefa["tarefa_criado_em"])
+            if iso:
+                tarefa["tarefa_criado_em"] = iso
+            else:
+                tarefa.pop("tarefa_criado_em")
         tarefa.update({k: v for k, v in _denorm.items() if v is not None})
 
     visita = None
