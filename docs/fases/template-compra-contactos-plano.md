@@ -94,8 +94,17 @@ template", **nunca** com lead real) e confirmar na próxima lead real.
 Risco: mexe num fluxo que envia WhatsApp reais. A ordem (backend primeiro, fallback para `leads`) evita que a Matilde se
 apresente duas vezes; a guarda "lead encontrada" evita enviar sem conseguir marcar.
 
-## Decisões por confirmar
-1. **`contacto_humano_em`**: largar o travão no 01 (proposta) ou acrescentar a coluna a `contactos` (migration + painel)?
-2. **Consentimento**: resposta crua (`startsWith('sim')`) passada pelo "Meta leads to supabase" (proposta) ou `whatsapp_permissao`?
-3. **`leads.estado` fica `nova`** após o template: aceitas?
-4. Fazer P1 já (backend) e deixar o n8n para depois do deploy, como na ordem proposta?
+## Decisões (15/10)
+1. ~~`contacto_humano_em`~~ — **decidido: acrescentar a coluna a `contactos`** (migration `0047`, corrida a 15/10) e manter a guarda no 01.
+   Ainda **sem escritor** (o painel só marca `leads`): a guarda é inerte até existir onde marcar.
+2. ~~Consentimento~~ — **decidido: resposta crua** (`startsWith('sim')`), passada pelo "Meta leads to supabase".
+3. ~~`leads.estado` fica `nova`~~ — **aceite**.
+4. ~~Ordem~~ — backend primeiro (deploy a 15/10), depois n8n.
+
+**Estado: implementado a 15/10.** P1 backend (deploy `a89fc87`); `0047` corrida; P2/P3 editados no n8n (versão publicada
+`ab6b50c1…`), **sem executar nenhuma run** (nada enviado). Desvio do plano: o `imovel_ref` **vem do fluxo pai** pelo gatilho
+(não de `contactos`, onde o RPC não o grava) e `marcar enviado` grava-o em `contactos` como cache.
+P4: o SQL de copiar o template das 3 leads de 13–15/10 para `contactos` fica **por correr (utilizador)**; o
+`docs/n8n/01-enviar-template.json` **não foi reescrito** (já era um snapshot antigo, ver a caixa do `docs/n8n/README.md`) e o
+`test_n8n_guardas.py` continua a ler esse snapshot. **Por confirmar com lead real**: leitura de `contactos`, template com
+a referência do imóvel, `template_enviado_em` gravado, a Matilde sem se apresentar duas vezes.

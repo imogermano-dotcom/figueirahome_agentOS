@@ -10,9 +10,22 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 
 | Ficheiro | O quê | Estado |
 |---|---|---|
-| `01-enviar-template.json` | envia o template e marca a lead | pronto a importar |
+| `01-enviar-template.json` | envia o template e marca a lead | **snapshot antigo** — ver a caixa abaixo: em produção o 01 já é outro fluxo |
 | `02-backfill-template.json` | recupera quem ficou sem mensagem (manual) | pronto a importar |
 | `03-follow-up-48h.json` | segunda tentativa a quem não respondeu (diário) | pronto a importar — migration `0030` já corrida, template `figueirahome_follow_\|pt_PT` preenchido (2026-08-31), chão de data `criado_em gte.2026-08-26` para a primeira corrida |
+
+> **⚠️ Estado real do 01 (15/10).** O `01-enviar-template.json` deste repo é um snapshot antigo (webhook do Make,
+> HTTP Request à Graph API, leitura e escrita em `leads`). O fluxo **em produção** ("FigueiraHome — enviar template à
+> lead da Meta") é um sub-fluxo chamado pelo ramo da compra do "Meta leads to supabase" e **usa só `contactos`**, como os
+> de Recrutamento e Angariação (`docs/fases/template-compra-contactos-plano.md`):
+> - o pai passa `meta_lead_id`, `whatsapp_optin` (resposta crua do formulário) e `imovel_ref` (o RPC `lead_meta_compra`
+>   só grava o `imovel_ref` em `leads`, por isso não se lê de `contactos`);
+> - **lê** `contactos` por `meta_lead_id` (`id, nome, telefone, template_enviado_em, contacto_humano_em`);
+> - **guardas**: telefone, consentimento por prefixo `sim` **na resposta crua** (nunca por `whatsapp_permissao`),
+>   lead encontrada, `template_enviado_em` vazio, `contacto_humano_em` vazio (migration `0047`); timestamps com tipo `string`;
+> - **marca** `template_enviado`, `template_enviado_em` e `imovel_ref` em `contactos` (por `meta_lead_id`) e **já não escreve
+>   em `leads`**: o `leads.estado` fica `nova`, e a Matilde lê o template de `contactos` com fallback para `leads.template_enviado`.
+> Os passos numerados abaixo descrevem o desenho original; onde divergem, vale esta caixa.
 
 ## Antes de importar
 
