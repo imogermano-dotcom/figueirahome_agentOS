@@ -6,6 +6,7 @@ import traceback
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response
 
+from app.agents.broker.channels.whatsapp import recibos
 from app.agents.broker.channels.whatsapp.meta_api import mark_as_read, send_text_message
 from app.agents.broker.engine import responder
 from app.agents.broker.guards import agente_de_lead
@@ -88,8 +89,11 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
             # "entregue" — a diferença entre as duas só aparece aqui.
             for estado in value.get("statuses", []):
                 _registar_estado(estado)
+                background_tasks.add_task(recibos.registar, estado)
 
             for msg in value.get("messages", []):
+                # Quem nos escreve (seja o que for) tem WhatsApp: limpa a marca de falha.
+                background_tasks.add_task(recibos.limpar_falha, msg.get("from"))
                 if msg.get("type") != "text":
                     # Ignorar imagens, áudio, etc.
                     continue
