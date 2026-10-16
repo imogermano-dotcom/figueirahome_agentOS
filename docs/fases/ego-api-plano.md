@@ -60,7 +60,7 @@ Achados que mudam decisões:
 - O snapshot da API (22 512) cabe em 46 páginas de 500.
 
 ### F3 — Oportunidades pela API
-- Lê com `leadArchived=2`; grava o `id` da API e o estado de arquivada em colunas novas (**migration `0048`, corrida à mão**: `oportunidades.ego_api_id bigint`,
+- Lê com `leadArchived=2`; grava o `id` da API e o estado de arquivada em colunas novas (**migration `0049`, corrida à mão**: `oportunidades.ego_api_id bigint`,
   `oportunidades.ego_arquivada boolean`) para os painéis filtrarem "ativas" sem apagar histórico.
 - Respeita as invariantes: **upsert por lotes do PostgREST** (chave presente num só registo vira coluna e escreve NULL nos outros → escrita linha a linha
   ou RPC), `contacto_id` **só por RPC**, `BEFORE UPDATE` que carimba `atualizado_em` (desligar em updates em massa).
@@ -94,7 +94,7 @@ Achados que mudam decisões:
 1. **Estados de tarefa**: `Cancelado`, `Não Aplicado`, `Arquivada` (5 345, de leads arquivadas) → `concluida`? ignorar? hoje só há `pendente`/`concluida`.
 2. **Limpeza das 3 397 pendentes legadas** (com o Miguel).
 3. **As ~4 440 oportunidades sem agência** que a API não vê: manter como estão ou marcar.
-4. **Migration `0048`** (`ego_api_id`, `ego_arquivada`, `ego_backoffice_id`) — corrida por ti no editor SQL, depois de eu explicar.
+4. **Migration `0049`** (`ego_api_id`, `ego_arquivada`, `ego_backoffice_id`) — corrida por ti no editor SQL, depois de eu explicar.
 5. **F7**: se e quando os assistentes escrevem no eGO.
 6. **Password do eGO**: continua por mudar (apareceu numa saída de diagnóstico a 15/10); a API usa a mesma conta — mudar antes de pôr isto em cron.
 
