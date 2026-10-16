@@ -35,7 +35,7 @@ No espelho do eGO: `oportunidades 1 ── N tarefas | notas | oportunidade_pref
 
 ## Migrations: o que o repo sabe e o que a base tem
 
-- Repo: `0001`–`0047` (a `0020` vive só no ramo `feat/landing-pages`). A `0047` (`contactos.contacto_humano_em`) foi corrida à mão a 15/10.
+- Repo: `0001`–`0048` (a `0020` vive só no ramo `feat/landing-pages`). A `0047` (`contactos.contacto_humano_em`) foi corrida à mão a 15/10; a `0048` (recibos de entrega do WhatsApp em `contactos`) a 16/10.
 - Base (`supabase migration list`, 07/10): 31 em comum (`0001`–`0030`), **16 só locais** (`0031`–`0046`,
   corridas à mão no editor SQL e **não registadas** em `supabase_migrations`) e **168 só remotas**
   (nomes com timestamp, de outras ferramentas/utilizadores, até 07/10; não estão no repo).
@@ -318,6 +318,9 @@ presente num só registo escreve `NULL` nos outros). Backfill do histórico a 05
 | `origem` | text | De onde veio o contacto: meta \| assistente \| scraper. NULL = escritor externo sem ego_link (scraper antigo ou pipeline do Miguel, indistinguíveis) ou anterior a esta coluna. |
 | `imovel_ref` | text | Referência do imóvel do anúncio, para os follow-ups da Matilde citarem qual. Preenchida pelo fluxo n8n a partir de leads.imovel_ref (por meta_lead_id) na 1ª vez, não por trigger. |
 | `contacto_humano_em` | timestamp with time zone | `0047` (15/10). Quando uma consultora falou com a pessoa FORA do agente; NULL = ninguém falou. Travão do fluxo 01 (compra) do n8n; mesma semântica de `leads.contacto_humano_em` (`0032`). **Ainda sem escritor**: o painel só marca `leads`. |
+| `whatsapp_entregue_em` | timestamp with time zone | `0048` (16/10). Último recibo `delivered`/`read` da Meta para este número (webhook do WhatsApp). NULL = nunca confirmado. |
+| `whatsapp_falhou_em` | timestamp with time zone | `0048`. Último `failed` PERMANENTE (código 131026: sem WhatsApp, número inativo ou termos por aceitar — a Meta não distingue). Também marcado pelo n8n numa rejeição imediata do envio. NULL = sem falha. Limpa-se se a pessoa escrever ou se uma mensagem for entregue depois. Os follow-ups filtram `whatsapp_falhou_em is null`. |
+| `whatsapp_erro_codigo` | integer | `0048`. Código que originou `whatsapp_falhou_em` (0 = não identificado). |
 | `ad_id` | text | ID do anúncio Meta que gerou a lead (RPCs lead_meta_*, campo já pedido pelo n8n à Graph API). Sempre sobrescrito na submissão mais recente. |
 | `ad_name` | text | Nome do anúncio Meta que gerou a lead. |
 | `adset_id` | text | ID do conjunto de anúncios (adset) Meta que gerou a lead. |

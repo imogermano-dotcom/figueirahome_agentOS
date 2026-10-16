@@ -27,6 +27,19 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 >   em `leads`**: o `leads.estado` fica `nova`, e a Matilde lê o template de `contactos` com fallback para `leads.template_enviado`.
 > Os passos numerados abaixo descrevem o desenho original; onde divergem, vale esta caixa.
 
+> **Recibos de entrega e falha de envio (16/10, fase 2, editado ao vivo; `docs/fases/recibos-whatsapp-plano.md`).**
+> O `200` da Graph API não é entrega. O backend grava os recibos da Meta em `contactos` (`whatsapp_entregue_em`,
+> `whatsapp_falhou_em`, `whatsapp_erro_codigo`; migration `0048`). Nos **8 fluxos de envio** (templates compra/angariação/
+> recrutamento e follow-ups 24h/72h de angariação e recrutamento, mais o follow-up diário da Matilde) o nó de envio tem
+> `onError: continueErrorOutput` e a saída de erro faz: **"Erro de número inválido?"** (regex `#100|131009|131026|131021|invalid
+> parameter|not a valid` sobre o JSON do erro) → **sim**: "Supabase: marcar falha de envio" (`whatsapp_falhou_em`, código;
+> o template **não** grava `template_enviado_em`) e, nos follow-ups, volta ao "Esperar 5s" para o lote continuar → **não**:
+> "Parar com erro (envio falhou)" (falha à vista, como antes; o contacto fica elegível). Os follow-ups leem com
+> `whatsapp_falhou_em=is.null`. Sem isto, um número mal formado à cabeça da fila parava a execução todos os dias e bloqueava
+> os seguintes. ⚠️ **O formato do erro do nó WhatsApp não foi confirmado com uma falha real**; se a regex não o apanhar, cai no
+> "Parar com erro" (comportamento antigo). O follow-up 72h da Matilde (`HRSMT5PRZYRZ7Oc1`) está inativo e sem esta alteração.
+> ⚠️ Gravar um fluxo no editor com o separador aberto depois de uma edição por API repõe um rascunho por publicar.
+
 ## Antes de importar
 
 **1. Template aprovado na Meta.** Mensagens iniciadas pelo negócio exigem um
