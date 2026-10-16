@@ -45,3 +45,4 @@ scraper/output/
 # Material interno da agencia (nomes reais de clientes) - repo publico
 *.docx
 *.xlsx
+docs/eGO-api/api-1.json
