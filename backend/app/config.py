@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     egorealestate_crm_base_url: str = "https://admin.egorealestate.com"
     egorealestate_crm_office: str = "FIGUEIRAHOME"  # escritório a escolher quando a conta tem mais de um cliente
 
+    # API do eGO (api.egocrm.com) — mesmas credenciais do CRM; escritório escolhido por nome (`egorealestate_crm_office`).
+    egoapi_base_url: str = "https://api.egocrm.com"
+    # Leads de compra da Meta sem resposta ao WhatsApp → eGO (`docs/fases/lead-compra-para-ego-plano.md`).
+    # Data ISO a partir da qual as leads entram. Vazio = desligado: nunca envia, nem o histórico.
+    lead_compra_ego_desde: str = ""
+
     # Scraper de relatório eGO (jmarques_todas_as_colunas) — app Fly.io
     # separada e dedicada, Playwright não cabe na RAM da app principal.
     scraper_service_url: str = ""
