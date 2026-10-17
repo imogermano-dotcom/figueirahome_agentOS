@@ -46,16 +46,43 @@ def _dedupe(records: list[dict], chave: list[str]) -> list[dict]:
     return list(by_key.values())
 
 
-def _upsert_tabela(supabase, tabela: str, records: list[dict]) -> int:
+# "Este registo não dá, os outros dão" nas tabelas de lote: check (23514), not-null (23502), texto/tipo
+# inválido (22P02, 22007, 22008, 22001, 22003). Medido a 17/10/2026: 3 oportunidades criadas pela API
+# vieram com estado «Criada» (a tabela só aceita Ativa/Perdida/Ganha) e o lote inteiro de 32 foi para o lixo,
+# em silêncio, até se apagarem à mão. Falha de rede ou de permissões continua a rebentar.
+_ERROS_DE_LINHA = {"23514", "23502", "22P02", "22007", "22008", "22001", "22003"}
+
+
+def _upsert_tabela(supabase, tabela: str, records: list[dict], ignoradas: dict | None = None) -> int:
+    """Devolve quantos registos gravou. Um lote recusado por causa de uma linha regrava-se linha a linha:
+    as más saltam (ficam em `ignoradas[motivo]` e no log), as boas entram."""
     chave = _CONFLICT_KEYS[tabela]
-    limpos = [_strip_none(r) for r in records]
-    limpos = _dedupe(limpos, chave)
+    limpos = _dedupe([_strip_none(r) for r in records], chave)
     if not limpos:
         return 0
     on_conflict = ",".join(chave)
+    gravados = 0
     for i in range(0, len(limpos), BATCH):
-        supabase.table(tabela).upsert(limpos[i : i + BATCH], on_conflict=on_conflict).execute()
-    return len(limpos)
+        lote = limpos[i : i + BATCH]
+        try:
+            supabase.table(tabela).upsert(lote, on_conflict=on_conflict).execute()
+            gravados += len(lote)
+            continue
+        except APIError as e:
+            if e.code not in _ERROS_DE_LINHA:
+                raise
+        for r in lote:  # ponytail: linha a linha só quando o lote falha; em lote normal é 1 pedido por 200
+            try:
+                supabase.table(tabela).upsert([r], on_conflict=on_conflict).execute()
+                gravados += 1
+            except APIError as e:
+                if e.code not in _ERROS_DE_LINHA:
+                    raise
+                motivo = f"{e.code}: {(e.message or '')[:90]}"
+                logger.warning("%s: registo %s ignorado — %s", tabela, r.get(chave[0]), motivo)
+                if ignoradas is not None:
+                    ignoradas.setdefault(motivo, []).append(str(r.get(chave[0])))
+    return gravados
 
 
 # Erros do Postgres que significam "este registo não dá, os outros dão" — saltar
@@ -168,7 +195,10 @@ def run(supabase, batch: dict) -> dict:
 
     for tabela in ("oportunidades", "notas", "tarefas", "visitas"):
         try:
-            resumo[tabela] = _upsert_tabela(supabase, tabela, batch[tabela])
+            ignoradas: dict = {}
+            resumo[tabela] = _upsert_tabela(supabase, tabela, batch[tabela], ignoradas)
+            if ignoradas:  # à vista no resumo do sync (agente_sync_log), não só nos logs do Fly
+                resumo[f"{tabela}_ignoradas"] = {m: len(r) for m, r in ignoradas.items()}
         except Exception:
             logger.exception(f"Falha no upsert de {tabela}")
             resumo[tabela] = f"erro (ver logs) — {len(batch[tabela])} registos não gravados"
@@ -303,6 +333,38 @@ def demo() -> None:
     res = run(_S2(), lote)
     assert ordem.index("contactos") < ordem.index("oportunidades"), ordem
     assert res["contacto_id"] == "erro (ver logs)" and "oportunidades" in res, res
+
+    # Lote com uma linha má (check 23514): as outras entram, a má fica no resumo. Erro de rede rebenta.
+    class _Op:
+        def __init__(self, ma, codigo="23514"):
+            self.ma, self.codigo, self.lote = ma, codigo, []
+
+        def table(self, _n):
+            return self
+
+        def upsert(self, regs, on_conflict=None):
+            self.regs = regs
+            return self
+
+        def execute(self):
+            if any(r["oportunidade_ref"] == self.ma for r in self.regs):
+                raise APIError({"message": "violates check constraint", "code": self.codigo})
+            self.lote.append(len(self.regs))
+
+    regs = [{"oportunidade_ref": x} for x in ("A", "B", "C", "D")]
+    ign: dict = {}
+    op = _Op("C")
+    assert _upsert_tabela(op, "oportunidades", regs, ign) == 3, "as 3 boas gravam"
+    assert list(ign.values()) == [["C"]] and op.lote == [1, 1, 1], (ign, op.lote)
+    res = run(type("S", (), {"table": lambda s, n: _Op("C"), "rpc": lambda s, n, a: type("R", (), {"execute": lambda s: None})()})(),
+              {"oportunidades": regs, "notas": [], "tarefas": [], "visitas": [], "contactos": [], "prefs": []})
+    assert res["oportunidades"] == 3 and sum(res["oportunidades_ignoradas"].values()) == 1, res
+    try:
+        _upsert_tabela(_Op("C", codigo="42501"), "oportunidades", regs)
+    except APIError:
+        pass
+    else:
+        raise AssertionError("erro de permissões devia ter rebentado")
 
     print("upsert OK")
 
