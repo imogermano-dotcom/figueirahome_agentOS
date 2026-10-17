@@ -60,7 +60,6 @@ def corpo_da_lead(linha: dict) -> dict:
         subOriginId=_SUBORIGEM_FACEBOOK_INSTAGRAM,
         typeId=_TIPO_PEDIDO_DE_CONTACTO,
         masterLeadTypeId=_MASTER_VENDA,
-        externalId=str(linha["meta_lead_id"]) if linha.get("meta_lead_id") else None,
     )
 
 

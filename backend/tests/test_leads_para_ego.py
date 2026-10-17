@@ -48,7 +48,7 @@ def test_sem_template_nem_falha_nao_vai():
 def test_corpo_da_lead():
     c = lp.corpo_da_lead(_linha(whatsapp_falhou_em=ISO(1)))
     assert (c["originId"], c["subOriginId"], c["typeId"], c["masterLeadTypeId"]) == (1, 4001, 7, 2)
-    assert c["externalId"] == "123" and c["phone"] == "912345678" and c["labels"] == []
+    assert "externalId" not in c and c["phone"] == "912345678" and c["labels"] == []
     assert "FH0001" in c["observation"] and "não recebeu" in c["observation"]
 
 

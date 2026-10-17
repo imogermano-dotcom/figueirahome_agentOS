@@ -9,7 +9,7 @@
 |---|---|
 | Problema real | As 5 leads de compra de 13–16/10 não têm oportunidade ligada por `contacto_id`; 2 já eram conhecidas pelo telefone (oportunidade antiga). A Meta não chega ao eGO por outra via. |
 | Volume | Histórico: 155 leads de compra com template, **127 (82%) nunca responderam**; das 28 que responderam, 25 foram em ≤ 2 h. Com a regra, ~8 em 10 leads vão para o eGO. |
-| Endpoint | `POST /lead/Lead/InsertLead?applicationId=6429`. Tem `externalId` (guardar o `meta_lead_id` → idempotência). |
+| Endpoint | `POST /lead/Lead/InsertLead?applicationId=6429`. `externalId` é int32 e o `meta_lead_id` da Meta não cabe (400): a idempotência é só `contactos.ego_lead_em`. |
 | Atribuição | **O eGO distribui sozinho**: nas 75 leads ativas, 100% têm consultor atribuído, 109 s de mediana (máx. 206 s) depois de criada. Há regra de entrega (`ListApplicationLeadDelivery`, tipo 2, localização 620). Não precisamos de escolher consultor. |
 | Convenções das leads atuais | Todas `originId=1` (Internet), `masterLeadType=2` (Venda), `leadTypeId` 4 (Pedido de Informação, 35), 3 (Pedido de Visita, 27), 1 (Procura, 10), 7 (Pedido de Contacto, 3). Sem `subOriginId`. Com imóvel: `realestateId` + `realestateReference`. |
 | Sub-origem Meta | Existe a global **4001 «Facebook/Instagram»** (origem Internet) e a da agência **34798477 «Facebook campanha»** (origem 11 Outros). Não é preciso criar nenhuma. |
@@ -34,7 +34,7 @@
 - **Gatilho**: cron de ~10 min em `figueirahome-crons` → `POST /api/leads/meta/para-ego` (`X-Automacao-Secret`). Condições, em `contactos`:
   `tipo_contacto` contém `comprador` · `meta_lead_id` não nulo · `template_enviado_em` ≤ agora − 2 h · `respondeu_em` e `contacto_humano_em` nulos · `ego_lead_id` nulo · `criado_em` ≥ data de ativação (**nunca o histórico**: 150+ leads antigas inundavam o eGO) · ou `whatsapp_falhou_em` preenchido.
 - **Migration `0050`** (corres tu): `contactos.ego_lead_id bigint`, `contactos.ego_lead_em timestamptz`. Aditiva, nullable.
-- **Corpo**: `name`, `phone`, `email`, `originId=1`, `subOriginId=4001`, `typeId=7`, `masterLeadTypeId=2`, `externalId=meta_lead_id`, `title` («Lead Meta compra — sem resposta ao WhatsApp»), `observation` (anúncio, imóvel de interesse como texto, horas desde o template; **sem a conversa**). `realestateId` só quando houver `imoveis.ego_backoffice_id` (F5); até lá, a referência vai na observação.
+- **Corpo**: `name`, `phone`, `email`, `originId=1`, `subOriginId=4001`, `typeId=7`, `masterLeadTypeId=2`, `title` («Lead Meta compra — sem resposta ao WhatsApp»), `observation` (anúncio, imóvel de interesse como texto, horas desde o template; **sem a conversa**). `realestateId` só quando houver `imoveis.ego_backoffice_id` (F5); até lá, a referência vai na observação.
 - **Segurança**: lê o telefone da própria lead; log só com 3 últimos dígitos; falha da API nunca marca `ego_lead_id`; sem retry em loop (próxima volta do cron).
 - **Testes**: condições do gatilho (puras), idempotência, corpo sem PII em log, falha da API não marca.
 
