@@ -1,7 +1,10 @@
+import base64
 import json
 import logging
+import time
 
-import telnyx
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import APIRouter, HTTPException, Request
 
 from app.agents.voice import session as session_mgr
@@ -18,18 +21,40 @@ _SAUDACAO = (
 )
 
 
+_TOLERANCIA_S = 300  # a Telnyx reenvia em segundos; 5 min chega e corta o replay
+
+
+def assinatura_valida(body: bytes, assinatura: str, timestamp: str, chave_publica: str, agora: float | None = None) -> bool:
+    """Ed25519 da Telnyx: a assinatura cobre `timestamp|corpo`; chave pública e assinatura vão em base64.
+
+    Verificada aqui e não com a lib `telnyx`: na 4.x `telnyx.Webhook` deixou de existir e a `webhooks.unwrap`
+    espera os cabeçalhos do Standard Webhooks, não `telnyx-signature-ed25519`. O `except Exception` antigo
+    transformou esse AttributeError em 403 em todos os pedidos (17/10) e a chamada ficava a tocar.
+    Chave vazia ou mal formada = inválida: um segredo em falta nunca deixa passar.
+    """
+    try:
+        if abs((agora if agora is not None else time.time()) - int(timestamp)) > _TOLERANCIA_S:
+            return False
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(chave_publica.strip())).verify(
+            base64.b64decode(assinatura), timestamp.encode() + b"|" + body
+        )
+        return True
+    except (InvalidSignature, ValueError, TypeError):  # binascii.Error é ValueError
+        return False
+
+
 @router.post("/webhook/telnyx")
 async def telnyx_webhook(request: Request):
     body = await request.body()
 
-    if settings.environment == "production" and settings.telnyx_public_key:
-        sig = request.headers.get("telnyx-signature-ed25519", "")
-        timestamp = request.headers.get("telnyx-timestamp", "")
-        try:
-            telnyx.public_key = settings.telnyx_public_key
-            telnyx.Webhook.construct_event(body, sig, timestamp)
-        except Exception:
-            raise HTTPException(status_code=403, detail="Assinatura inválida")
+    if settings.environment == "production" and not assinatura_valida(
+        body,
+        request.headers.get("telnyx-signature-ed25519", ""),
+        request.headers.get("telnyx-timestamp", ""),
+        settings.telnyx_public_key,
+    ):
+        logger.warning("Telnyx webhook recusado: assinatura inválida (chave configurada: %s)", bool(settings.telnyx_public_key))
+        raise HTTPException(status_code=403, detail="Assinatura inválida")
 
     payload = json.loads(body)
     data = payload.get("data", {})
