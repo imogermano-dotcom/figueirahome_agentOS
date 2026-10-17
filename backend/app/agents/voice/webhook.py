@@ -72,6 +72,9 @@ async def telnyx_webhook(request: Request):
 
     elif event_type == "call.answered":
         await telnyx_api.stream_start(call_control_id)
+        session = session_mgr.get_session(call_control_id)
+        if session:
+            session.is_speaking = True  # até ao `call.speak.ended`
         await telnyx_api.speak(call_control_id, _SAUDACAO)
 
     elif event_type == "call.speak.ended":

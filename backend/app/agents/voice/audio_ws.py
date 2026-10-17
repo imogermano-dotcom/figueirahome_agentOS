@@ -7,7 +7,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.agents.voice import session as session_mgr
 from app.agents.voice import telnyx_api
 from app.agents.voice.claude_agent import get_response
-from app.agents.voice.stt import transcribe
+from app.agents.voice.stt import tem_fala, transcribe
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -59,6 +59,9 @@ async def _process_turn(session, call_control_id: str) -> None:
 
     audio_bytes = bytes(session.audio_buffer)
     session.audio_buffer.clear()
+
+    if not tem_fala(audio_bytes):  # silêncio: espera, não conta como falha de STT
+        return
 
     text = await transcribe(audio_bytes)
 

@@ -1,0 +1,107 @@
+"""Voz: descodificador µ-law, deteção de silêncio e filtro de alucinações do Whisper (`app/agents/voice`).
+
+Corre com `pytest backend/tests/` ou `python backend/tests/test_voz_stt.py`. Sem rede nem credenciais.
+Caso real de 17/10: o descodificador dava metade da amplitude e o Whisper devolvia «Legendas pela comunidade Amara.org».
+"""
+
+import asyncio
+import struct
+import sys
+from pathlib import Path
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.agents.voice import session as session_mgr  # noqa: E402
+from app.agents.voice import stt, webhook  # noqa: E402
+from app.config import settings  # noqa: E402
+
+
+def _amostra(byte: int) -> int:
+    return struct.unpack("<h", stt._ulaw2lin(bytes([byte])))[0]
+
+
+def test_ulaw_valores_de_referencia_g711():
+    assert _amostra(0x00) == -32124 and _amostra(0x80) == 32124, "extremos"
+    assert _amostra(0xFF) == 0 and _amostra(0x7F) == 0, "zero (os dois sinais)"
+    assert _amostra(0x10) == -15996 and _amostra(0x40) == -1884
+
+
+def test_ulaw_bate_certo_com_a_referencia_em_todos_os_256_valores():
+    audioop = pytest.importorskip("audioop")  # removido no Python 3.13: o teste acima cobre esse caso
+    for b in range(256):
+        assert _amostra(b) == struct.unpack("<h", audioop.ulaw2lin(bytes([b]), 2))[0], hex(b)
+
+
+def test_silencio_e_ruido_de_linha_nao_sao_fala():
+    assert not stt.tem_fala(b"\xff" * 16000)            # zero puro
+    assert not stt.tem_fala(b"\xfe\x7e" * 8000)         # ±8: ruído de linha
+    assert not stt.tem_fala(b"")
+
+
+def test_sinal_forte_e_fala():
+    assert stt.tem_fala(b"\x00\x80" * 8000)             # ±32124
+    assert stt.tem_fala(b"\x90\x10" * 8000)             # ~±1000
+
+
+@pytest.mark.parametrize("texto", ["Legendas pela comunidade Amara.org", "legendado por X", "Obrigado por assistir!"])
+def test_alucinacoes_do_whisper_sao_filtradas(texto):
+    assert stt.e_alucinacao(texto)
+
+
+def test_texto_normal_nao_e_filtrado():
+    assert not stt.e_alucinacao("Bom dia, procuro um T2 na Figueira da Foz")
+
+
+def test_transcribe_nao_chama_o_whisper_com_silencio(monkeypatch):
+    class _Nunca:
+        class audio:  # noqa: N801
+            class transcriptions:  # noqa: N801
+                @staticmethod
+                async def create(**_):
+                    raise AssertionError("não devia chamar o Whisper")
+    monkeypatch.setattr(stt, "_client", _Nunca)
+    assert asyncio.run(stt.transcribe(b"\xff" * 16000)) == ""
+
+
+def test_transcribe_descarta_alucinacao(monkeypatch):
+    class _R:
+        text = " Legendas pela comunidade Amara.org "
+
+    class _Cli:
+        class audio:  # noqa: N801
+            class transcriptions:  # noqa: N801
+                @staticmethod
+                async def create(**_):
+                    return _R()
+    monkeypatch.setattr(stt, "_client", _Cli)
+    assert asyncio.run(stt.transcribe(b"\x00\x80" * 8000)) == ""
+
+
+def test_saudacao_marca_is_speaking_antes_de_falar(monkeypatch):
+    """Sem isto o silêncio durante a saudação ia ao Whisper e a assistente respondia a ruído."""
+    monkeypatch.setattr(settings, "environment", "development")
+    visto = {}
+
+    async def _stream(_id):
+        return None
+
+    async def _speak(call_id, _texto):
+        visto["is_speaking"] = session_mgr.get_session(call_id).is_speaking
+
+    monkeypatch.setattr(webhook.telnyx_api, "stream_start", _stream)
+    monkeypatch.setattr(webhook.telnyx_api, "speak", _speak)
+    session_mgr.create_session("c-teste", "+351912345678")
+    app = FastAPI()
+    app.include_router(webhook.router)
+    corpo = {"data": {"event_type": "call.answered", "payload": {"call_control_id": "c-teste"}}}
+    assert TestClient(app).post("/webhook/telnyx", json=corpo).status_code == 200
+    assert visto == {"is_speaking": True}
+    session_mgr.remove_session("c-teste")
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q"]))
