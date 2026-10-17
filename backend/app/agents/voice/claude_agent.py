@@ -4,6 +4,7 @@ import re
 from anthropic import AsyncAnthropic
 
 from app.agents.broker.assistants import load_config
+from app.agents.broker.guards import normalizar_telefone
 from app.agents.voice.session import CallSession
 from app.config import settings
 
@@ -15,7 +16,6 @@ _SYSTEM_BASE = """És a assistente de voz da agência imobiliária Figueirahome,
 Falas sempre em Português de Portugal, de forma natural e cordial.
 O teu objectivo é recolher os seguintes dados do cliente:
   - Nome completo
-  - Número de telefone de contacto
   - Tipo de interesse: compra, arrendamento, venda ou outro
   - Orçamento (em euros)
   - Zona ou localização preferida
@@ -26,16 +26,35 @@ que já foi dita antes da primeira resposta tua: nunca voltes a cumprimentar nem
 Instruções:
 - Responde numa única frase curta (no máximo 25 palavras): é uma chamada, a pessoa não pode reler.
 - Faz perguntas de forma natural, uma de cada vez.
-- Não termines a chamada sem teres pelo menos o nome, o telefone e o tipo de interesse.
-- Quando tiveres todos os dados, lê-os em voz alta para confirmar e despede-te de forma cordial.
-- O nome e o telefone ouvem-se mal ao telefone: pede o nome devagar e o telefone dígito a dígito, em grupos de três,
-  e repete-os de volta («Confirmo: nove um dois, três quatro cinco, seis sete oito?»). Se a pessoa corrigir, aceita a
-  correção, repete a versão nova e usa sempre a última.
+- Não termines a chamada sem teres pelo menos o nome e o tipo de interesse.
+- Quando tiveres os dados, lê-os em voz alta para confirmar e despede-te de forma cordial.
+- O nome ouve-se mal ao telefone: repete-o de volta para confirmar. Se a pessoa corrigir, aceita a correção,
+  repete a versão nova e usa sempre a última.
 - Se uma resposta for incoerente ou impercetível, não a trates como dado: pede de novo, com calma.
 - Nunca uses markdown, listas ou símbolos — só texto simples.
 - Não tens ferramentas nem acesso a imóveis nesta chamada: nunca escrevas texto entre parênteses retos, nunca
   digas que vais «pesquisar» nem inventes resultados. Recolhe os dados e diz que um consultor entrará em contacto.
 """
+
+
+_TELEFONE_CONHECIDO = (
+    "\n\nO número de telefone de quem liga já é conhecido, é o da própria chamada: nunca o peças nem o leias. "
+    "No fim, pergunta apenas se um consultor pode ligar para esse mesmo número. Só se a pessoa disser que não, "
+    "pede o outro número completo, de uma só vez (nove dígitos), e aceita-o por inteiro. Se vier incompleto, "
+    "pede-lhe que repita o número todo: nunca peças um dígito isolado nem em partes."
+)
+_TELEFONE_DESCONHECIDO = (
+    "\n\nEsta chamada não mostra o número de quem liga. No fim, pede o número de telefone completo, de uma só "
+    "vez (nove dígitos), e aceita-o por inteiro. Se vier incompleto, pede-lhe que repita o número todo: nunca "
+    "peças um dígito isolado nem em partes."
+)
+
+
+def instrucao_telefone(numero_origem: str | None) -> str:
+    """O número de quem liga vem na chamada (como o do WhatsApp): pedi-lo ao ouvido dá nove dígitos mal ouvidos.
+    Em 17/10 a assistente pediu «o dígito que falta no final» a quem já tinha dito sete dos nove."""
+    n = normalizar_telefone(numero_origem)
+    return _TELEFONE_CONHECIDO if n and len(n) == 9 else _TELEFONE_DESCONHECIDO
 
 
 _ENTRE_RETOS = re.compile(r"\[[^\]]*\]")
@@ -54,7 +73,7 @@ async def get_response(session: CallSession, user_text: str) -> str:
         # `load_config` é a versão partilhada: já não descarta `instrucoes`
         # quando a persona está vazia, e já não rebenta se a linha faltar.
         extra, _ativo = await load_config("voz")
-        session.system_prompt = _SYSTEM_BASE + extra
+        session.system_prompt = _SYSTEM_BASE + instrucao_telefone(session.numero_origem) + extra
 
     session.historico.append({"role": "user", "content": user_text})
 

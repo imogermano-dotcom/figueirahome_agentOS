@@ -4,7 +4,7 @@ import logging
 
 from anthropic import AsyncAnthropic
 
-from app.agents.broker.guards import find_or_create_cliente
+from app.agents.broker.guards import find_or_create_cliente, normalizar_telefone
 from app.agents.voice.session import CallSession
 from app.config import settings
 from app.db.supabase_client import get_supabase
@@ -85,6 +85,13 @@ def _supabase_insert_lead(supabase, cliente_id: str, dados: dict) -> None:
     ).execute()
 
 
+def telefone_da_chamada(dito: str | None, numero_origem: str | None) -> str | None:
+    """O número da chamada ganha ao dito: o STT trunca dígitos (17/10: 7 de 9). Só um número dito COMPLETO e
+    diferente (a pessoa pediu outro contacto) o substitui."""
+    n = normalizar_telefone(dito)
+    return dito if n and len(n) == 9 and n != normalizar_telefone(numero_origem) else (numero_origem or None)
+
+
 async def save_call(session: CallSession) -> None:
     if not session.transcricao_acumulada.strip():
         logger.info("Chamada %s sem transcrição — skip save.", session.call_control_id)
@@ -101,7 +108,7 @@ async def save_call(session: CallSession) -> None:
     # formatos e por isso duplicava clientes já conhecidos do WhatsApp.
     cliente = await find_or_create_cliente(
         nome=dados.get("nome"),
-        telefone=dados.get("telefone") or session.numero_origem,
+        telefone=telefone_da_chamada(dados.get("telefone"), session.numero_origem),
         tipo_interesse=dados.get("tipo_interesse"),
         orcamento=dados.get("orcamento"),
         zona_preferida=dados.get("zona_preferida"),
