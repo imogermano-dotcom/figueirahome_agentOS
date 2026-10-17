@@ -40,6 +40,19 @@ async def speak(call_control_id: str, text: str) -> None:
             logger.error("Telnyx speak failed: %s %s", r.status_code, r.text)
 
 
+async def parar_fala(call_control_id: str) -> None:
+    """Corta o TTS em curso (barge-in). ponytail: `playback_stop` pára o `speak`? Por confirmar numa chamada real;
+    por isso o barge-in vem desligado (`VOZ_BARGE_IN`)."""
+    async with httpx.AsyncClient() as client:
+        r = await client.post(
+            f"{_BASE}/calls/{call_control_id}/actions/playback_stop",
+            headers=_headers(),
+            json={},
+        )
+        if r.status_code >= 400:
+            logger.error("Telnyx playback_stop failed: %s %s", r.status_code, r.text)
+
+
 async def stream_start(call_control_id: str) -> None:
     ws_url = (
         settings.app_base_url.replace("https://", "wss://").replace("http://", "ws://")

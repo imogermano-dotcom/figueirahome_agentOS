@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     telnyx_api_key: str = ""
     telnyx_public_key: str = ""
     telnyx_phone_number: str = ""
+    # STT da voz: whisper-1 percebia mal números e nomes em áudio de telefone (17/10); gpt-4o-transcribe é bem melhor.
+    stt_model: str = "gpt-4o-transcribe"
+    # Barge-in: se a pessoa fala por cima da assistente, o TTS pára. Desligado por omissão até se testar à parte.
+    voz_barge_in: bool = False
 
     # Supabase — projecto único (o de Auth, `fykbo...`, foi eliminado a
     # 13/09 e integrado neste — ver docs/fases/migracao-supabase-chaves-novas-plano.md).

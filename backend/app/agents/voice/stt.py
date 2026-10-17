@@ -49,8 +49,29 @@ def e_alucinacao(texto: str) -> bool:
     return any(f in t for f in _ALUCINACOES)
 
 
+_PICO_ALVO = 22_000   # ~-3,5 dBFS
+_GANHO_MAX = 4.0      # +12 dB: levanta voz fraca sem transformar ruído em fala
+_PICO_MIN = 300       # abaixo disto não há sinal a normalizar
+
+_PROMPT = ("Chamada telefónica em português de Portugal para uma agência imobiliária na Figueira da Foz. "
+           "Vocabulário: T1, T2, T3, moradia, apartamento, comprar, arrendar, Figueira da Foz, Buarcos, Quiaios, "
+           "Tavarede, Marinha das Ondas, euros, mil euros, número de telefone, nove dígitos.")
+
+
+def _normalizar(pcm: bytes) -> bytes:
+    """Sobe o volume até o pico ficar em ~22 000 (no máximo +12 dB). O áudio de telefone vem fraco e o STT falha."""
+    amostras = [v for (v,) in struct.iter_unpack("<h", pcm)]
+    pico = max((abs(v) for v in amostras), default=0)
+    if pico < _PICO_MIN:
+        return pcm
+    ganho = min(_GANHO_MAX, _PICO_ALVO / pico)
+    if ganho <= 1.0:
+        return pcm
+    return struct.pack(f"<{len(amostras)}h", *(max(-32768, min(32767, int(v * ganho))) for v in amostras))
+
+
 def _to_wav(pcmu_bytes: bytes) -> bytes:
-    pcm = _ulaw2lin(pcmu_bytes)
+    pcm = _normalizar(_ulaw2lin(pcmu_bytes))
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
@@ -67,10 +88,10 @@ async def transcribe(pcmu_bytes: bytes) -> str:
     audio_file = io.BytesIO(wav_bytes)
     audio_file.name = "audio.wav"
     response = await _client.audio.transcriptions.create(
-        model="whisper-1",
+        model=settings.stt_model,
         file=audio_file,
         language="pt",
-        prompt="Chamada telefónica em português de Portugal para uma agência imobiliária.",
+        prompt=_PROMPT,
     )
     texto = response.text.strip()
     return "" if e_alucinacao(texto) else texto

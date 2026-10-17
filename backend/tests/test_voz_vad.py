@@ -155,5 +155,54 @@ def test_websocket_ignora_o_que_chega_enquanto_a_assistente_fala(monkeypatch):
     session_mgr.remove_session("ws-2")
 
 
+def _ws_barge_in(monkeypatch, ligado):
+    """Assistente a falar; a pessoa fala por cima. Devolve (turnos, paragens, sessão)."""
+    turnos, paragens = [], []
+    monkeypatch.setattr(audio_ws.settings, "voz_barge_in", ligado)
+
+    async def _parar(_id):
+        paragens.append(_id)
+
+    monkeypatch.setattr(audio_ws.telnyx_api, "parar_fala", _parar)
+    sessao = session_mgr.create_session("ws-b", "+351912345678")
+    sessao.is_speaking = True
+    with _cliente(monkeypatch, turnos).websocket_connect("/ws/audio/ws-b") as ws:
+        for bloco in [SILENCIO] * 20 + [FALA] * 60 + [SILENCIO] * 40:
+            ws.send_text(_media(bloco))
+        ws.send_text(json.dumps({"event": "stop"}))
+    session_mgr.remove_session("ws-b")
+    return turnos, paragens, sessao
+
+
+def test_barge_in_ligado_corta_a_fala_e_responde_a_pessoa(monkeypatch):
+    turnos, paragens, sessao = _ws_barge_in(monkeypatch, True)
+    assert paragens == ["ws-b"], "o TTS foi cortado uma vez"
+    assert [t[0] for t in turnos] == ["stt", "claude", "speak"], turnos
+
+
+def test_barge_in_desligado_por_omissao_nada_acontece(monkeypatch):
+    assert audio_ws.settings.voz_barge_in is False
+    turnos, paragens, _ = _ws_barge_in(monkeypatch, False)
+    assert paragens == [] and turnos == []
+
+
+def test_estalido_por_cima_da_assistente_nao_a_corta(monkeypatch):
+    turnos, paragens = [], []
+    monkeypatch.setattr(audio_ws.settings, "voz_barge_in", True)
+
+    async def _parar(_id):
+        paragens.append(_id)
+
+    monkeypatch.setattr(audio_ws.telnyx_api, "parar_fala", _parar)
+    sessao = session_mgr.create_session("ws-c", "+351912345678")
+    sessao.is_speaking = True
+    with _cliente(monkeypatch, turnos).websocket_connect("/ws/audio/ws-c") as ws:
+        for bloco in [SILENCIO] * 20 + [FALA] * 8 + [SILENCIO] * 40:  # 160 ms de fala
+            ws.send_text(_media(bloco))
+        ws.send_text(json.dumps({"event": "stop"}))
+    session_mgr.remove_session("ws-c")
+    assert paragens == [] and sessao.is_speaking is True
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

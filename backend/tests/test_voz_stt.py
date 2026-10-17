@@ -81,6 +81,45 @@ def test_transcribe_descarta_alucinacao(monkeypatch):
     assert asyncio.run(stt.transcribe(b"\x00\x80" * 8000)) == ""
 
 
+def _pcm(*valores):
+    return struct.pack(f"<{len(valores)}h", *valores)
+
+
+def _pico(pcm):
+    return max(abs(v) for (v,) in struct.iter_unpack("<h", pcm))
+
+
+def test_normalizar_sobe_voz_fraca_ate_ao_pico_alvo_sem_saturar():
+    assert _pico(stt._normalizar(_pcm(3000, -3000))) == 12000, "ganho máximo de 4× (+12 dB)"
+    assert _pico(stt._normalizar(_pcm(15000, -15000))) == 22000, "ao pico alvo"
+    assert _pico(stt._normalizar(_pcm(32000, -32000))) == 32000, "já alto: não se mexe"
+
+
+def test_normalizar_nao_levanta_ruido_nem_silencio():
+    assert stt._normalizar(_pcm(100, -100, 50)) == _pcm(100, -100, 50), "abaixo de 300 não há sinal"
+    assert stt._normalizar(b"") == b""
+
+
+def test_transcribe_usa_o_modelo_configurado_e_o_vocabulario(monkeypatch):
+    visto = {}
+
+    class _R:
+        text = "quero um T2"
+
+    class _Cli:
+        class audio:  # noqa: N801
+            class transcriptions:  # noqa: N801
+                @staticmethod
+                async def create(**kw):
+                    visto.update(kw)
+                    return _R()
+    monkeypatch.setattr(stt, "_client", _Cli)
+    monkeypatch.setattr(settings, "stt_model", "gpt-4o-mini-transcribe")
+    assert asyncio.run(stt.transcribe(bytes([0x00, 0x80]) * 8000)) == "quero um T2"
+    assert visto["model"] == "gpt-4o-mini-transcribe" and visto["language"] == "pt"
+    assert "T2" in visto["prompt"] and "Figueira da Foz" in visto["prompt"]
+
+
 def test_saudacao_marca_is_speaking_antes_de_falar(monkeypatch):
     """Sem isto o silêncio durante a saudação ia ao Whisper e a assistente respondia a ruído."""
     monkeypatch.setattr(settings, "environment", "development")

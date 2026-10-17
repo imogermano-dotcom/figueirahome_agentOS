@@ -50,6 +50,11 @@ class DetetorDeFrase:
         self._fala_ms = 0.0
         self._silencio_ms = 0.0
 
+    @property
+    def fala_ms(self) -> float:
+        """Fala acumulada na frase em curso (0 se ninguém está a falar)."""
+        return self._fala_ms if self._a_falar else 0.0
+
     def _atualiza_limiar(self, rms: float) -> None:
         self._historico.append(rms)
         h = sorted(self._historico)

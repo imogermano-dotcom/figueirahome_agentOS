@@ -10,11 +10,13 @@ from app.agents.voice import telnyx_api
 from app.agents.voice.claude_agent import get_response
 from app.agents.voice.stt import transcribe
 from app.agents.voice.vad import DetetorDeFrase
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _STT_RETRY_MSG = "Desculpe, não percebi. Pode repetir, por favor?"
+_BARGE_IN_MS = 400  # fala contínua por cima da assistente para a cortar (um estalido não a corta)
 
 
 @router.websocket("/ws/audio/{call_control_id}")
@@ -30,12 +32,19 @@ async def audio_websocket(websocket: WebSocket, call_control_id: str):
             event = msg.get("event")
 
             if event == "media":
-                if session is None or session.is_speaking:
+                if session is None:
+                    continue
+                if session.is_speaking and not settings.voz_barge_in:
                     detetor.reset()  # o que a assistente diz (ou o eco) nunca é uma frase da pessoa
                     continue
 
                 frase = detetor.feed(base64.b64decode(msg["media"]["payload"]))
-                if frase:
+                if session.is_speaking and detetor.fala_ms >= _BARGE_IN_MS:
+                    # Só chega aqui com o barge-in ligado. O áudio é a faixa de entrada: o TTS dela não volta.
+                    logger.info("[%s] barge-in: a pessoa falou por cima, TTS cortado", call_control_id[-6:])
+                    session.is_speaking = False
+                    await telnyx_api.parar_fala(call_control_id)
+                if frase and not session.is_speaking:
                     await _process_turn(session, call_control_id, frase)
 
             elif event == "stop":
