@@ -18,10 +18,11 @@ logger = logging.getLogger(__name__)
 
 JANELA_HORAS = 2
 LIMITE_POR_VOLTA = 20
-_ORIGEM_INTERNET = 1
-_SUBORIGEM_FACEBOOK_INSTAGRAM = 4001  # global, origem Internet
-_TIPO_PEDIDO_DE_CONTACTO = 7
-_MASTER_VENDA = 2  # a mesma das leads do portal
+# Convenção do Miguel nas leads da campanha que pôs à mão a 17/10 (ids da agência 6429, não são segredo):
+_ORIGEM_OUTROS = 11
+_SUBORIGEM_FACEBOOK_CAMPANHA = 34798477
+_TIPO_PEDIDO_DE_INFORMACAO = 4
+_MASTER_VENDA = 2
 
 _COLUNAS = ("id,nome,telefone,telemovel,email,meta_lead_id,imovel_ref,ad_name,meta_form_name,criado_em,"
             "template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em")
@@ -41,25 +42,35 @@ def elegivel(linha: dict, agora: datetime) -> bool:
     return bool(template and template <= agora - timedelta(hours=JANELA_HORAS))
 
 
-def corpo_da_lead(linha: dict) -> dict:
-    """Corpo de `InsertLead`. Sem a conversa: só o necessário para o consultor ligar."""
-    obs = ["Lead de anúncio de compra (Meta) que não respondeu ao WhatsApp da Matilde."]
-    if linha.get("imovel_ref"):
+def corpo_da_lead(linha: dict, imovel_id: int | None = None) -> dict:
+    """Corpo de `InsertLead`, como as leads da campanha que o Miguel pôs à mão. Sem a conversa."""
+    obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads",
+           "sem resposta ao WhatsApp da Matilde."]
+    if linha.get("imovel_ref") and not imovel_id:
         obs.append(f"Imóvel de interesse: {linha['imovel_ref']}.")
-    if linha.get("ad_name"):
-        obs.append(f"Anúncio: {linha['ad_name']}.")
     if linha.get("whatsapp_falhou_em"):
         obs.append("O número não recebeu a mensagem (sem WhatsApp ou inativo).")
     return ego_api.corpo_de_lead(
-        title="Lead Meta compra — sem resposta ao WhatsApp",
+        title=linha.get("nome") or "Lead Meta compra",
         name=linha.get("nome"),
         phone=normalizar_telefone(linha.get("telefone") or linha.get("telemovel")),
         email=linha.get("email"),
         observation=" ".join(obs),
-        originId=_ORIGEM_INTERNET,
-        subOriginId=_SUBORIGEM_FACEBOOK_INSTAGRAM,
-        typeId=_TIPO_PEDIDO_DE_CONTACTO,
+        originId=_ORIGEM_OUTROS,
+        subOriginId=_SUBORIGEM_FACEBOOK_CAMPANHA,
+        typeId=_TIPO_PEDIDO_DE_INFORMACAO,
         masterLeadTypeId=_MASTER_VENDA,
+        realestateId=imovel_id,
+    )
+
+
+def _ja_nas_leads(linha: dict, leads: list[dict]) -> bool:
+    """A pessoa já está na caixa de leads (o Miguel pôs lotes à mão): mesmo telefone ou email."""
+    tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
+    email = (linha.get("email") or "").strip().lower()
+    return any(
+        (tel and normalizar_telefone(l.get("phone")) == tel) or (email and (l.get("email") or "").strip().lower() == email)
+        for l in leads
     )
 
 
@@ -91,13 +102,23 @@ def processar(agora: datetime | None = None) -> dict:
         return {"ativo": False}
     agora = agora or datetime.now(timezone.utc)
     contagem = {"ativo": True, "criadas": 0, "ja_existiam": 0, "erros": 0}
-    for linha in _candidatas(agora):
+    candidatas = _candidatas(agora)
+    if not candidatas:
+        return contagem
+    try:
+        leads = ego_api.leads_abertas()  # sem saber o que lá está, criar podia duplicar: nesta volta não se cria
+    except Exception:
+        logger.exception("Falha a ler as leads do eGO — nenhuma lead criada nesta volta")
+        return contagem | {"erros": len(candidatas)}
+    for linha in candidatas:
         marca = {"ego_lead_em": agora.isoformat()}
         try:
-            if _ja_tem_oportunidade(normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))):
+            tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
+            if _ja_nas_leads(linha, leads) or _ja_tem_oportunidade(tel):
                 contagem["ja_existiam"] += 1
             else:
-                marca["ego_lead_id"] = ego_api.inserir_lead(corpo_da_lead(linha))
+                imovel = ego_api.imovel_id(linha["imovel_ref"]) if linha.get("imovel_ref") else None
+                marca["ego_lead_id"] = ego_api.inserir_lead(corpo_da_lead(linha, imovel))
                 contagem["criadas"] += 1
             get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
         except Exception:

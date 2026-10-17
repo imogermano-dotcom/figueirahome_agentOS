@@ -45,11 +45,19 @@ def test_sem_template_nem_falha_nao_vai():
     assert not lp.elegivel(_linha(template_enviado_em=None), AGORA)
 
 
-def test_corpo_da_lead():
-    c = lp.corpo_da_lead(_linha(whatsapp_falhou_em=ISO(1)))
-    assert (c["originId"], c["subOriginId"], c["typeId"], c["masterLeadTypeId"]) == (1, 4001, 7, 2)
-    assert "externalId" not in c and c["phone"] == "912345678" and c["labels"] == []
-    assert "FH0001" in c["observation"] and "não recebeu" in c["observation"]
+def test_corpo_da_lead_segue_a_convencao_do_miguel():
+    c = lp.corpo_da_lead(_linha(whatsapp_falhou_em=ISO(1)), imovel_id=30640811)
+    assert (c["originId"], c["subOriginId"], c["typeId"], c["masterLeadTypeId"]) == (11, 34798477, 4, 2)
+    assert c["realestateId"] == 30640811 and "externalId" not in c and c["phone"] == "912345678" and c["labels"] == []
+    assert "Anúncio X" in c["observation"] and "não recebeu" in c["observation"]
+    assert "FH0001" not in c["observation"], "com imóvel ligado a ref não vai no texto"
+    assert "FH0001" in lp.corpo_da_lead(_linha())["observation"], "sem id do imóvel, a ref vai no texto"
+
+
+def test_ja_nas_leads_por_telefone_ou_email():
+    assert lp._ja_nas_leads(_linha(), [{"phone": "+351912345678", "email": None}])
+    assert lp._ja_nas_leads(_linha(telefone="900000000"), [{"phone": None, "email": "T@Example.com"}])
+    assert not lp._ja_nas_leads(_linha(), [{"phone": "933333333", "email": "outro@example.com"}])
 
 
 class _BD:
@@ -82,9 +90,11 @@ class _BD:
         return type("R", (), {"data": self.contactos})()
 
 
-def _usa(monkeypatch, bd, enviar):
+def _usa(monkeypatch, bd, enviar, leads=()):
     monkeypatch.setattr(lp, "get_supabase", lambda: bd)
     monkeypatch.setattr(lp.ego_api, "inserir_lead", enviar)
+    monkeypatch.setattr(lp.ego_api, "leads_abertas", lambda: list(leads))
+    monkeypatch.setattr(lp.ego_api, "imovel_id", lambda ref: 30640811)
     monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
 
 
@@ -107,6 +117,24 @@ def test_pessoa_com_oportunidade_ativa_nao_cria_mas_marca(monkeypatch):
     _usa(monkeypatch, bd, lambda corpo: pytest.fail("não devia criar"))
     r = lp.processar(AGORA)
     assert r["ja_existiam"] == 1 and bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat()})]
+
+
+def test_pessoa_ja_na_caixa_de_leads_nao_cria_mas_marca(monkeypatch):
+    bd = _BD([_linha()])
+    _usa(monkeypatch, bd, lambda corpo: pytest.fail("não devia criar"), leads=[{"phone": "+351912345678"}])
+    r = lp.processar(AGORA)
+    assert r["ja_existiam"] == 1 and bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat()})]
+
+
+def test_sem_conseguir_ler_as_leads_nao_cria_nada(monkeypatch):
+    bd = _BD([_linha()])
+    _usa(monkeypatch, bd, lambda corpo: pytest.fail("não devia criar"))
+
+    def _rebenta():
+        raise RuntimeError("503")
+    monkeypatch.setattr(lp.ego_api, "leads_abertas", _rebenta)
+    r = lp.processar(AGORA)
+    assert r["erros"] == 1 and r["criadas"] == 0 and bd.updates == []
 
 
 def test_falha_da_api_nao_marca(monkeypatch):

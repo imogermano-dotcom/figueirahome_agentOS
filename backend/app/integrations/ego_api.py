@@ -73,6 +73,25 @@ def corpo_de_lead(**campos) -> dict:
     return corpo | {k: v for k, v in campos.items() if v is not None}
 
 
+def _pedido(metodo: str, caminho: str, **kw):
+    with httpx.Client(timeout=60, headers={"User-Agent": _UA}) as c:
+        s = _sessao_valida(c)
+        r = c.request(metodo, f"{settings.egoapi_base_url}{caminho}", params={"applicationId": s["application_id"]},
+                      headers={"Authorization": f"Bearer {s['token']}"}, **kw)
+        return _dados(r)
+
+
+def leads_abertas() -> list[dict]:
+    """Leads de internet ativas (a caixa que os consultores veem). ~80, uma página."""
+    return _pedido("POST", "/lead/Lead/ListLeadByPage", json={}).get("leads") or []
+
+
+def imovel_id(referencia: str) -> int | None:
+    """Id do imóvel na API (≠ `imoveis.ego_id`) pela referência exata; o eGO atribui a consultora a partir dele."""
+    d = _pedido("POST", "/realestate/Realestate/ListRealestateByPage", json={"reference": referencia})
+    return next((x["id"] for x in d.get("realestatesByPageDto") or [] if x.get("reference") == referencia), None)
+
+
 def inserir_lead(corpo: dict) -> int | None:
     """Cria a lead no eGO. Devolve o id, ou None se a resposta não o trouxer (a lead foi criada: HTTP 2xx)."""
     with httpx.Client(timeout=30, headers={"User-Agent": _UA}) as c:
