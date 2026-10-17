@@ -2,7 +2,9 @@
 
 Substitui as janelas fixas de 2 s, que cortavam as frases a meio e faziam a assistente responder a fragmentos
 (chamada de teste de 17/10: «Um, uma casa, uma cidade...»). Acumula enquanto a pessoa fala e só devolve a frase
-depois de um silêncio. ponytail: energia simples, sem modelo de VAD; afinar os limiares com chamadas reais.
+depois de um silêncio. O limiar acompanha o ruído da linha: na 3.ª chamada de teste (17/10) o ruído ficou acima do
+limiar fixo de 200, nunca houve «silêncio» e a frase só fechou aos 15 s do teto.
+ponytail: energia simples, sem modelo de VAD; afinar os fatores com chamadas reais.
 """
 
 import struct
@@ -15,6 +17,12 @@ FIM_DE_FRASE_MS = 700    # silêncio que fecha a frase
 MIN_FALA_MS = 300        # menos que isto é um estalido, não uma frase
 MAX_FRASE_MS = 15_000    # corta frases sem fim (ruído contínuo, monólogo)
 _PRE_ROLL_MS = 200       # o início da frase costuma estar abaixo do limiar
+_ARRANQUE_BLOCOS = 10    # ~200 ms para medir o ruído antes de aceitar fala
+_JANELA_BLOCOS = 100     # ~2 s de histórico para o piso de ruído
+_FATOR_PISO = 2.0        # fala = pelo menos 2× o ruído de fundo (+ margem)
+_MARGEM_RMS = 50
+_LIMIAR_MAX = 1000.0      # teto: a fala fraca ao telefone ronda 1000; sem isto, uma chamada que abre logo com fala
+                         # tomava a fala por ruído (o 10.º percentil é a própria fala) e nunca detetava nada
 
 
 def _rms(pcmu: bytes) -> float:
@@ -26,9 +34,12 @@ def _rms(pcmu: bytes) -> float:
 
 
 class DetetorDeFrase:
-    """`feed(bloco)` devolve os bytes da frase quando ela acaba, senão `None`. `reset()` descarta o que estava a meio."""
+    """`feed(bloco)` devolve os bytes da frase quando ela acaba, senão `None`. `reset()` descarta o que estava a meio
+    mas mantém o que já se sabe do ruído da linha."""
 
     def __init__(self) -> None:
+        self._historico: deque[float] = deque(maxlen=_JANELA_BLOCOS)
+        self.limiar = float(LIMIAR_RMS)
         self.reset()
 
     def reset(self) -> None:
@@ -39,9 +50,19 @@ class DetetorDeFrase:
         self._fala_ms = 0.0
         self._silencio_ms = 0.0
 
+    def _atualiza_limiar(self, rms: float) -> None:
+        self._historico.append(rms)
+        h = sorted(self._historico)
+        piso = h[len(h) // 10]  # 10.º percentil: o ruído, mesmo com fala na janela
+        self.limiar = min(_LIMIAR_MAX, max(float(LIMIAR_RMS), piso * _FATOR_PISO + _MARGEM_RMS))
+
     def feed(self, bloco: bytes) -> bytes | None:
         ms = len(bloco) / _BYTES_POR_MS
-        if _rms(bloco) >= LIMIAR_RMS:
+        rms = _rms(bloco)
+        self._atualiza_limiar(rms)
+        em_arranque = len(self._historico) < _ARRANQUE_BLOCOS  # ainda a medir o ruído: nada é fala
+
+        if rms >= self.limiar and not em_arranque:
             if not self._a_falar:
                 self._a_falar = True
                 self._frase.extend(b"".join(self._pre_roll))

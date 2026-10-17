@@ -71,6 +71,40 @@ def test_reset_descarta_o_que_estava_a_meio():
     assert _alimenta(det, [SILENCIO] * 60) == []
 
 
+def _bloco_com_rms(alvo: int) -> bytes:
+    """20 ms de onda quadrada com amplitude ≈ `alvo` (RMS = amplitude)."""
+    from app.agents.voice import stt
+    import struct
+    b = min(range(0x80), key=lambda x: abs(struct.unpack("<h", stt._ulaw2lin(bytes([x | 0x80])))[0] - alvo))
+    return bytes([b | 0x80, b]) * 80  # |x|, -|x|
+
+
+def test_ruido_de_linha_acima_do_limiar_fixo_nao_impede_o_fim_da_frase():
+    """17/10: ruído de ~300 (> 200) nunca era «silêncio» e a frase só fechava aos 15 s."""
+    ruido, fala = _bloco_com_rms(300), _bloco_com_rms(3000)
+    det = vad.DetetorDeFrase()
+    frases = _alimenta(det, [ruido] * 150 + [fala] * 50 + [ruido] * 60)
+    assert len(frases) == 1, "a frase fecha 700 ms depois de a fala parar, apesar do ruído"
+    assert len(frases[0]) < 15 * 8000, "e não é o teto de 15 s"
+    assert det.limiar > 300, "o limiar subiu acima do ruído"
+
+
+def test_so_ruido_de_linha_nunca_devolve_frase():
+    assert _alimenta(vad.DetetorDeFrase(), [_bloco_com_rms(300)] * 600) == []
+
+
+def test_nos_primeiros_200_ms_nada_e_fala_e_o_ruido_nao_gera_frase_fantasma():
+    det = vad.DetetorDeFrase()
+    assert _alimenta(det, [_bloco_com_rms(300)] * 100) == []
+
+
+def test_limpar_para_voz_tira_o_que_o_tts_leria_em_voz_alta():
+    from app.agents.voice.claude_agent import limpar_para_voz
+    sujo = "Deixe-me pesquisar.\n\n[A usar tool pesquisar_imoveis com: tipo=arrendamento]\n\nPode confirmar o **telefone**?"
+    assert limpar_para_voz(sujo) == "Deixe-me pesquisar. Pode confirmar o telefone?"
+    assert limpar_para_voz("[só isto]") == ""
+
+
 def _media(bloco):
     return json.dumps({"event": "media", "media": {"payload": base64.b64encode(bloco).decode()}})
 
