@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     telnyx_phone_number: str = ""
     # STT da voz: whisper-1 percebia mal números e nomes em áudio de telefone (17/10); gpt-4o-transcribe é bem melhor.
     stt_model: str = "gpt-4o-transcribe"
+    # Modelos a comparar com o `stt_model` (separados por vírgula): correm em segundo plano e só escrevem o texto
+    # nos logs, sem custo de latência na chamada. Vazio = desligado.
+    stt_comparar: str = ""
     # Barge-in: se a pessoa fala por cima da assistente, o TTS pára. Desligado por omissão até se testar à parte.
     voz_barge_in: bool = False
 

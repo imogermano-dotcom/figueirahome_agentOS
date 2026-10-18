@@ -120,6 +120,75 @@ def test_transcribe_usa_o_modelo_configurado_e_o_vocabulario(monkeypatch):
     assert "T2" in visto["prompt"] and "Figueira da Foz" in visto["prompt"]
 
 
+class _Resposta:
+    def __init__(self, text):
+        self.text = text
+
+
+def _cliente_por_modelo(textos, chamadas, rebenta=()):
+    class _Cli:
+        class audio:  # noqa: N801
+            class transcriptions:  # noqa: N801
+                @staticmethod
+                async def create(**kw):
+                    chamadas.append(kw["model"])
+                    if kw["model"] in rebenta:
+                        raise RuntimeError("parâmetro não suportado")
+                    return _Resposta(textos[kw["model"]])
+    return _Cli
+
+
+def _corre_com_comparacao(monkeypatch, comparar, textos, rebenta=()):
+    import logging
+    chamadas, linhas = [], []
+
+    class _H(logging.Handler):
+        def emit(self, rec):
+            linhas.append(rec.getMessage())
+
+    log = logging.getLogger("app.agents.voice.stt")
+    h = _H()
+    log.addHandler(h)
+    monkeypatch.setattr(stt, "_client", _cliente_por_modelo(textos, chamadas, rebenta))
+    monkeypatch.setattr(settings, "stt_model", "gpt-4o-transcribe")
+    monkeypatch.setattr(settings, "stt_comparar", comparar)
+
+    async def _run():
+        texto = await stt.transcribe(bytes([0x00, 0x80]) * 8000)
+        await asyncio.gather(*stt._comparacoes)  # a comparação corre em segundo plano
+        return texto
+
+    try:
+        return asyncio.run(_run()), chamadas, linhas
+    finally:
+        log.removeHandler(h)
+
+
+def test_comparacao_desligada_so_chama_o_modelo_principal(monkeypatch):
+    texto, chamadas, linhas = _corre_com_comparacao(monkeypatch, "", {"gpt-4o-transcribe": "um T2"})
+    assert texto == "um T2" and chamadas == ["gpt-4o-transcribe"] and linhas == []
+
+
+def test_comparacao_ligada_escreve_o_texto_de_cada_modelo_no_log(monkeypatch):
+    textos = {"gpt-4o-transcribe": "um T2", "gpt-transcribe": "um T dois", "whisper-1": "1P2"}
+    texto, chamadas, linhas = _corre_com_comparacao(monkeypatch, "gpt-transcribe, whisper-1", textos)
+    assert texto == "um T2", "a resposta à chamada é sempre a do modelo principal"
+    assert sorted(chamadas) == ["gpt-4o-transcribe", "gpt-transcribe", "whisper-1"]
+    assert len(linhas) == 1 and all(t in linhas[0] for t in ("'um T2'", "'um T dois'", "'1P2'", "whisper-1"))
+
+
+def test_modelo_que_rebenta_na_comparacao_nao_estraga_a_chamada(monkeypatch):
+    textos = {"gpt-4o-transcribe": "um T2", "whisper-1": "1P2"}
+    texto, _, linhas = _corre_com_comparacao(monkeypatch, "gpt-transcribe,whisper-1", textos, rebenta=("gpt-transcribe",))
+    assert texto == "um T2"
+    assert "gpt-transcribe: ERRO RuntimeError" in linhas[0] and "'1P2'" in linhas[0]
+
+
+def test_o_principal_nao_se_repete_na_comparacao(monkeypatch):
+    _, chamadas, _ = _corre_com_comparacao(monkeypatch, "gpt-4o-transcribe", {"gpt-4o-transcribe": "um T2"})
+    assert chamadas == ["gpt-4o-transcribe"]
+
+
 def test_saudacao_marca_is_speaking_antes_de_falar(monkeypatch):
     """Sem isto o silêncio durante a saudação ia ao Whisper e a assistente respondia a ruído."""
     monkeypatch.setattr(settings, "environment", "development")

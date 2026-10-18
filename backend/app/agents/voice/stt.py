@@ -1,4 +1,6 @@
+import asyncio
 import io
+import logging
 import struct
 import wave
 
@@ -6,7 +8,9 @@ from openai import AsyncOpenAI
 
 from app.config import settings
 
+logger = logging.getLogger(__name__)
 _client = AsyncOpenAI(api_key=settings.openai_api_key)
+_comparacoes: set[asyncio.Task] = set()  # referência forte: uma tarefa solta pode ser apanhada pelo GC a meio
 
 SAMPLE_RATE = 8000
 _BIAS = 0x84  # G.711 µ-law
@@ -81,17 +85,37 @@ def _to_wav(pcmu_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
-async def transcribe(pcmu_bytes: bytes) -> str:
-    if not tem_fala(pcmu_bytes):
-        return ""
-    wav_bytes = _to_wav(pcmu_bytes)
+async def _pedir(modelo: str, wav_bytes: bytes) -> str:
     audio_file = io.BytesIO(wav_bytes)
     audio_file.name = "audio.wav"
     response = await _client.audio.transcriptions.create(
-        model=settings.stt_model,
+        model=modelo,
         file=audio_file,
         language="pt",
         prompt=_PROMPT,
     )
-    texto = response.text.strip()
+    return response.text.strip()
+
+
+async def _comparar(modelos: list[str], wav_bytes: bytes, principal: str, texto: str) -> None:
+    """Mesma frase noutros modelos, só para o log. Nunca levanta: uma API diferente num modelo novo não pode
+    estragar a chamada."""
+    resultados = await asyncio.gather(*(_pedir(m, wav_bytes) for m in modelos), return_exceptions=True)
+    partes = [f"{principal}: {texto!r}"] + [
+        f"{m}: {('ERRO ' + type(r).__name__ + ' ' + str(r)[:80]) if isinstance(r, Exception) else repr(r)}"
+        for m, r in zip(modelos, resultados)
+    ]
+    logger.info("STT comparar | %s", " | ".join(partes))
+
+
+async def transcribe(pcmu_bytes: bytes) -> str:
+    if not tem_fala(pcmu_bytes):
+        return ""
+    wav_bytes = _to_wav(pcmu_bytes)
+    texto = await _pedir(settings.stt_model, wav_bytes)
+    extras = [m.strip() for m in settings.stt_comparar.split(",") if m.strip() and m.strip() != settings.stt_model]
+    if extras:
+        tarefa = asyncio.create_task(_comparar(extras, wav_bytes, settings.stt_model, texto))
+        _comparacoes.add(tarefa)
+        tarefa.add_done_callback(_comparacoes.discard)
     return "" if e_alucinacao(texto) else texto
