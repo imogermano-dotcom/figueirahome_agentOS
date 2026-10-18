@@ -35,7 +35,7 @@ No espelho do eGO: `oportunidades 1 ── N tarefas | notas | oportunidade_pref
 
 ## Migrations: o que o repo sabe e o que a base tem
 
-- Repo: `0001`–`0050` (a `0020` vive só no ramo `feat/landing-pages`). A `0047` (`contactos.contacto_humano_em`) foi corrida à mão a 15/10; a `0048` (recibos de entrega do WhatsApp em `contactos`) a 16/10.
+- Repo: `0001`–`0051` (a `0020` vive só no ramo `feat/landing-pages`; a `0049` está reservada às colunas da API do eGO em `oportunidades`, por correr). A `0047` (`contactos.contacto_humano_em`) foi corrida à mão a 15/10; a `0048` (recibos de entrega do WhatsApp em `contactos`) a 16/10; a `0050` (`contactos.ego_lead_em`/`ego_lead_id`) a 17/10; a `0051` (RPC `lead_meta_compra`: `whatsapp_permissao` segue a resposta, `sim*` = consentimento; corrigiu 4 linhas) a 18/10.
 - Base (`supabase migration list`, 07/10): 31 em comum (`0001`–`0030`), **16 só locais** (`0031`–`0046`,
   corridas à mão no editor SQL e **não registadas** em `supabase_migrations`) e **168 só remotas**
   (nomes com timestamp, de outras ferramentas/utilizadores, até 07/10; não estão no repo).
