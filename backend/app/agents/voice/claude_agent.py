@@ -12,7 +12,16 @@ logger = logging.getLogger(__name__)
 
 _client = AsyncAnthropic(api_key=settings.anthropic_api_key)
 
-_SYSTEM_BASE = """És a assistente de voz da agência imobiliária Figueirahome, em Portugal.
+# Dita pela Telnyx logo ao atender (`webhook.py`) e repetida ao modelo no prompt, para nunca divergirem.
+# «Figueira Home» (duas palavras) como nos templates: o TTS pronuncia melhor. Diz que é uma IA (transparência),
+# avisa da transcrição (guardamos a transcrição e o resumo em `agente_chamadas`) e não é gendrada («ajudar»).
+SAUDACAO = (
+    "Olá! Fala a assistente virtual da Figueira Home. "
+    "Esta chamada é transcrita para o poder atender melhor. "
+    "Em que posso ajudar?"
+)
+
+_SYSTEM_BASE = f"""És a assistente de voz da agência imobiliária Figueirahome, em Portugal.
 Falas sempre em Português de Portugal, de forma natural e cordial.
 O teu objectivo é recolher os seguintes dados do cliente:
   - Nome completo
@@ -20,8 +29,9 @@ O teu objectivo é recolher os seguintes dados do cliente:
   - Orçamento (em euros)
   - Zona ou localização preferida
 
-A chamada começa sempre com a saudação «Olá! Obrigada por contactar a Figueirahome. Em que posso ajudá-lo?»,
-que já foi dita antes da primeira resposta tua: nunca voltes a cumprimentar nem a dizer «bem-vindo».
+A chamada começa sempre com a saudação «{SAUDACAO}», que já foi dita antes da primeira resposta tua:
+já te apresentaste como assistente virtual e avisaste que a chamada é transcrita. Nunca voltes a cumprimentar,
+a apresentar-te nem a avisar da transcrição, e nunca digas «bem-vindo».
 
 Instruções:
 - Responde numa única frase curta (no máximo 25 palavras): é uma chamada, a pessoa não pode reler.

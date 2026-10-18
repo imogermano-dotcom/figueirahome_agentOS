@@ -199,6 +199,41 @@ def test_o_principal_nao_se_repete_na_comparacao(monkeypatch):
     assert chamadas == ["gpt-4o-transcribe"]
 
 
+def test_saudacao_apresenta_a_ia_avisa_da_transcricao_e_nao_e_gendrada():
+    from app.agents.voice import claude_agent
+    s = claude_agent.SAUDACAO
+    assert "assistente virtual" in s and "transcrita" in s and "Figueira Home" in s
+    assert "ajudá-lo" not in s and "Figueirahome" not in s
+
+
+def test_prompt_do_modelo_usa_a_mesma_saudacao_do_webhook():
+    from app.agents.voice import claude_agent
+    assert claude_agent.SAUDACAO in claude_agent._SYSTEM_BASE
+    assert "{SAUDACAO}" not in claude_agent._SYSTEM_BASE, "f-string resolvida"
+    assert webhook.SAUDACAO is claude_agent.SAUDACAO
+
+
+def test_atender_diz_a_saudacao_nova(monkeypatch):
+    monkeypatch.setattr(settings, "environment", "development")
+    ditas = []
+
+    async def _stream(_id):
+        return None
+
+    async def _speak(_id, texto):
+        ditas.append(texto)
+
+    monkeypatch.setattr(webhook.telnyx_api, "stream_start", _stream)
+    monkeypatch.setattr(webhook.telnyx_api, "speak", _speak)
+    session_mgr.create_session("c-saud", "+351912345678")
+    app = FastAPI()
+    app.include_router(webhook.router)
+    corpo = {"data": {"event_type": "call.answered", "payload": {"call_control_id": "c-saud"}}}
+    TestClient(app).post("/webhook/telnyx", json=corpo)
+    session_mgr.remove_session("c-saud")
+    assert ditas == [webhook.SAUDACAO]
+
+
 def test_saudacao_marca_is_speaking_antes_de_falar(monkeypatch):
     """Sem isto o silêncio durante a saudação ia ao Whisper e a assistente respondia a ruído."""
     monkeypatch.setattr(settings, "environment", "development")

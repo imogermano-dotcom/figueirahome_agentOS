@@ -9,16 +9,13 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.agents.voice import session as session_mgr
 from app.agents.voice import telnyx_api
+from app.agents.voice.claude_agent import SAUDACAO
 from app.agents.voice.save_call import save_call
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_SAUDACAO = (
-    "Olá! Obrigada por contactar a Figueirahome. "
-    "Em que posso ajudá-lo?"
-)
 
 
 _TOLERANCIA_S = 300  # a Telnyx reenvia em segundos; 5 min chega e corta o replay
@@ -75,7 +72,7 @@ async def telnyx_webhook(request: Request):
         session = session_mgr.get_session(call_control_id)
         if session:
             session.is_speaking = True  # até ao `call.speak.ended`
-        await telnyx_api.speak(call_control_id, _SAUDACAO)
+        await telnyx_api.speak(call_control_id, SAUDACAO)
 
     elif event_type == "call.speak.ended":
         session = session_mgr.get_session(call_control_id)
