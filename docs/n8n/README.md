@@ -37,7 +37,7 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 > "Parar com erro (envio falhou)" (falha à vista, como antes; o contacto fica elegível). Os follow-ups leem com
 > `whatsapp_falhou_em=is.null`. Sem isto, um número mal formado à cabeça da fila parava a execução todos os dias e bloqueava
 > os seguintes. ⚠️ **O formato do erro do nó WhatsApp não foi confirmado com uma falha real**; se a regex não o apanhar, cai no
-> "Parar com erro" (comportamento antigo). O follow-up 72h da Matilde (`HRSMT5PRZYRZ7Oc1`) está inativo e sem esta alteração.
+> "Parar com erro" (comportamento antigo). O follow-up 72h da Matilde (`HRSMT5PRZYRZ7Oc1`) está **ativo** e recebeu esta alteração a 18/10 (era o 9.º fluxo de envio; tinha ficado de fora por constar como inativo).
 > ⚠️ Gravar um fluxo no editor com o separador aberto depois de uma edição por API repõe um rascunho por publicar.
 
 ## Antes de importar
