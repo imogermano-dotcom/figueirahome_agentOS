@@ -50,7 +50,15 @@ def tem_fala(pcmu_bytes: bytes) -> bool:
 
 def e_alucinacao(texto: str) -> bool:
     t = texto.lower()
-    return any(f in t for f in _ALUCINACOES)
+    return any(f in t for f in _ALUCINACOES) or _eco_do_prompt(t)
+
+
+def _eco_do_prompt(t: str) -> bool:
+    """Com áudio curto ou fraco, os modelos devolvem o nosso `prompt` (18/10: o gpt-4o-transcribe respondeu
+    «Chamada Telefónica»). Só o INÍCIO do prompt conta: o vocabulário («Figueira da Foz») é resposta legítima."""
+    sem_pontuacao = "".join(c for c in t if c.isalnum() or c.isspace()).strip()
+    inicio = "".join(c for c in _PROMPT.lower() if c.isalnum() or c.isspace())
+    return len(sem_pontuacao) >= 10 and inicio.startswith(sem_pontuacao)
 
 
 _PICO_ALVO = 22_000   # ~-3,5 dBFS

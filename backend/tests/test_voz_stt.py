@@ -52,6 +52,16 @@ def test_alucinacoes_do_whisper_sao_filtradas(texto):
     assert stt.e_alucinacao(texto)
 
 
+@pytest.mark.parametrize("texto", ["Chamada Telefónica", "Chamada telefónica.", "chamada telefónica em português de Portugal"])
+def test_eco_do_inicio_do_prompt_e_alucinacao(texto):
+    assert stt.e_alucinacao(texto)
+
+
+@pytest.mark.parametrize("texto", ["Figueira da Foz", "Buarcos e Quiaios", "T2", "Chamada", "Procuro um T2", "euros, mil euros"])
+def test_vocabulario_do_prompt_e_resposta_legitima(texto):
+    assert not stt.e_alucinacao(texto), "a zona dita a sós não é eco"
+
+
 def test_texto_normal_nao_e_filtrado():
     assert not stt.e_alucinacao("Bom dia, procuro um T2 na Figueira da Foz")
 
