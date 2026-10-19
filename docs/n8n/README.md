@@ -43,9 +43,12 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 > **Compra que recusa o WhatsApp (18/10, editado ao vivo, `4rDc9amm6HpO5F4j`).** O fluxo de envio da compra era o único sem aviso de
 > recusa (Angariação e Recrutamento têm "Avisar Miguel"): quem respondia «não» ficava `nova` sem ninguém saber (4 desde 13/10). Agora
 > `Guardas` falso → "Recusou o WhatsApp?" (resposta crua, `startsWith('sim')`) → "Ler angariador do imóvel" (`imoveis`) → "Ler email da
-> consultora" (`profiles.ego_responsavel`) → "Avisar Miguel e consultora" (Resend, `Header Auth account 4`): `to` = Miguel + a consultora do
-> imóvel; sem perfil ativo, só o Miguel e o corpo diz porquê. Sem credencial nova (o n8n não tem o `AUTOMACAO_SECRET`). **Por provar com uma
-> lead real que responda «não»**; um webhook repetido da Meta repete o email (como nos outros dois). Provisório até o eGO.
+> consultora" (HTTP ao PostgREST, `profiles.ego_responsavel`, credencial `Supabase service_role (insert leads directo)`) → "Avisar Miguel e consultora" (Resend, `Header Auth account 4`): `to` = Miguel + a consultora do
+> imóvel; sem perfil ativo, só o Miguel e o corpo diz porquê. Sem credencial nova (o n8n não tem o `AUTOMACAO_SECRET`).
+> ⚠️ **19/10: a consultora nunca recebia o aviso.** `profiles` tem RLS e a credencial Supabase do n8n (`Supabase ImoGermano Agentos`) é pública: o nó
+> devolvia vazio e o email ia só ao Miguel. O nó "Ler email da consultora" passou a HTTP com a credencial de service_role que o n8n já tinha;
+> testado a 19/10 (execução manual, FH2564 → email do Miguel lido). O endpoint `GET /api/leads/meta/consultora` (`X-Automacao-Secret`) fica no
+> backend, sem uso no n8n. **Por provar com uma lead real que responda «não» e que a consultora recebe**; um webhook repetido da Meta repete o email (como nos outros dois). Provisório até o eGO.
 
 ## Antes de importar
 
