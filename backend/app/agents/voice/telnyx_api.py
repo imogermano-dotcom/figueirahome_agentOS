@@ -7,7 +7,6 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _BASE = "https://api.telnyx.com/v2"
-_VOICE = "Polly.Ines-Neural"
 _LANG = "pt-PT"
 
 
@@ -34,7 +33,7 @@ async def speak(call_control_id: str, text: str) -> None:
         r = await client.post(
             f"{_BASE}/calls/{call_control_id}/actions/speak",
             headers=_headers(),
-            json={"payload": text, "voice": _VOICE, "language": _LANG},
+            json={"payload": text, "voice": settings.voz_tts, "language": _LANG},
         )
         if r.status_code >= 400:
             logger.error("Telnyx speak failed: %s %s", r.status_code, r.text)

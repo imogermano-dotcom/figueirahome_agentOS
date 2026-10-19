@@ -88,5 +88,30 @@ def test_resposta_normal_nao_termina_a_chamada(monkeypatch):
     assert not s.terminar
 
 
+def test_voz_do_speak_vem_da_configuracao(monkeypatch):
+    import asyncio
+    from app.agents.voice import telnyx_api
+    from app.config import settings
+
+    enviados = []
+
+    class R:
+        status_code = 200
+
+    class C:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, headers=None, json=None):
+            enviados.append(json)
+            return R()
+
+    monkeypatch.setattr(telnyx_api.httpx, "AsyncClient", C)
+    monkeypatch.setattr(telnyx_api, "_headers", lambda: {})
+    assert settings.voz_tts == "Polly.Ines-Neural"  # por omissão não muda a voz
+    monkeypatch.setattr(settings, "voz_tts", "Azure.pt-PT-RaquelNeural")
+    asyncio.run(telnyx_api.speak("cc", "Olá"))
+    assert enviados[0]["voice"] == "Azure.pt-PT-RaquelNeural" and enviados[0]["language"] == "pt-PT"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
