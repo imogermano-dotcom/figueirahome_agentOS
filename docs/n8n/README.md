@@ -39,6 +39,13 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 > os seguintes. ⚠️ **O formato do erro do nó WhatsApp não foi confirmado com uma falha real**; se a regex não o apanhar, cai no
 > "Parar com erro" (comportamento antigo). O follow-up 72h da Matilde (`HRSMT5PRZYRZ7Oc1`) está **ativo** e recebeu esta alteração a 18/10 (era o 9.º fluxo de envio; tinha ficado de fora por constar como inativo).
 > ⚠️ Gravar um fluxo no editor com o separador aberto depois de uma edição por API repõe um rascunho por publicar.
+>
+> **Compra que recusa o WhatsApp (18/10, editado ao vivo, `4rDc9amm6HpO5F4j`).** O fluxo de envio da compra era o único sem aviso de
+> recusa (Angariação e Recrutamento têm "Avisar Miguel"): quem respondia «não» ficava `nova` sem ninguém saber (4 desde 13/10). Agora
+> `Guardas` falso → "Recusou o WhatsApp?" (resposta crua, `startsWith('sim')`) → "Ler angariador do imóvel" (`imoveis`) → "Ler email da
+> consultora" (`profiles.ego_responsavel`) → "Avisar Miguel e consultora" (Resend, `Header Auth account 4`): `to` = Miguel + a consultora do
+> imóvel; sem perfil ativo, só o Miguel e o corpo diz porquê. Sem credencial nova (o n8n não tem o `AUTOMACAO_SECRET`). **Por provar com uma
+> lead real que responda «não»**; um webhook repetido da Meta repete o email (como nos outros dois). Provisório até o eGO.
 
 ## Antes de importar
 
