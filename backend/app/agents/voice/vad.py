@@ -61,6 +61,21 @@ class DetetorDeFrase:
         piso = h[len(h) // 10]  # 10.º percentil: o ruído, mesmo com fala na janela
         self.limiar = min(_LIMIAR_MAX, max(float(LIMIAR_RMS), piso * _FATOR_PISO + _MARGEM_RMS))
 
+    def _guarda_pre_roll(self, bloco: bytes) -> None:
+        self._pre_roll.append(bloco)
+        self._pre_roll_bytes += len(bloco)
+        while self._pre_roll_bytes > _PRE_ROLL_MS * _BYTES_POR_MS and len(self._pre_roll) > 1:
+            self._pre_roll_bytes -= len(self._pre_roll.popleft())
+
+    def escutar(self, bloco: bytes) -> None:
+        """Enquanto a assistente fala: mede o ruído e guarda os últimos 200 ms, mas nunca abre frase. Antes
+        descartava-se tudo e o início da resposta, dito quando a assistente acaba, perdia-se (18/10: o nome
+        dito logo a seguir à pergunta chegou como texto vazio)."""
+        self._atualiza_limiar(_rms(bloco))
+        if self._a_falar:  # frase a meio quando a assistente começou a falar: descarta
+            self.reset()
+        self._guarda_pre_roll(bloco)
+
     def feed(self, bloco: bytes) -> bytes | None:
         ms = len(bloco) / _BYTES_POR_MS
         rms = _rms(bloco)
@@ -80,10 +95,7 @@ class DetetorDeFrase:
             self._frase.extend(bloco)
             self._silencio_ms += ms
         else:
-            self._pre_roll.append(bloco)
-            self._pre_roll_bytes += len(bloco)
-            while self._pre_roll_bytes > _PRE_ROLL_MS * _BYTES_POR_MS and len(self._pre_roll) > 1:
-                self._pre_roll_bytes -= len(self._pre_roll.popleft())
+            self._guarda_pre_roll(bloco)
             return None
 
         if self._silencio_ms >= FIM_DE_FRASE_MS or len(self._frase) >= MAX_FRASE_MS * _BYTES_POR_MS:

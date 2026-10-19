@@ -121,9 +121,12 @@ async def transcribe(pcmu_bytes: bytes) -> str:
         return ""
     wav_bytes = _to_wav(pcmu_bytes)
     texto = await _pedir(settings.stt_model, wav_bytes)
+    alucinacao = e_alucinacao(texto)
+    if not texto or alucinacao:  # o log da chamada só mostra o que sobra depois do filtro
+        logger.info("STT bruto %r (%s)", texto, "descartado como alucinação" if alucinacao else "vazio")
     extras = [m.strip() for m in settings.stt_comparar.split(",") if m.strip() and m.strip() != settings.stt_model]
     if extras:
         tarefa = asyncio.create_task(_comparar(extras, wav_bytes, settings.stt_model, texto))
         _comparacoes.add(tarefa)
         tarefa.add_done_callback(_comparacoes.discard)
-    return "" if e_alucinacao(texto) else texto
+    return "" if alucinacao else texto

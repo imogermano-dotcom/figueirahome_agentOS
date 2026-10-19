@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _STT_RETRY_MSG = "Desculpe, não percebi. Pode repetir, por favor?"
+_STT_LINHA_MA = "A linha parece estar má. Se preferir, um consultor liga-lhe para este número. Pode repetir, por favor?"
+_FALHAS_ATE_LINHA_MA = 3  # à 3.ª falha seguida muda a mensagem, para não repetir a mesma frase
 _BARGE_IN_MS = 400  # fala contínua por cima da assistente para a cortar (um estalido não a corta)
 
 
@@ -34,11 +36,12 @@ async def audio_websocket(websocket: WebSocket, call_control_id: str):
             if event == "media":
                 if session is None:
                     continue
+                bloco = base64.b64decode(msg["media"]["payload"])
                 if session.is_speaking and not settings.voz_barge_in:
-                    detetor.reset()  # o que a assistente diz (ou o eco) nunca é uma frase da pessoa
+                    detetor.escutar(bloco)  # nunca abre frase, mas guarda o início do que vem a seguir
                     continue
 
-                frase = detetor.feed(base64.b64decode(msg["media"]["payload"]))
+                frase = detetor.feed(bloco)
                 if session.is_speaking and detetor.fala_ms >= _BARGE_IN_MS:
                     # Só chega aqui com o barge-in ligado. O áudio é a faixa de entrada: o TTS dela não volta.
                     logger.info("[%s] barge-in: a pessoa falou por cima, TTS cortado", call_control_id[-6:])
@@ -63,12 +66,15 @@ async def _process_turn(session, call_control_id: str, audio_bytes: bytes) -> No
     logger.info("[%s] frase de %.1fs → STT (%.1fs): %r", call_control_id[-6:], len(audio_bytes) / 8000,
                 time.monotonic() - t0, text)
 
-    if not text or len(text.strip()) < 3:
+    if not text or len(text.strip()) < 2:
+        # O detetor só entrega frases com fala: texto vazio é o STT a falhar, não a pessoa calada. Calar-se aqui
+        # deixava a chamada morta (18/10: o nome dito a seguir à pergunta nunca teve resposta).
         session.stt_fail_count += 1
-        if session.stt_fail_count >= 2:
+        aviso = _STT_RETRY_MSG if session.stt_fail_count < _FALHAS_ATE_LINHA_MA else _STT_LINHA_MA
+        if session.stt_fail_count >= _FALHAS_ATE_LINHA_MA:
             session.stt_fail_count = 0
-            session.is_speaking = True
-            await telnyx_api.speak(call_control_id, _STT_RETRY_MSG)
+        session.is_speaking = True
+        await telnyx_api.speak(call_control_id, aviso)
         return
 
     session.stt_fail_count = 0

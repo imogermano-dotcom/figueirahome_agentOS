@@ -71,6 +71,30 @@ def test_reset_descarta_o_que_estava_a_meio():
     assert _alimenta(det, [SILENCIO] * 60) == []
 
 
+def test_escutar_nunca_abre_frase_enquanto_a_assistente_fala():
+    det = vad.DetetorDeFrase()
+    for b in [FALA] * 100:
+        assert det.escutar(b) is None
+    assert _alimenta(det, [SILENCIO] * 60) == [], "o que se ouviu durante a fala dela não vira frase"
+
+
+def test_escutar_guarda_o_inicio_da_resposta_dita_quando_a_assistente_acaba():
+    """18/10: o nome dito logo a seguir à pergunta perdia-se porque tudo era descartado enquanto ela falava."""
+    det = vad.DetetorDeFrase()
+    for b in [SILENCIO] * 30 + [FALA] * 4:  # a pessoa começa 80 ms antes de a assistente acabar
+        det.escutar(b)
+    frases = _alimenta(det, [FALA] * 30 + [SILENCIO] * 40)
+    assert len(frases) == 1
+    assert FALA * 34 in frases[0], "os 4 blocos ditos durante a fala da assistente + os 30 seguintes, sem corte"
+
+
+def test_escutar_descarta_a_frase_que_estava_a_meio():
+    det = vad.DetetorDeFrase()
+    _alimenta(det, [FALA] * 30)
+    det.escutar(SILENCIO)
+    assert _alimenta(det, [SILENCIO] * 60) == []
+
+
 def _bloco_com_rms(alvo: int) -> bytes:
     """20 ms de onda quadrada com amplitude ≈ `alvo` (RMS = amplitude)."""
     from app.agents.voice import stt
@@ -153,6 +177,57 @@ def test_websocket_ignora_o_que_chega_enquanto_a_assistente_fala(monkeypatch):
         ws.send_text(json.dumps({"event": "stop"}))
     assert turnos == []
     session_mgr.remove_session("ws-2")
+
+
+def _ws_com_stt(monkeypatch, textos):
+    """Uma frase por texto em `textos` (o STT devolve-os por ordem); regista o que a assistente diz."""
+    ditas, claude, fila = [], [], list(textos)
+
+    async def _transcribe(_audio):
+        return fila.pop(0)
+
+    async def _resposta(_s, texto):
+        claude.append(texto)
+        return "Qual é o seu orçamento?"
+
+    async def _speak(_id, texto):
+        ditas.append(texto)
+
+    monkeypatch.setattr(audio_ws, "transcribe", _transcribe)
+    monkeypatch.setattr(audio_ws, "get_response", _resposta)
+    monkeypatch.setattr(audio_ws.telnyx_api, "speak", _speak)
+    sessao = session_mgr.create_session("ws-e", "+351912345678")
+    app = FastAPI()
+    app.include_router(audio_ws.router)
+    with TestClient(app).websocket_connect("/ws/audio/ws-e") as ws:
+        for _ in textos:
+            sessao.is_speaking = False  # a assistente acabou: a pessoa fala outra frase
+            for bloco in [FALA] * 60 + [SILENCIO] * 40:
+                ws.send_text(_media(bloco))
+        ws.send_text(json.dumps({"event": "stop"}))
+    session_mgr.remove_session("ws-e")
+    return ditas, claude
+
+
+def test_stt_vazio_a_1_falha_a_assistente_pede_que_repita(monkeypatch):
+    """18/10: texto vazio ao 1.º erro era ignorado e a chamada ficava morta."""
+    ditas, claude = _ws_com_stt(monkeypatch, [""])
+    assert ditas == [audio_ws._STT_RETRY_MSG] and claude == []
+
+
+def test_stt_vazio_tres_vezes_muda_a_mensagem_e_volta_a_contar(monkeypatch):
+    ditas, _ = _ws_com_stt(monkeypatch, ["", "", "", ""])
+    assert ditas == [audio_ws._STT_RETRY_MSG, audio_ws._STT_RETRY_MSG, audio_ws._STT_LINHA_MA, audio_ws._STT_RETRY_MSG]
+
+
+def test_texto_curto_de_duas_letras_conta_como_resposta(monkeypatch):
+    ditas, claude = _ws_com_stt(monkeypatch, ["Ok"])
+    assert claude == ["Ok"] and ditas == ["Qual é o seu orçamento?"]
+
+
+def test_uma_frase_boa_zera_as_falhas(monkeypatch):
+    ditas, claude = _ws_com_stt(monkeypatch, ["", "quero um T2", "", ""])
+    assert ditas == [audio_ws._STT_RETRY_MSG, "Qual é o seu orçamento?", audio_ws._STT_RETRY_MSG, audio_ws._STT_RETRY_MSG]
 
 
 def _ws_barge_in(monkeypatch, ligado):

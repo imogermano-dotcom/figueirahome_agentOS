@@ -174,6 +174,15 @@ def _corre_com_comparacao(monkeypatch, comparar, textos, rebenta=()):
         log.removeHandler(h)
 
 
+def test_texto_vazio_ou_filtrado_deixa_o_bruto_no_log(monkeypatch):
+    """Antes só se via o que sobrava do filtro, e não se sabia se o modelo devolvera vazio ou se o filtro o cortara."""
+    for devolve, esperado in (("", "vazio"), ("Chamada Telefónica", "descartado")):
+        _, _, linhas = _corre_com_comparacao(monkeypatch, "", {"gpt-4o-transcribe": devolve})
+        assert any("STT bruto" in l and esperado in l for l in linhas), (devolve, linhas)
+    _, _, linhas = _corre_com_comparacao(monkeypatch, "", {"gpt-4o-transcribe": "um T2"})
+    assert not any("STT bruto" in l for l in linhas), "texto normal não polui o log"
+
+
 def test_comparacao_desligada_so_chama_o_modelo_principal(monkeypatch):
     texto, chamadas, linhas = _corre_com_comparacao(monkeypatch, "", {"gpt-4o-transcribe": "um T2"})
     assert texto == "um T2" and chamadas == ["gpt-4o-transcribe"] and linhas == []
