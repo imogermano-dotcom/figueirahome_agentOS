@@ -183,6 +183,59 @@ def test_texto_vazio_ou_filtrado_deixa_o_bruto_no_log(monkeypatch):
     assert not any("STT bruto" in l for l in linhas), "texto normal não polui o log"
 
 
+def _wav_info(wav: bytes):
+    import io
+    import wave
+    with wave.open(io.BytesIO(wav), "rb") as w:
+        return w.getframerate(), w.getnframes(), w.readframes(w.getnframes())
+
+
+def test_wav_reforcado_e_16k_com_300_ms_de_margem_e_o_sinal_intacto():
+    pcmu = bytes([0x90, 0x10]) * 400  # 800 amostras a 8 kHz = 100 ms
+    taxa, n, dados = _wav_info(stt._to_wav(pcmu, reforcado=True))
+    assert taxa == 16000 and n == 2 * 800 + 2 * 4800, "2× as amostras + 300 ms de margem em cada ponta"
+    margem = 4800 * 2
+    assert dados[:margem] == bytes(margem) and dados[-margem:] == bytes(margem), "as margens são silêncio"
+    assert any(dados[margem:-margem]), "o sinal está lá"
+    taxa0, n0, _ = _wav_info(stt._to_wav(pcmu))
+    assert (taxa0, n0) == (8000, 800), "sem reforço, o áudio é o de antes"
+
+
+def _cliente_sequencia(respostas, chamadas):
+    class _Cli:
+        class audio:  # noqa: N801
+            class transcriptions:  # noqa: N801
+                @staticmethod
+                async def create(**kw):
+                    chamadas.append({"prompt": "prompt" in kw, "taxa": _wav_info(kw["file"].getvalue())[0]})
+                    return _Resposta(respostas.pop(0))
+    return _Cli
+
+
+def test_resposta_vazia_tem_2_tentativa_a_16k_sem_prompt(monkeypatch):
+    """18-19/10: «sim» e nomes curtos chegavam vazios e a conversa encravava."""
+    chamadas = []
+    monkeypatch.setattr(stt, "_client", _cliente_sequencia(["", "João Marques."], chamadas))
+    monkeypatch.setattr(settings, "stt_comparar", "")
+    texto = asyncio.run(stt.transcribe(bytes([0x00, 0x80]) * 8000))
+    assert texto == "João Marques."
+    assert chamadas == [{"prompt": True, "taxa": 8000}, {"prompt": False, "taxa": 16000}]
+
+
+def test_texto_normal_nao_gasta_2_tentativa(monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(stt, "_client", _cliente_sequencia(["Sim."], chamadas))
+    monkeypatch.setattr(settings, "stt_comparar", "")
+    assert asyncio.run(stt.transcribe(bytes([0x00, 0x80]) * 8000)) == "Sim." and len(chamadas) == 1
+
+
+def test_duas_tentativas_vazias_continuam_vazias(monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(stt, "_client", _cliente_sequencia(["", ""], chamadas))
+    monkeypatch.setattr(settings, "stt_comparar", "")
+    assert asyncio.run(stt.transcribe(bytes([0x00, 0x80]) * 8000)) == "" and len(chamadas) == 2
+
+
 def test_comparacao_desligada_so_chama_o_modelo_principal(monkeypatch):
     texto, chamadas, linhas = _corre_com_comparacao(monkeypatch, "", {"gpt-4o-transcribe": "um T2"})
     assert texto == "um T2" and chamadas == ["gpt-4o-transcribe"] and linhas == []

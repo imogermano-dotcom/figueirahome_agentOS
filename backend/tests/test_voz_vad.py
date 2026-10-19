@@ -38,6 +38,21 @@ def test_frase_so_fecha_depois_do_silencio():
     assert len(frases) == 1 and len(frases[0]) >= 50 * 160, "700 ms fecham, e a frase traz a fala inteira"
 
 
+def test_o_silencio_final_vai_cortado_a_250_ms():
+    """Os 700 ms que fecham a frase diluíam as respostas curtas («sim», um nome) e o STT devolvia vazio."""
+    det = vad.DetetorDeFrase()
+    frases = _alimenta(det, [FALA] * 30 + [SILENCIO] * 40)
+    assert len(frases) == 1
+    assert 30 * 160 + 2000 - 160 <= len(frases[0]) <= 30 * 160 + 2000 + 160, "fala + ~250 ms de cauda"
+    assert frases[0].startswith(FALA) and frases[0].endswith(SILENCIO)
+
+
+def test_frase_cortada_pelo_teto_nao_perde_fala():
+    det = vad.DetetorDeFrase()
+    frases = _alimenta(det, [FALA] * 800)
+    assert len(frases) == 1 and len(frases[0]) >= vad.MAX_FRASE_MS * 8 - 160, "sem silêncio a cortar"
+
+
 def test_pausa_curta_no_meio_nao_parte_a_frase():
     det = vad.DetetorDeFrase()
     frases = _alimenta(det, [FALA] * 25 + [SILENCIO] * 15 + [FALA] * 25 + [SILENCIO] * 40)

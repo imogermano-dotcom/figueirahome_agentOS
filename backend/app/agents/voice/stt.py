@@ -82,26 +82,44 @@ def _normalizar(pcm: bytes) -> bytes:
     return struct.pack(f"<{len(amostras)}h", *(max(-32768, min(32767, int(v * ganho))) for v in amostras))
 
 
-def _to_wav(pcmu_bytes: bytes) -> bytes:
+_TAXA_REFORCO = 16_000
+_MARGEM_REFORCO_MS = 300
+
+
+def _para_16k(pcm: bytes) -> bytes:
+    """8 kHz -> 16 kHz por interpolação linear (cada amostra + a média com a seguinte)."""
+    n = len(pcm) // 2
+    v = struct.unpack(f"<{n}h", pcm[: n * 2])
+    saida = []
+    for i, a in enumerate(v):
+        saida.append(a)
+        saida.append((a + (v[i + 1] if i + 1 < n else a)) // 2)
+    return struct.pack(f"<{len(saida)}h", *saida)
+
+
+def _to_wav(pcmu_bytes: bytes, reforcado: bool = False) -> bytes:
+    """`reforcado`: 16 kHz com 300 ms de silêncio em cada ponta, para a 2.ª tentativa quando a 1.ª vem vazia.
+    As respostas curtas («sim», um nome) chegavam vazias: pouca fala, e o modelo desiste."""
     pcm = _normalizar(_ulaw2lin(pcmu_bytes))
+    taxa = SAMPLE_RATE
+    if reforcado:
+        taxa = _TAXA_REFORCO
+        margem = bytes(_MARGEM_REFORCO_MS * taxa // 1000 * 2)
+        pcm = margem + _para_16k(pcm) + margem
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
-        wf.setframerate(SAMPLE_RATE)
+        wf.setframerate(taxa)
         wf.writeframes(pcm)
     return buf.getvalue()
 
 
-async def _pedir(modelo: str, wav_bytes: bytes) -> str:
+async def _pedir(modelo: str, wav_bytes: bytes, com_prompt: bool = True) -> str:
     audio_file = io.BytesIO(wav_bytes)
     audio_file.name = "audio.wav"
-    response = await _client.audio.transcriptions.create(
-        model=modelo,
-        file=audio_file,
-        language="pt",
-        prompt=_PROMPT,
-    )
+    extra = {"prompt": _PROMPT} if com_prompt else {}
+    response = await _client.audio.transcriptions.create(model=modelo, file=audio_file, language="pt", **extra)
     return response.text.strip()
 
 
@@ -121,6 +139,9 @@ async def transcribe(pcmu_bytes: bytes) -> str:
         return ""
     wav_bytes = _to_wav(pcmu_bytes)
     texto = await _pedir(settings.stt_model, wav_bytes)
+    if not texto:  # resposta curta: 2.ª tentativa com 16 kHz, margem de silêncio e sem prompt
+        texto = await _pedir(settings.stt_model, _to_wav(pcmu_bytes, reforcado=True), com_prompt=False)
+        logger.info("STT 2.ª tentativa (16 kHz, margem, sem prompt): %r", texto)
     alucinacao = e_alucinacao(texto)
     if not texto or alucinacao:  # o log da chamada só mostra o que sobra depois do filtro
         logger.info("STT bruto %r (%s)", texto, "descartado como alucinação" if alucinacao else "vazio")

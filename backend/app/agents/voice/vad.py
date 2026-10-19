@@ -17,6 +17,7 @@ FIM_DE_FRASE_MS = 700    # silêncio que fecha a frase
 MIN_FALA_MS = 300        # menos que isto é um estalido, não uma frase
 MAX_FRASE_MS = 15_000    # corta frases sem fim (ruído contínuo, monólogo)
 _PRE_ROLL_MS = 200       # o início da frase costuma estar abaixo do limiar
+_CAUDA_MS = 250          # silêncio final que segue com a frase: os 700 ms todos diluíam respostas curtas
 _ARRANQUE_BLOCOS = 10    # ~200 ms para medir o ruído antes de aceitar fala
 _JANELA_BLOCOS = 100     # ~2 s de histórico para o piso de ruído
 _FATOR_PISO = 2.0        # fala = pelo menos 2× o ruído de fundo (+ margem)
@@ -99,7 +100,10 @@ class DetetorDeFrase:
             return None
 
         if self._silencio_ms >= FIM_DE_FRASE_MS or len(self._frase) >= MAX_FRASE_MS * _BYTES_POR_MS:
-            frase = bytes(self._frase) if self._fala_ms >= MIN_FALA_MS else None
+            frase = None
+            if self._fala_ms >= MIN_FALA_MS:
+                excesso = int(max(0.0, self._silencio_ms - _CAUDA_MS) * _BYTES_POR_MS)
+                frase = bytes(self._frase[: len(self._frase) - excesso])
             self.reset()
             return frase
         return None
