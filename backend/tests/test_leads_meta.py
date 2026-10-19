@@ -280,6 +280,31 @@ def test_endpoint_exige_segredo():
     assert r.status_code == 401
 
 
+def test_consultora_do_imovel_devolve_o_email(cliente_e_estado, monkeypatch):
+    from app import notificacoes
+
+    client, _ = cliente_e_estado
+    monkeypatch.setattr(notificacoes, "_consultor_do_imovel", lambda ref: ("ana@exemplo.pt", "Ana Teste"))
+    r = client.get("/api/leads/meta/consultora", params={"imovel_ref": "FH2583"})
+    assert r.status_code == 200
+    assert r.json() == {"email": "ana@exemplo.pt", "consultora": "Ana Teste", "motivo": None}
+
+
+def test_consultora_do_imovel_sem_consultora_devolve_o_motivo(cliente_e_estado, monkeypatch):
+    from app import notificacoes
+
+    client, _ = cliente_e_estado
+    monkeypatch.setattr(notificacoes, "_consultor_do_imovel", lambda ref: (None, "o imóvel X não tem angariador"))
+    r = client.get("/api/leads/meta/consultora", params={"imovel_ref": "FH0"})
+    assert r.json() == {"email": None, "consultora": None, "motivo": "o imóvel X não tem angariador"}
+
+
+def test_consultora_do_imovel_exige_segredo():
+    from app.main import app
+
+    assert TestClient(app).get("/api/leads/meta/consultora", params={"imovel_ref": "FH2583"}).status_code == 401
+
+
 # ── promoção ao fim do turno ────────────────────────────────────────────────
 
 CLIENTE = {

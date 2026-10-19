@@ -44,6 +44,17 @@ async def _run(fn):
     return await asyncio.get_event_loop().run_in_executor(None, fn)
 
 
+@router.get("/leads/meta/consultora")
+async def consultora_do_imovel(imovel_ref: str):
+    """Email da consultora do imóvel, para o aviso de recusa do WhatsApp no n8n. O n8n não lê `profiles` (RLS: a
+    credencial dele é pública) e 19/10 o aviso foi só ao Miguel por isso. Sem consultora ativa devolve `email: null`
+    e o motivo, e o n8n avisa só o Miguel."""
+    from app.notificacoes import _consultor_do_imovel
+
+    email, info = await _run(lambda: _consultor_do_imovel(imovel_ref.strip()))
+    return {"email": email, "consultora": info if email else None, "motivo": None if email else info}
+
+
 @router.post("/leads/{lead_id}/conversa-semeada")
 async def semear_conversa(lead_id: str, corpo: ConversaSemeada):
     """Cria cliente e thread do A1 para uma lead que já recebeu o template."""
