@@ -8,6 +8,8 @@ Escritas só pelo caminho de `leads_para_ego`: nunca `UpdateEntity` (ver o incid
 import logging
 import threading
 import time
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -90,6 +92,17 @@ def imovel_id(referencia: str) -> int | None:
     """Id do imóvel na API (≠ `imoveis.ego_id`) pela referência exata; o eGO atribui a consultora a partir dele."""
     d = _pedido("POST", "/realestate/Realestate/ListRealestateByPage", json={"reference": referencia})
     return next((x["id"] for x in d.get("realestatesByPageDto") or [] if x.get("reference") == referencia), None)
+
+
+def oportunidades_editadas_desde(horas: int) -> int:
+    """Quantas oportunidades ativas foram editadas nas últimas `horas` (hora de Lisboa, como o `alterDate` do eGO).
+
+    Serve para distinguir «0 resultados» de uma falha do scraper: o relatório «Editado em > últimas 48 horas» não
+    mostra o botão Relatórios quando ninguém editou nada (19/10: fim de semana sem edições)."""
+    d = _pedido("POST", "/lead/Opportunity/ListOpportunityByPage", json={"leadArchived": 0})
+    lista = next((v for v in d.values() if isinstance(v, list)), []) if isinstance(d, dict) else d
+    limite = (datetime.now(ZoneInfo("Europe/Lisbon")).replace(tzinfo=None) - timedelta(hours=horas)).isoformat()
+    return sum(1 for o in lista if (o.get("alterDate") or "") >= limite)
 
 
 def inserir_lead(corpo: dict) -> int | None:
