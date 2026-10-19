@@ -78,6 +78,8 @@ async def telnyx_webhook(request: Request):
         session = session_mgr.get_session(call_control_id)
         if session:
             session.is_speaking = False
+            if session.terminar:
+                await telnyx_api.hangup(call_control_id)
 
     elif event_type == "call.hangup":
         session = session_mgr.remove_session(call_control_id)

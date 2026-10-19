@@ -21,6 +21,8 @@ SAUDACAO = (
     "Em que posso ajudar?"
 )
 
+FIM_CHAMADA = "FIM_CHAMADA"  # marca da despedida: o webhook desliga quando a fala acaba
+
 _SYSTEM_BASE = f"""És a assistente de voz da agência imobiliária Figueirahome, em Portugal.
 Falas sempre em Português de Portugal, de forma natural e cordial.
 O teu objectivo é recolher os seguintes dados do cliente:
@@ -37,7 +39,10 @@ Instruções:
 - Responde numa única frase curta (no máximo 25 palavras): é uma chamada, a pessoa não pode reler.
 - Faz perguntas de forma natural, uma de cada vez.
 - Não termines a chamada sem teres pelo menos o nome e o tipo de interesse.
-- Quando tiveres os dados, lê-os em voz alta para confirmar e despede-te de forma cordial.
+- Quando tiveres os dados, lê-os em voz alta para confirmar. Só te despedes depois de a pessoa responder à pergunta
+  sobre o contacto telefónico.
+- A despedida final é a tua última frase da chamada: termina-a com a palavra {FIM_CHAMADA}, que nunca é falada.
+  Usa-a uma só vez, e só nessa frase.
 - O nome ouve-se mal ao telefone: repete-o de volta para confirmar. Se a pessoa corrigir, aceita a correção,
   repete a versão nova e usa sempre a última.
 - Se uma resposta for incoerente ou impercetível, não a trates como dado: pede de novo, com calma.
@@ -49,7 +54,8 @@ Instruções:
 
 _TELEFONE_CONHECIDO = (
     "\n\nO número de telefone de quem liga já é conhecido, é o da própria chamada: nunca o peças nem o leias. "
-    "No fim, pergunta apenas se um consultor pode ligar para esse mesmo número. Só se a pessoa disser que não, "
+    "No fim, pergunta apenas «Um consultor pode ligar-lhe para este mesmo número?» (a pergunta é se o consultor "
+    "pode ligar, nunca se a pessoa pode ligar). Só se a pessoa disser que não, "
     "pede o outro número completo, de uma só vez (nove dígitos), e aceita-o por inteiro. Se vier incompleto, "
     "pede-lhe que repita o número todo: nunca peças um dígito isolado nem em partes."
 )
@@ -94,7 +100,11 @@ async def get_response(session: CallSession, user_text: str) -> str:
         messages=session.historico,
     )
 
-    response_text = limpar_para_voz(resp.content[0].text) if resp.content else ""
+    bruto = resp.content[0].text if resp.content else ""
+    if FIM_CHAMADA in bruto:  # antes da limpeza: `_` é símbolo e sairia da marca
+        session.terminar = True
+        bruto = bruto.replace(FIM_CHAMADA, "")
+    response_text = limpar_para_voz(bruto)
     response_text = response_text or "Desculpe, não percebi bem. Pode repetir, por favor?"
     session.historico.append({"role": "assistant", "content": response_text})
     return response_text

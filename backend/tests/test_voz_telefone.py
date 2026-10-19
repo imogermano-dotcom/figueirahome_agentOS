@@ -53,5 +53,40 @@ def test_sem_numero_da_chamada_usa_o_dito_se_completo():
     assert save_call.telefone_da_chamada("9159025", None) is None
 
 
+def test_pergunta_do_telefone_e_se_o_consultor_pode_ligar():
+    # 19/10: «Pode ligar para o número de onde está a chamar?» perguntava ao contrário.
+    t = claude_agent.instrucao_telefone("+351912345678")
+    assert "Um consultor pode ligar-lhe para este mesmo número?" in t
+
+
+def test_despedida_marca_o_fim_e_a_marca_nao_e_falada(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from app.agents.voice.session import CallSession
+
+    async def cria(**_):
+        return SimpleNamespace(content=[SimpleNamespace(text="Muito obrigada, João! Até breve! FIM_CHAMADA")])
+
+    monkeypatch.setattr(claude_agent._client.messages, "create", cria)
+    s = CallSession("x", "+351912345678", system_prompt="p")
+    texto = asyncio.run(claude_agent.get_response(s, "sim, pode"))
+    assert s.terminar and "FIM_CHAMADA" not in texto and texto.endswith("Até breve!")
+    assert "FIM_CHAMADA" not in s.historico[-1]["content"]
+
+
+def test_resposta_normal_nao_termina_a_chamada(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from app.agents.voice.session import CallSession
+
+    async def cria(**_):
+        return SimpleNamespace(content=[SimpleNamespace(text="Qual é o seu orçamento?")])
+
+    monkeypatch.setattr(claude_agent._client.messages, "create", cria)
+    s = CallSession("x", "+351912345678", system_prompt="p")
+    asyncio.run(claude_agent.get_response(s, "olá"))
+    assert not s.terminar
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

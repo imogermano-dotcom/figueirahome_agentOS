@@ -85,5 +85,31 @@ def test_fora_de_producao_nao_verifica(monkeypatch):
     assert _cliente(monkeypatch, "", ambiente="development").post("/webhook/telnyx", content=CORPO).status_code == 200
 
 
+def _evento_speak_ended(monkeypatch, terminar):
+    import json
+    from app.agents.voice import session as sessao
+    desligadas = []
+
+    async def hangup(cid):
+        desligadas.append(cid)
+
+    monkeypatch.setattr(webhook.telnyx_api, "hangup", hangup)
+    sessao.create_session("cc1", "+351912345678").terminar = terminar
+    corpo = json.dumps({"data": {"event_type": "call.speak.ended", "payload": {"call_control_id": "cc1"}}}).encode()
+    try:
+        _cliente(monkeypatch, "", ambiente="development").post("/webhook/telnyx", content=corpo)
+    finally:
+        sessao.remove_session("cc1")
+    return desligadas
+
+
+def test_fim_da_despedida_desliga_a_chamada(monkeypatch):
+    assert _evento_speak_ended(monkeypatch, True) == ["cc1"]
+
+
+def test_fim_de_fala_normal_nao_desliga(monkeypatch):
+    assert _evento_speak_ended(monkeypatch, False) == []
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

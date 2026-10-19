@@ -13,6 +13,7 @@ class CallSession:
     system_prompt: str = ""
     is_speaking: bool = False
     stt_fail_count: int = 0
+    terminar: bool = False  # despedida dita: desligar quando o `speak` acabar
 
 
 _sessions: dict[str, CallSession] = {}
