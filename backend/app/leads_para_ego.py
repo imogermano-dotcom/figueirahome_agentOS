@@ -9,6 +9,7 @@ Travão: `contactos.ego_lead_em` (0050). Só leads criadas depois de `LEAD_COMPR
 
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from app.agents.broker.guards import normalizar_telefone
 from app.config import settings
@@ -18,10 +19,16 @@ from app.integrations import ego_api, egorealestate
 logger = logging.getLogger(__name__)
 
 JANELA_HORAS = 2
+HORA_ABRE, HORA_FECHA = 9, 20  # o cron só cria leads das 9h às 20h de Lisboa: uma lead das 23h espera pelas 9h (a consultora só liga de dia)
 LIMITE_POR_VOLTA = 20
 
 _COLUNAS = ("id,nome,telefone,telemovel,email,meta_lead_id,imovel_ref,ad_name,meta_form_name,criado_em,"
             "template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em")
+
+
+def dentro_do_horario(agora: datetime) -> bool:
+    """Das 9h às 20h, hora de Lisboa. Não vale para a recusa do WhatsApp, que vai logo (n8n)."""
+    return HORA_ABRE <= agora.astimezone(ZoneInfo("Europe/Lisbon")).hour < HORA_FECHA
 
 
 def _dt(valor: str | None) -> datetime | None:
@@ -104,6 +111,8 @@ def processar(agora: datetime | None = None) -> dict:
     if not settings.lead_compra_ego_desde:
         return {"ativo": False}
     agora = agora or datetime.now(timezone.utc)
+    if not dentro_do_horario(agora):
+        return {"ativo": True, "fora_do_horario": True}
     contagem = {"ativo": True, "criadas": 0, "ja_existiam": 0, "erros": 0}
     candidatas = _candidatas(agora)
     if not candidatas:

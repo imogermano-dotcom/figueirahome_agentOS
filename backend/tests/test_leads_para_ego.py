@@ -96,6 +96,21 @@ def _usa(monkeypatch, bd, enviar, leads=()):
     monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
 
 
+@pytest.mark.parametrize("utc,dentro", [("2026-10-17T07:59:00+00:00", False), ("2026-10-17T08:00:00+00:00", True),
+                                          ("2026-10-17T18:59:00+00:00", True), ("2026-10-17T19:00:00+00:00", False),
+                                          ("2026-12-17T09:00:00+00:00", True), ("2026-12-17T20:00:00+00:00", False)])
+def test_horario_das_9_as_20_de_lisboa_com_hora_de_verao(utc, dentro):
+    # 17/10 é hora de verão (UTC+1): 9h-20h de Lisboa = 08:00-19:00 UTC; em dezembro (UTC+0) = 09:00-20:00 UTC
+    assert lp.dentro_do_horario(datetime.fromisoformat(utc)) is dentro
+
+
+def test_fora_do_horario_o_cron_nao_toca_em_nada(monkeypatch):
+    monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
+    monkeypatch.setattr(lp, "get_supabase", lambda: pytest.fail("não devia tocar na BD"))
+    fora = datetime(2026, 10, 17, 22, 0, tzinfo=timezone.utc)  # 23h em Lisboa
+    assert lp.processar(fora) == {"ativo": True, "fora_do_horario": True}
+
+
 def test_desligado_com_data_vazia(monkeypatch):
     monkeypatch.setattr(settings, "lead_compra_ego_desde", "")
     monkeypatch.setattr(lp, "get_supabase", lambda: pytest.fail("não devia tocar na BD"))
