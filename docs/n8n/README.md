@@ -49,6 +49,14 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 > devolvia vazio e o email ia só ao Miguel. O nó "Ler email da consultora" passou a HTTP com a credencial de service_role que o n8n já tinha;
 > testado a 19/10 (execução manual, FH2564 → email do Miguel lido). O endpoint `GET /api/leads/meta/consultora` (`X-Automacao-Secret`) fica no
 > backend, sem uso no n8n. **Por provar com uma lead real que responda «não» e que a consultora recebe**; um webhook repetido da Meta repete o email (como nos outros dois). Provisório até o eGO.
+>
+> **Criação da lead no eGO a par do email (20/10, nó DESATIVADO).** Depois de "Recusou o WhatsApp?" há o nó "Criar lead no eGO (recusou WhatsApp)":
+> `POST https://figueirahome-agentos.fly.dev/api/leads/meta/<meta_lead_id>/recusou-whatsapp` com a credencial Header Auth **`N8N agentos`** (cabeçalho
+> `X-N8N-Secret`, valor = segredo `N8N_SECRET` do Fly), 60 s, `onError: continueRegularOutput`. O backend decide quatro casos (oportunidade ativa → não
+> cria e devolve o consultor; já na caixa; contacto antigo; sem histórico → cria pela Web API do eGO) e o email passa a ter uma linha `eGO:` com o
+> resultado (e a pôr em `to` o consultor da oportunidade). Testado a 20/10 (execução manual com pin): a Web API deu 400 sem email e 200 com ele; a lead
+> entrou no eGO e foi atribuída pela regra de distribuição deles. **Para ligar**: definir `LEAD_COMPRA_EGO_DESDE` no Fly e **ativar o nó**. ⚠️ O n8n
+> publica ao gravar um fluxo ativo: nunca gravar com o nó ligado sem querer criar leads. `docs/fases/lead-compra-para-ego-plano.md`.
 
 ## Antes de importar
 

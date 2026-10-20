@@ -1,4 +1,14 @@
-# Lead de compra sem resposta → eGO (plano)
+# Lead de compra → eGO (plano)
+
+> ## Estado 20/10 — leitura obrigatória antes do resto (o desenho abaixo é de 16–17/10 e foi em parte superado)
+> - **Criação pela Web API, não pela API nova.** A API nova (`InsertLead`, `api.egocrm.com`) exige `internetlead/insert`, que a nossa conta não tem (standby até o Miguel criar um utilizador de serviço). Entretanto cria-se por `PUT http://websiteapi.egorealestate.com/v1/Lead` (o contrato do antigo Make: cabeçalhos `AuthorizationToken`+`Language`; query `CTY=4`, `RID`, `NAM`, `EML`, `PHO`, `OBS`), em `egorealestate.inserir_lead_webapi`. Testado a 20/10: **200 `{"Success":true}`, sem id** na resposta; **sem `EML` dá 400**; a lead aparece na caixa em segundos e o eGO atribui-a em ~2,5 min.
+> - **`RID` = `imoveis.ego_id`.** O imóvel só ficou ligado quando publicado (o teste com o FH2564, despublicado, entrou sem imóvel): **por confirmar com um publicado**.
+> - **A atribuição é do eGO, não do `angariador`** (teste: Lidia Sousa; as de Setembro do FH2573: Sandra Silva). O email do n8n vai ao Miguel e à consultora do imóvel; quem recebe a lead no eGO pode ser outra pessoa (decisão A, mantida).
+> - **Recusa do WhatsApp = criação imediata, no n8n**, a par do email: `POST /api/leads/meta/{meta_lead_id}/recusou-whatsapp` (segredo `X-N8N-Secret`, `require_n8n_access`; abre só este endpoint). Quatro casos: oportunidade ativa com consultor (não cria, devolve o consultor), já na caixa de leads, contacto antigo / sem histórico (cria). Sem email → `sem_email`. Decide-se pelo espelho (`oportunidades`) e por `ListLeadByPage`; se a API nova falhar, cria na mesma e diz `verificado_no_ego: false`. Idempotente por `contactos.ego_lead_em`.
+> - **Sem resposta em 2 h** continua no cron `leads-compra-para-ego` (`enabled: false`), agora também pela Web API.
+> - **Travas:** `LEAD_COMPRA_EGO_DESDE` vazio = tudo desligado (o endpoint devolve `desligado`; compara por **dia**, porque `contactos.criado_em` é `date`) e o nó n8n «Criar lead no eGO (recusou WhatsApp)» no fluxo `4rDc9amm6HpO5F4j` está **desativado**. Ligar: definir a data no Fly, ativar o nó, ver a 1.ª recusa real.
+> - ⚠️ **O n8n publica ao gravar um fluxo ativo**: editar uma ramificação nova liga-a logo. Desativar o nó *antes* de gravar.
+> - **Todas as leads de compra da Meta têm email** (o formulário obriga). Medido: 8 de 15 leads de 10/10 em diante já tinham oportunidade ativa com consultora, daí a regra dos 4 casos.
 
 > Pedido do Miguel (16/10): se a lead de um anúncio de compra não responder à Matilde em 2 h, criá-la no eGO para um consultor lhe ligar.
 > Estado (17/10): **código escrito e testado (403 testes), nada deployado, migration `0050` por correr, nada escrito no eGO.** Defaults do plano: lead tipo 7, sub-origem 4001, 2 h seguidas, pessoa com oportunidade ativa não é criada, número sem WhatsApp vai logo. Desligado: `LEAD_COMPRA_EGO_DESDE` vazio + cron `enabled: false`.

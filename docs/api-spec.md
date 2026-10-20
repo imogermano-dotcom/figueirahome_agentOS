@@ -68,6 +68,15 @@ POST /api/leads/{lead_id}/conversa-semeada    body: {"template": "<texto enviado
      → 200 {lead_id, cliente_id, conversa_id, ja_existia}
      → 404 lead inexistente · 422 tipo != compra/arrendamento, ou lead sem telefone
 ```
+
+### Leads de compra → eGO (implementado 2026-10-20 — `api/leads_ego.py`, `api/leads_meta.py`)
+```
+POST /api/leads/meta/para-ego                       (cron, X-Automacao-Secret) sem resposta há 2 h → Web API do eGO; `{"ativo": false}` sem LEAD_COMPRA_EGO_DESDE
+POST /api/leads/meta/{meta_lead_id}/recusou-whatsapp (n8n, X-N8N-Secret ou X-Automacao-Secret)
+     → 200 {resultado: criada|oportunidade_ativa|ja_na_caixa|ja_tratada|sem_email|desligado|anterior_a_ativacao,
+            criada, verificado_no_ego, responsavel, email_responsavel} · 404 contacto inexistente · 500 se o PUT ao eGO falhar (não marca)
+GET  /api/leads/meta/consultora?imovel_ref=FH…       (Automacao) → {email, consultora, motivo}; sem uso no n8n (lê-se por HTTP com a credencial de service_role)
+```
 Chamado pelo **n8n** logo após enviar o template de WhatsApp. Autenticação:
 `X-Automacao-Secret` **ou** JWT — `deps.require_automacao_access`. Segredo
 distinto do `X-Sync-Secret` de propósito: quem ingere leads não tem de poder

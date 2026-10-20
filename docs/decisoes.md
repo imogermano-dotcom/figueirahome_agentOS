@@ -210,8 +210,14 @@ Medido contra a API real: com o filtro antigo `missing = 66`, com o novo `0`.
 
 ## Voz (Telnyx)
 
+- **Estado 19/10 em `docs/fases/voz-telnyx-resumo.md`**: STT `gpt-transcribe` com 2.ª tentativa, VAD adaptativo, voz em `VOZ_TTS`, despedida com `FIM_CHAMADA` e desligar no `call.speak.ended`, assinatura Ed25519 à mão.
 - **TTS** via `speak()` REST, não via WebSocket; **µ-law decode** manual (sem `audioop`, removido no Python 3.13).
 - **Extracção de dados de voz**: só no hangup (Claude tool use sobre a transcrição completa), não turno a turno.
+
+## Escrita no eGO pela Web API (20/10)
+
+- **A única escrita que a nossa conta faz no eGO é `PUT /v1/Lead`** (Web API, chave da agência), enquanto a API nova não der `internetlead/insert`. Nunca `UpdateEntity`; nunca oportunidades (ficam «Criada» e rebentaram o sync). Só com `LEAD_COMPRA_EGO_DESDE` definido, uma vez por contacto (`ego_lead_em`), e **nunca o histórico**. Detalhe em `docs/fases/lead-compra-para-ego-plano.md`.
+- **O n8n tem segredo próprio** (`N8N_SECRET`, cabeçalho `X-N8N-Secret`) que só abre o endpoint da recusa: o `AUTOMACAO_SECRET` não se lê de volta (Fly/GitHub) e usam-no crons e workflows; rodá-lo parte consumidores.
 
 ## `contacto_id` e sync de tarefas (29/09–01/10)
 
