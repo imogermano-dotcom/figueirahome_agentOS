@@ -191,7 +191,8 @@ def test_web_api_put_com_query_do_make(monkeypatch):
 
 
 def _recusa(monkeypatch, linha=None, *, responsavel=None, caixa=(), ler_rebenta=False, conhecido=False):
-    bd = _BD([linha or _linha(template_enviado_em=None, meta_lead_id="m1")])
+    monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
+    bd = _BD([linha or _linha(template_enviado_em=None, meta_lead_id="m1", criado_em=ISO(1))])
     enviados = []
 
     def ler():
@@ -241,12 +242,25 @@ def test_recusa_com_eGO_em_baixo_cria_na_mesma_e_diz_que_nao_verificou(monkeypat
     assert r["criada"] and r["verificado_no_ego"] is False and len(enviados) == 1
 
 
+def test_recusa_desligada_com_data_vazia_nao_toca_em_nada(monkeypatch):
+    monkeypatch.setattr(settings, "lead_compra_ego_desde", "")
+    monkeypatch.setattr(lp, "get_supabase", lambda: pytest.fail("não devia tocar na BD"))
+    monkeypatch.setattr(lp.egorealestate, "inserir_lead_webapi", lambda *a: pytest.fail("não devia criar"))
+    assert lp.recusou_whatsapp("m1") == {"resultado": "desligado", "criada": False}
+
+
+def test_recusa_de_contacto_anterior_a_ativacao_nao_cria(monkeypatch):
+    _, enviados = _recusa(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em="2026-10-01T10:00:00+00:00"))
+    assert lp.recusou_whatsapp("m1")["resultado"] == "anterior_a_ativacao" and enviados == []
+
+
 def test_recusa_ja_tratada_nao_repete(monkeypatch):
-    _, enviados = _recusa(monkeypatch, linha=_linha(ego_lead_em=ISO(1), meta_lead_id="m1"))
+    _, enviados = _recusa(monkeypatch, linha=_linha(ego_lead_em=ISO(1), meta_lead_id="m1", criado_em=ISO(1)))
     assert lp.recusou_whatsapp("m1") == {"resultado": "ja_tratada"} and enviados == []
 
 
 def test_recusa_de_contacto_inexistente(monkeypatch):
+    monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
     monkeypatch.setattr(lp, "get_supabase", lambda: _BD([]))
     assert lp.recusou_whatsapp("nao-existe") is None
 

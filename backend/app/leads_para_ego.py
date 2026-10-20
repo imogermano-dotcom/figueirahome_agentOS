@@ -167,7 +167,10 @@ def recusou_whatsapp(meta_lead_id: str) -> dict | None:
     Quatro casos: (1) oportunidade ativa com consultor, não cria e devolve esse consultor para avisar; (2) já na caixa
     de leads, não cria; (3) contacto antigo ou (4) sem histórico, cria a lead. Se o eGO não responder à verificação,
     cria na mesma (perder a lead é pior que duplicá-la) e diz `verificado_no_ego: false`. Devolve `None` se o
-    contacto não existe. Falha do PUT levanta: a lead fica por marcar e o n8n vê o erro."""
+    contacto não existe. Falha do PUT levanta: a lead fica por marcar e o n8n vê o erro.
+    Desligado com `LEAD_COMPRA_EGO_DESDE` vazio, e nunca para contactos anteriores a essa data (o histórico não)."""
+    if not settings.lead_compra_ego_desde:
+        return {"resultado": "desligado", "criada": False}
     linhas = (get_supabase().table("contactos").select(_COLUNAS + ",ego_lead_em")
               .eq("meta_lead_id", meta_lead_id).limit(1).execute().data)
     if not linhas:
@@ -175,6 +178,8 @@ def recusou_whatsapp(meta_lead_id: str) -> dict | None:
     linha = linhas[0]
     if linha.get("ego_lead_em"):
         return {"resultado": "ja_tratada"}
+    if (_dt(linha.get("criado_em")) or datetime.min.replace(tzinfo=timezone.utc)) < _dt(settings.lead_compra_ego_desde):
+        return {"resultado": "anterior_a_ativacao", "criada": False}
     agora = datetime.now(timezone.utc)
     tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
     email = linha.get("email")
