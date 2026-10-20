@@ -80,3 +80,16 @@ async def require_automacao_access(
     ):
         return "automacao-secret"
     return await require_auth(authorization)
+
+
+async def require_n8n_access(
+    authorization: str = Header(None),
+    x_automacao_secret: str = Header(None, alias="X-Automacao-Secret"),
+    x_n8n_secret: str = Header(None, alias="X-N8N-Secret"),
+):
+    """Endpoints chamados pelo n8n: aceita o segredo PRÓPRIO do n8n (`X-N8N-Secret`) ou o que `require_automacao_access`
+    já aceitava. O n8n não precisa do `AUTOMACAO_SECRET` (que não se lê de volta e usam os crons e o GitHub), e o
+    segredo dele só abre estes endpoints, nunca os syncs nem o nudge. Segredo vazio nunca autentica."""
+    if settings.n8n_secret and x_n8n_secret and hmac.compare_digest(x_n8n_secret, settings.n8n_secret):
+        return "n8n-secret"
+    return await require_automacao_access(authorization, x_automacao_secret)

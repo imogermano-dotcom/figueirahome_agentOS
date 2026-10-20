@@ -265,12 +265,12 @@ def test_falha_do_put_nao_marca_e_levanta(monkeypatch):
 
 def test_endpoint_da_recusa_exige_segredo_e_devolve_404(monkeypatch):
     from fastapi.testclient import TestClient
-    from app.api.deps import require_automacao_access
+    from app.api.deps import require_n8n_access
     from app.main import app
 
     url = "/api/leads/meta/m1/recusou-whatsapp"
     assert TestClient(app).post(url).status_code == 401
-    app.dependency_overrides[require_automacao_access] = lambda: "teste"
+    app.dependency_overrides[require_n8n_access] = lambda: "teste"
     try:
         monkeypatch.setattr(lp, "recusou_whatsapp", lambda mid: None)
         assert TestClient(app).post(url).status_code == 404
@@ -278,6 +278,32 @@ def test_endpoint_da_recusa_exige_segredo_e_devolve_404(monkeypatch):
         assert TestClient(app).post(url).json() == {"resultado": "criada"}
     finally:
         app.dependency_overrides.clear()
+
+
+def test_segredo_do_n8n_abre_so_o_endpoint_da_recusa(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    monkeypatch.setattr(settings, "n8n_secret", "segredo-n8n")
+    monkeypatch.setattr(settings, "automacao_secret", "outro-segredo")
+    monkeypatch.setattr(lp, "recusou_whatsapp", lambda mid: {"resultado": "criada"})
+    c = TestClient(app)
+    recusa = "/api/leads/meta/m1/recusou-whatsapp"
+    assert c.post(recusa, headers={"X-N8N-Secret": "segredo-n8n"}).status_code == 200
+    assert c.post(recusa, headers={"X-N8N-Secret": "errado"}).status_code == 401
+    assert c.post(recusa, headers={"X-Automacao-Secret": "outro-segredo"}).status_code == 200  # o de antes continua
+    # o segredo do n8n não abre os outros endpoints de automação
+    assert c.post("/api/leads/meta/para-ego", headers={"X-N8N-Secret": "segredo-n8n"}).status_code == 401
+
+
+def test_segredo_do_n8n_vazio_nunca_autentica(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    monkeypatch.setattr(settings, "n8n_secret", "")
+    monkeypatch.setattr(settings, "automacao_secret", "")
+    r = TestClient(app).post("/api/leads/meta/m1/recusou-whatsapp", headers={"X-N8N-Secret": ""})
+    assert r.status_code == 401
 
 
 if __name__ == "__main__":

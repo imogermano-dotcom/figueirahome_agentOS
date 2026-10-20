@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     # Segredo próprio e não o de sync: quem ingere leads não tem de poder
     # disparar syncs do eGO, e rodar um não obriga a rodar o outro.
     automacao_secret: str = ""
+    n8n_secret: str = ""  # header X-N8N-Secret: só abre os endpoints que o n8n chama (`require_n8n_access`)
 
     # UptimeRobot — chave read-only, só getMonitors. O nosso próprio cron de
     # uptime foi desactivado 23/09 (redundante, o utilizador já tinha isto).
