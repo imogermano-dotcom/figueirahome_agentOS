@@ -36,8 +36,9 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 > o template **não** grava `template_enviado_em`) e, nos follow-ups, volta ao "Esperar 5s" para o lote continuar → **não**:
 > "Parar com erro (envio falhou)" (falha à vista, como antes; o contacto fica elegível). Os follow-ups leem com
 > `whatsapp_falhou_em=is.null`. Sem isto, um número mal formado à cabeça da fila parava a execução todos os dias e bloqueava
-> os seguintes. ⚠️ **O formato do erro do nó WhatsApp não foi confirmado com uma falha real**; se a regex não o apanhar, cai no
-> "Parar com erro" (comportamento antigo). O follow-up 72h da Matilde (`HRSMT5PRZYRZ7Oc1`) está **ativo** e recebeu esta alteração a 18/10 (era o 9.º fluxo de envio; tinha ficado de fora por constar como inativo).
+> os seguintes. ⚠️ **Formato do erro confirmado a 20/10 com uma falha real**: `json.error` é só «Bad request - please check your parameters» e a explicação («Parameter value is not valid») vai em `error.description`; a regex antiga (`JSON.stringify($json.error || $json)`) não a apanhava e o contacto caía no "Parar com erro", que parava o lote. Agora o teste é sobre o item inteiro (`JSON.stringify($json)`) e inclui `parameter value is not valid`.
+>
+> **Número com `00351…` (19–20/10).** O scraper do eGO reescreve `contactos.telefone` como `00351933…`, e o nó "Preparar texto e número" só juntava `351` a números de 9 dígitos: o envio falhava e, sem a regex certa, o 72h da Matilde parou 2 dias no mesmo contacto. `telefone_e164` passa a ser só dígitos, sem `00` inicial, com `351` aos 9 dígitos, nos 9 fluxos de envio (os templates de angariação e recrutamento recebem o `telefone_e164` já tratado do fluxo pai). O follow-up 72h da Matilde (`HRSMT5PRZYRZ7Oc1`) está **ativo** e recebeu esta alteração a 18/10 (era o 9.º fluxo de envio; tinha ficado de fora por constar como inativo).
 > ⚠️ Gravar um fluxo no editor com o separador aberto depois de uma edição por API repõe um rascunho por publicar.
 >
 > **Compra que recusa o WhatsApp (18/10, editado ao vivo, `4rDc9amm6HpO5F4j`).** O fluxo de envio da compra era o único sem aviso de
