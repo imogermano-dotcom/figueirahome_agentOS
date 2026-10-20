@@ -108,7 +108,7 @@
         "region": "ams",
         "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/leads/meta/para-ego -H \\\"X-Automacao-Secret: $AUTOMACAO_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 90\"",
         "command_timeout": 120,
-        "enabled": false,
+        "enabled": true,
         "config": {
             "metadata": { "fly_process_group": "cron" },
             "auto_destroy": true,
