@@ -356,5 +356,45 @@ def test_segredo_do_n8n_vazio_nunca_autentica(monkeypatch):
     assert r.status_code == 401
 
 
+# ── caminho InsertLead (EGO_CRIAR_LEAD_POR=api): preparado, desligado por omissão ─────────────────────────────
+
+
+def test_por_omissao_cria_pela_web_api():
+    assert settings.ego_criar_lead_por == "webapi"
+
+
+def test_corpo_do_insert_lead_segue_a_convencao_e_atribui_a_consultora_do_imovel():
+    c = lp.corpo_insert_lead(_linha(), "912345678", "obs", 30640811, 77529)
+    assert (c["originId"], c["subOriginId"], c["typeId"], c["masterLeadTypeId"]) == (11, 34798477, 4, 2)
+    assert c["realestateId"] == 30640811 and c["phone"] == "912345678" and c["email"] == "t@example.com"
+    assert c["assignToSecurityUserId"] == 77529 and c["assignToSecurityUserIDList"] == [77529]
+    assert "leadTypeId" not in c and "externalId" not in c and c["labels"] == []
+
+
+def test_corpo_do_insert_lead_sem_consultora_nao_inventa_atribuicao():
+    c = lp.corpo_insert_lead(_linha(), "912345678", "obs", None, None)
+    assert "assignToSecurityUserId" not in c and c["assignToSecurityUserIDList"] == [] and "realestateId" not in c
+
+
+def test_criar_pelo_insert_lead_devolve_o_id_e_nao_toca_na_web_api(monkeypatch):
+    monkeypatch.setattr(settings, "ego_criar_lead_por", "api")
+    monkeypatch.setattr(lp.ego_api, "imovel", lambda ref: {"id": 30640811, "securityUserId": 77529})
+    monkeypatch.setattr(lp.egorealestate, "inserir_lead_webapi", lambda *a: pytest.fail("não devia usar a Web API"))
+    enviados = []
+    monkeypatch.setattr(lp.ego_api, "inserir_lead", lambda corpo: enviados.append(corpo) or 60550999)
+    assert lp._criar_lead(_linha(), "912345678", recusou=True) == 60550999
+    assert enviados[0]["realestateId"] == 30640811 and enviados[0]["assignToSecurityUserId"] == 77529
+    assert "recusou o WhatsApp" in enviados[0]["observation"] and "FH0001" not in enviados[0]["observation"]
+
+
+def test_recusa_pelo_insert_lead_grava_o_id_sem_ir_a_caixa(monkeypatch):
+    bd, _ = _recusa(monkeypatch)
+    monkeypatch.setattr(settings, "ego_criar_lead_por", "api")
+    monkeypatch.setattr(lp, "_criar_lead", lambda *a, **k: 60550999)
+    monkeypatch.setattr(lp, "_id_da_lead", lambda *a: pytest.fail("o id já veio do InsertLead"))
+    r = lp.recusou_whatsapp("m1")
+    assert r["criada"] and bd.updates[0][1]["ego_lead_id"] == 60550999
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

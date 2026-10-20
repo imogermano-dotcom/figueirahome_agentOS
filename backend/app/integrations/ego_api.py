@@ -94,6 +94,12 @@ def imovel_id(referencia: str) -> int | None:
     return next((x["id"] for x in d.get("realestatesByPageDto") or [] if x.get("reference") == referencia), None)
 
 
+def imovel(referencia: str) -> dict | None:
+    """Imóvel pela referência exata: `id` (o `realestateId` da lead) e `securityUserId` (a consultora do imóvel)."""
+    d = _pedido("POST", "/realestate/Realestate/ListRealestateByPage", json={"reference": referencia})
+    return next((x for x in d.get("realestatesByPageDto") or [] if x.get("reference") == referencia), None)
+
+
 def oportunidades_editadas_desde(horas: int) -> int:
     """Quantas oportunidades ativas foram editadas nas últimas `horas` (hora de Lisboa, como o `alterDate` do eGO).
 

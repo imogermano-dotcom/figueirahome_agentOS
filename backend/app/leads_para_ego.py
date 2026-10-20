@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 JANELA_HORAS = 2
 HORA_ABRE, HORA_FECHA = 9, 20  # o cron só cria leads das 9h às 20h de Lisboa: uma lead das 23h espera pelas 9h (a consultora só liga de dia)
 LIMITE_POR_VOLTA = 20
+# Convenção do Miguel nas leads da campanha que pôs à mão a 17/10 (ids da agência 6429, não são segredo), usada pelo
+# caminho `api` (InsertLead). A Web API põe sempre origem Internet / «www.figueirahome.com» (como as leads do site).
+_ORIGEM_OUTROS = 11
+_SUBORIGEM_FACEBOOK_CAMPANHA = 34798477
+_TIPO_PEDIDO_DE_INFORMACAO = 4
+_MASTER_VENDA = 2
 
 _COLUNAS = ("id,nome,telefone,telemovel,email,meta_lead_id,imovel_ref,ad_name,meta_form_name,criado_em,"
             "template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em")
@@ -65,6 +71,33 @@ def _ego_id_do_imovel(ref: str | None) -> int | None:
         return None
     resp = get_supabase().table("imoveis").select("ego_id").eq("imovel_ref", ref).limit(1).execute()
     return (resp.data[0].get("ego_id") if resp.data else None) or None
+
+
+def corpo_insert_lead(linha: dict, tel: str | None, observacao: str, imovel_id: int | None, consultor_id: int | None) -> dict:
+    """Corpo do `InsertLead`. Sem `assignToSecurityUserId` a lead fica invisível (teste de 21/10, outra agência), por isso
+    vai atribuída à consultora do imóvel (`securityUserId` do imóvel). `typeId`, não `leadTypeId` (esse é ignorado)."""
+    nome = linha.get("nome") or "Lead Meta compra"
+    atribuicao = ({"assignToSecurityUserId": consultor_id, "assignToSecurityUserIDList": [consultor_id]}
+                  if consultor_id else {})
+    return ego_api.corpo_de_lead(
+        title=nome, name=nome, phone=tel, email=linha.get("email"), observation=observacao,
+        originId=_ORIGEM_OUTROS, subOriginId=_SUBORIGEM_FACEBOOK_CAMPANHA, typeId=_TIPO_PEDIDO_DE_INFORMACAO,
+        masterLeadTypeId=_MASTER_VENDA, realestateId=imovel_id, **atribuicao)
+
+
+def _criar_lead(linha: dict, tel: str | None, recusou: bool = False, ja_conhecido: bool = False) -> int | None:
+    """Cria a lead no eGO pelo caminho de `EGO_CRIAR_LEAD_POR` e devolve o id se o caminho o der (a Web API não o dá).
+    Levanta se o eGO recusar: a lead fica por marcar."""
+    ref = linha.get("imovel_ref")
+    if settings.ego_criar_lead_por == "api":
+        im = ego_api.imovel(ref) if ref else None
+        obs = observacao_da_lead(linha, bool(im), recusou, ja_conhecido)
+        return ego_api.inserir_lead(corpo_insert_lead(linha, tel, obs, (im or {}).get("id"), (im or {}).get("securityUserId")))
+    ego_id = _ego_id_do_imovel(ref)
+    ident = egorealestate.inserir_lead_webapi(
+        linha.get("nome") or "Lead Meta compra", linha.get("email"), tel,
+        observacao_da_lead(linha, bool(ego_id), recusou, ja_conhecido), ego_id)
+    return int(ident) if ident and str(ident).isdigit() else None
 
 
 def _ja_nas_leads(linha: dict, leads: list[dict]) -> bool:
@@ -133,12 +166,9 @@ def processar(agora: datetime | None = None) -> dict:
                 contagem["erros"] += 1
                 continue
             else:
-                ego_id = _ego_id_do_imovel(linha.get("imovel_ref"))
-                ident = egorealestate.inserir_lead_webapi(
-                    linha.get("nome") or "Lead Meta compra", linha.get("email"), tel,
-                    observacao_da_lead(linha, bool(ego_id)), ego_id)
-                if ident and ident.isdigit():
-                    marca["ego_lead_id"] = int(ident)
+                ident = _criar_lead(linha, tel)
+                if ident:
+                    marca["ego_lead_id"] = ident
                 contagem["criadas"] += 1
             get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
         except Exception:
@@ -217,11 +247,9 @@ def recusou_whatsapp(meta_lead_id: str) -> dict | None:
                 "email_responsavel": None}
     else:
         resultado = "criada"
-        ego_id = _ego_id_do_imovel(linha.get("imovel_ref"))
-        egorealestate.inserir_lead_webapi(
-            linha.get("nome") or "Lead Meta compra", email, tel,
-            observacao_da_lead(linha, bool(ego_id), recusou=True, ja_conhecido=_contacto_conhecido(linha, tel)), ego_id)
-        id_lead = _id_da_lead(tel, email) if verificado else None
+        id_lead = _criar_lead(linha, tel, recusou=True, ja_conhecido=_contacto_conhecido(linha, tel))
+        if not id_lead and verificado:  # a Web API não devolve o id: apanha-se na caixa do eGO (melhor esforço)
+            id_lead = _id_da_lead(tel, email)
         if id_lead:
             marca["ego_lead_id"] = id_lead
     get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()

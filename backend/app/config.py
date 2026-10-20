@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     egoapi_base_url: str = "https://api.egocrm.com"
     # Leads de compra da Meta sem resposta ao WhatsApp → eGO (`docs/fases/lead-compra-para-ego-plano.md`).
     # Data ISO a partir da qual as leads entram. Vazio = desligado: nunca envia, nem o histórico.
+    # Como se cria a lead de compra no eGO: "webapi" (PUT /v1/Lead, o do Make; por omissão) ou "api" (InsertLead, precisa
+    # de internetlead/insert no utilizador da API). Muda-se no Fly sem deploy.
+    ego_criar_lead_por: str = "webapi"
     lead_compra_ego_desde: str = ""
 
     # Scraper de relatório eGO (jmarques_todas_as_colunas) — app Fly.io
