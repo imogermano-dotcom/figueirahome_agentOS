@@ -84,3 +84,26 @@ async def get_property_detail(ego_id: int) -> dict:
         propriedades = data.get("Properties") or []
         return propriedades[0] if propriedades else {}
     return data
+
+
+# `CTY` do pedido que o Make fazia (capturas de 19/10): valor fixo da configuração antiga; presumivelmente o tipo de contacto.
+_CTY_LEAD = 4
+
+
+def inserir_lead_webapi(nome: str | None, email: str | None, telefone: str | None, observacao: str,
+                        ego_id: int | None) -> str | None:
+    """Cria uma lead no eGO pela Web API (`PUT /v1/Lead`, parâmetros na query), como o Make fazia. `ego_id` é o
+    `imoveis.ego_id` (o `RID` da Web API). Síncrona: corre no executor do cron. Levanta em erro HTTP; devolve o id
+    da lead se a resposta o trouxer (formato por confirmar), senão `None`.
+    ponytail: resposta e obrigatoriedade do RID por confirmar com o primeiro teste real."""
+    params = {"CTY": _CTY_LEAD, "NAM": nome or "", "EML": email or "", "PHO": telefone or "", "OBS": observacao}
+    if ego_id:
+        params["RID"] = ego_id
+    resp = httpx.put(f"{settings.egorealestate_base_url}/v1/Lead", headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    try:
+        corpo = resp.json()
+    except ValueError:
+        return None
+    ident = corpo.get("ID") or corpo.get("Id") or corpo.get("id") if isinstance(corpo, dict) else None
+    return str(ident) if ident else None

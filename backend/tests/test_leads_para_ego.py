@@ -45,13 +45,11 @@ def test_sem_template_nem_falha_nao_vai():
     assert not lp.elegivel(_linha(template_enviado_em=None), AGORA)
 
 
-def test_corpo_da_lead_segue_a_convencao_do_miguel():
-    c = lp.corpo_da_lead(_linha(whatsapp_falhou_em=ISO(1)), imovel_id=30640811)
-    assert (c["originId"], c["subOriginId"], c["typeId"], c["masterLeadTypeId"]) == (11, 34798477, 4, 2)
-    assert c["realestateId"] == 30640811 and "externalId" not in c and c["phone"] == "912345678" and c["labels"] == []
-    assert "Anúncio X" in c["observation"] and "não recebeu" in c["observation"]
-    assert "FH0001" not in c["observation"], "com imóvel ligado a ref não vai no texto"
-    assert "FH0001" in lp.corpo_da_lead(_linha())["observation"], "sem id do imóvel, a ref vai no texto"
+def test_observacao_da_lead():
+    o = lp.observacao_da_lead(_linha(whatsapp_falhou_em=ISO(1)), com_imovel=True)
+    assert "Anúncio X" in o and "não recebeu" in o
+    assert "FH0001" not in o, "com imóvel ligado a ref não vai no texto"
+    assert "FH0001" in lp.observacao_da_lead(_linha(), com_imovel=False), "sem id do imóvel, a ref vai no texto"
 
 
 def test_ja_nas_leads_por_telefone_ou_email():
@@ -86,15 +84,15 @@ class _BD:
 
     def execute(self):
         if self._t == "oportunidades":
-            return type("R", (), {"data": [{"oportunidade_ref": "x"}] if self.oportunidade else []})()
+            return type("R", (), {"data": [{"oportunidade_ref": "x", "responsavel": "Ana Teste"}] if self.oportunidade else []})()
         return type("R", (), {"data": self.contactos})()
 
 
 def _usa(monkeypatch, bd, enviar, leads=()):
     monkeypatch.setattr(lp, "get_supabase", lambda: bd)
-    monkeypatch.setattr(lp.ego_api, "inserir_lead", enviar)
+    monkeypatch.setattr(lp.egorealestate, "inserir_lead_webapi", enviar)
     monkeypatch.setattr(lp.ego_api, "leads_abertas", lambda: list(leads))
-    monkeypatch.setattr(lp.ego_api, "imovel_id", lambda ref: 30640811)
+    monkeypatch.setattr(lp, "_ego_id_do_imovel", lambda ref: 30640811)
     monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
 
 
@@ -106,7 +104,7 @@ def test_desligado_com_data_vazia(monkeypatch):
 
 def test_cria_e_marca(monkeypatch):
     bd = _BD([_linha()])
-    _usa(monkeypatch, bd, lambda corpo: 555)
+    _usa(monkeypatch, bd, lambda *a: "555")
     r = lp.processar(AGORA)
     assert (r["criadas"], r["erros"]) == (1, 0)
     assert bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat(), "ego_lead_id": 555})]
@@ -114,21 +112,21 @@ def test_cria_e_marca(monkeypatch):
 
 def test_pessoa_com_oportunidade_ativa_nao_cria_mas_marca(monkeypatch):
     bd = _BD([_linha()], oportunidade=True)
-    _usa(monkeypatch, bd, lambda corpo: pytest.fail("não devia criar"))
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
     r = lp.processar(AGORA)
     assert r["ja_existiam"] == 1 and bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat()})]
 
 
 def test_pessoa_ja_na_caixa_de_leads_nao_cria_mas_marca(monkeypatch):
     bd = _BD([_linha()])
-    _usa(monkeypatch, bd, lambda corpo: pytest.fail("não devia criar"), leads=[{"phone": "+351912345678"}])
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"), leads=[{"phone": "+351912345678"}])
     r = lp.processar(AGORA)
     assert r["ja_existiam"] == 1 and bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat()})]
 
 
 def test_sem_conseguir_ler_as_leads_nao_cria_nada(monkeypatch):
     bd = _BD([_linha()])
-    _usa(monkeypatch, bd, lambda corpo: pytest.fail("não devia criar"))
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
 
     def _rebenta():
         raise RuntimeError("503")
@@ -140,7 +138,7 @@ def test_sem_conseguir_ler_as_leads_nao_cria_nada(monkeypatch):
 def test_falha_da_api_nao_marca(monkeypatch):
     bd = _BD([_linha()])
 
-    def _rebenta(corpo):
+    def _rebenta(*a):
         raise RuntimeError("403")
     _usa(monkeypatch, bd, _rebenta)
     r = lp.processar(AGORA)
@@ -150,9 +148,136 @@ def test_falha_da_api_nao_marca(monkeypatch):
 def test_resposta_sem_id_marca_na_mesma(monkeypatch):
     """HTTP 2xx = criada; repetir criava duplicado."""
     bd = _BD([_linha()])
-    _usa(monkeypatch, bd, lambda corpo: None)
+    _usa(monkeypatch, bd, lambda *a: None)
     lp.processar(AGORA)
-    assert bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat(), "ego_lead_id": None})]
+    assert bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat()})]
+
+
+def test_envia_os_campos_da_web_api(monkeypatch):
+    bd = _BD([_linha(whatsapp_falhou_em=ISO(1))])
+    recebido = []
+    _usa(monkeypatch, bd, lambda *a: recebido.append(a))
+    lp.processar(AGORA)
+    nome, email, tel, obs, ego_id = recebido[0]
+    assert (nome, email, tel, ego_id) == ("Teste", "t@example.com", "912345678", 30640811)
+    assert "Anúncio X" in obs and "FH0001" not in obs
+
+
+def test_web_api_put_com_query_do_make(monkeypatch):
+    from app.integrations import egorealestate as eg
+
+    visto = {}
+
+    class R:
+        def raise_for_status(self): pass
+        def json(self): return {"ID": 77}
+
+    def put(url, headers=None, params=None, timeout=None):
+        visto.update(url=url, params=params, headers=headers)
+        return R()
+
+    monkeypatch.setattr(eg.httpx, "put", put)
+    assert eg.inserir_lead_webapi("Ana", "a@example.com", "912345678", "obs", 25352543) == "77"
+    assert visto["url"].endswith("/v1/Lead")
+    assert visto["params"] == {"CTY": 4, "NAM": "Ana", "EML": "a@example.com", "PHO": "912345678", "OBS": "obs",
+                               "RID": 25352543}
+    assert "AuthorizationToken" in visto["headers"]
+    visto.clear()
+    eg.inserir_lead_webapi("Ana", None, None, "obs", None)
+    assert "RID" not in visto["params"] and visto["params"]["EML"] == ""
+
+
+# ── recusou o WhatsApp: vai logo, a par do email (n8n) ─────────────────────────────────────────────────────────
+
+
+def _recusa(monkeypatch, linha=None, *, responsavel=None, caixa=(), ler_rebenta=False, conhecido=False):
+    bd = _BD([linha or _linha(template_enviado_em=None, meta_lead_id="m1")])
+    enviados = []
+
+    def ler():
+        if ler_rebenta:
+            raise RuntimeError("eGO em baixo")
+        return list(caixa)
+
+    monkeypatch.setattr(lp, "get_supabase", lambda: bd)
+    monkeypatch.setattr(lp.ego_api, "leads_abertas", ler)
+    monkeypatch.setattr(lp, "_responsavel_da_oportunidade", lambda tel, email=None: responsavel)
+    monkeypatch.setattr(lp, "_email_do_responsavel", lambda nome: "ana@example.com" if nome else None)
+    monkeypatch.setattr(lp, "_contacto_conhecido", lambda linha, tel: conhecido)
+    monkeypatch.setattr(lp, "_ego_id_do_imovel", lambda ref: 30640811)
+    monkeypatch.setattr(lp.egorealestate, "inserir_lead_webapi", lambda *a: enviados.append(a))
+    return bd, enviados
+
+
+def test_recusa_sem_historico_cria_logo_sem_esperar(monkeypatch):
+    bd, enviados = _recusa(monkeypatch)  # sem template nem tempo de espera
+    r = lp.recusou_whatsapp("m1")
+    assert r["resultado"] == "criada" and r["criada"] and r["verificado_no_ego"]
+    assert len(enviados) == 1 and "recusou o WhatsApp" in enviados[0][3] and enviados[0][4] == 30640811
+    assert bd.updates and "ego_lead_em" in bd.updates[0][1]
+
+
+def test_recusa_de_pessoa_com_oportunidade_ativa_nao_cria_e_diz_a_quem_avisar(monkeypatch):
+    bd, enviados = _recusa(monkeypatch, responsavel="Ana Teste")
+    r = lp.recusou_whatsapp("m1")
+    assert r["resultado"] == "oportunidade_ativa" and not r["criada"]
+    assert (r["responsavel"], r["email_responsavel"]) == ("Ana Teste", "ana@example.com")
+    assert enviados == [] and bd.updates, "marca para o n8n não repetir"
+
+
+def test_recusa_de_pessoa_ja_na_caixa_de_leads_nao_cria(monkeypatch):
+    _, enviados = _recusa(monkeypatch, caixa=[{"phone": "+351912345678"}])
+    assert lp.recusou_whatsapp("m1")["resultado"] == "ja_na_caixa" and enviados == []
+
+
+def test_recusa_de_contacto_antigo_cria_e_diz_que_ja_existia(monkeypatch):
+    _, enviados = _recusa(monkeypatch, conhecido=True)
+    assert lp.recusou_whatsapp("m1")["criada"] and "já existente no eGO" in enviados[0][3]
+
+
+def test_recusa_com_eGO_em_baixo_cria_na_mesma_e_diz_que_nao_verificou(monkeypatch):
+    _, enviados = _recusa(monkeypatch, ler_rebenta=True)
+    r = lp.recusou_whatsapp("m1")
+    assert r["criada"] and r["verificado_no_ego"] is False and len(enviados) == 1
+
+
+def test_recusa_ja_tratada_nao_repete(monkeypatch):
+    _, enviados = _recusa(monkeypatch, linha=_linha(ego_lead_em=ISO(1), meta_lead_id="m1"))
+    assert lp.recusou_whatsapp("m1") == {"resultado": "ja_tratada"} and enviados == []
+
+
+def test_recusa_de_contacto_inexistente(monkeypatch):
+    monkeypatch.setattr(lp, "get_supabase", lambda: _BD([]))
+    assert lp.recusou_whatsapp("nao-existe") is None
+
+
+def test_falha_do_put_nao_marca_e_levanta(monkeypatch):
+    bd, _ = _recusa(monkeypatch)
+
+    def rebenta(*a):
+        raise RuntimeError("PUT falhou")
+
+    monkeypatch.setattr(lp.egorealestate, "inserir_lead_webapi", rebenta)
+    with pytest.raises(RuntimeError):
+        lp.recusou_whatsapp("m1")
+    assert bd.updates == []
+
+
+def test_endpoint_da_recusa_exige_segredo_e_devolve_404(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.api.deps import require_automacao_access
+    from app.main import app
+
+    url = "/api/leads/meta/m1/recusou-whatsapp"
+    assert TestClient(app).post(url).status_code == 401
+    app.dependency_overrides[require_automacao_access] = lambda: "teste"
+    try:
+        monkeypatch.setattr(lp, "recusou_whatsapp", lambda mid: None)
+        assert TestClient(app).post(url).status_code == 404
+        monkeypatch.setattr(lp, "recusou_whatsapp", lambda mid: {"resultado": "criada"})
+        assert TestClient(app).post(url).json() == {"resultado": "criada"}
+    finally:
+        app.dependency_overrides.clear()
 
 
 if __name__ == "__main__":

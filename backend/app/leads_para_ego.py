@@ -2,6 +2,7 @@
 
 Pedido do Miguel: se a pessoa não responde à Matilde em 2 h, um consultor tem de lhe ligar. O eGO atribui o
 consultor sozinho (regra de entrega da agência); aqui só se cria a lead, uma vez por contacto.
+A criação usa a Web API (`PUT /v1/Lead`, a configuração antiga do Make) enquanto a API nova (`InsertLead`) não tem permissão.
 
 Travão: `contactos.ego_lead_em` (0050). Só leads criadas depois de `LEAD_COMPRA_EGO_DESDE` — o histórico nunca.
 """
@@ -12,17 +13,12 @@ from datetime import datetime, timedelta, timezone
 from app.agents.broker.guards import normalizar_telefone
 from app.config import settings
 from app.db.supabase_client import get_supabase
-from app.integrations import ego_api
+from app.integrations import ego_api, egorealestate
 
 logger = logging.getLogger(__name__)
 
 JANELA_HORAS = 2
 LIMITE_POR_VOLTA = 20
-# Convenção do Miguel nas leads da campanha que pôs à mão a 17/10 (ids da agência 6429, não são segredo):
-_ORIGEM_OUTROS = 11
-_SUBORIGEM_FACEBOOK_CAMPANHA = 34798477
-_TIPO_PEDIDO_DE_INFORMACAO = 4
-_MASTER_VENDA = 2
 
 _COLUNAS = ("id,nome,telefone,telemovel,email,meta_lead_id,imovel_ref,ad_name,meta_form_name,criado_em,"
             "template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em")
@@ -42,26 +38,26 @@ def elegivel(linha: dict, agora: datetime) -> bool:
     return bool(template and template <= agora - timedelta(hours=JANELA_HORAS))
 
 
-def corpo_da_lead(linha: dict, imovel_id: int | None = None) -> dict:
-    """Corpo de `InsertLead`, como as leads da campanha que o Miguel pôs à mão. Sem a conversa."""
+def observacao_da_lead(linha: dict, com_imovel: bool, recusou: bool = False, ja_conhecido: bool = False) -> str:
+    """Texto do campo OBS da lead no eGO. Sem a conversa."""
     obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads",
-           "sem resposta ao WhatsApp da Matilde."]
-    if linha.get("imovel_ref") and not imovel_id:
+           "recusou o WhatsApp: contactar por telefone, nunca por WhatsApp." if recusou
+           else "sem resposta ao WhatsApp da Matilde."]
+    if ja_conhecido:
+        obs.append("Contacto já existente no eGO.")
+    if linha.get("imovel_ref") and not com_imovel:
         obs.append(f"Imóvel de interesse: {linha['imovel_ref']}.")
     if linha.get("whatsapp_falhou_em"):
         obs.append("O número não recebeu a mensagem (sem WhatsApp ou inativo).")
-    return ego_api.corpo_de_lead(
-        title=linha.get("nome") or "Lead Meta compra",
-        name=linha.get("nome"),
-        phone=normalizar_telefone(linha.get("telefone") or linha.get("telemovel")),
-        email=linha.get("email"),
-        observation=" ".join(obs),
-        originId=_ORIGEM_OUTROS,
-        subOriginId=_SUBORIGEM_FACEBOOK_CAMPANHA,
-        typeId=_TIPO_PEDIDO_DE_INFORMACAO,
-        masterLeadTypeId=_MASTER_VENDA,
-        realestateId=imovel_id,
-    )
+    return " ".join(obs)
+
+
+def _ego_id_do_imovel(ref: str | None) -> int | None:
+    """`imoveis.ego_id` = `RID` da Web API."""
+    if not ref:
+        return None
+    resp = get_supabase().table("imoveis").select("ego_id").eq("imovel_ref", ref).limit(1).execute()
+    return (resp.data[0].get("ego_id") if resp.data else None) or None
 
 
 def _ja_nas_leads(linha: dict, leads: list[dict]) -> bool:
@@ -74,16 +70,23 @@ def _ja_nas_leads(linha: dict, leads: list[dict]) -> bool:
     )
 
 
+def _responsavel_da_oportunidade(telefone: str | None, email: str | None = None) -> str | None:
+    """Consultor de uma oportunidade ativa deste número ou email (espelho do eGO, atraso até ~1 dia)."""
+    tabela = get_supabase().table("oportunidades")
+    base = lambda: tabela.select("responsavel").eq("oportunidade_estado", "Ativa").not_.is_("responsavel", "null")  # noqa: E731
+    if telefone and len(telefone) >= 9:
+        r = base().ilike("cliente_telefone", f"%{telefone[-9:]}%").limit(1).execute().data
+        if r:
+            return r[0]["responsavel"]
+    if email:
+        r = base().ilike("cliente_email", email.strip()).limit(1).execute().data
+        if r:
+            return r[0]["responsavel"]
+    return None
+
+
 def _ja_tem_oportunidade(telefone: str | None) -> bool:
-    """Oportunidade ativa com consultor para este número (espelho do eGO, atraso até ~1 dia)."""
-    if not telefone or len(telefone) < 9:
-        return False
-    resp = (
-        get_supabase().table("oportunidades").select("oportunidade_ref")
-        .eq("oportunidade_estado", "Ativa").not_.is_("responsavel", "null")
-        .ilike("cliente_telefone", f"%{telefone[-9:]}%").limit(1).execute()
-    )
-    return bool(resp.data)
+    return bool(_responsavel_da_oportunidade(telefone))
 
 
 def _candidatas(agora: datetime) -> list[dict]:
@@ -117,11 +120,87 @@ def processar(agora: datetime | None = None) -> dict:
             if _ja_nas_leads(linha, leads) or _ja_tem_oportunidade(tel):
                 contagem["ja_existiam"] += 1
             else:
-                imovel = ego_api.imovel_id(linha["imovel_ref"]) if linha.get("imovel_ref") else None
-                marca["ego_lead_id"] = ego_api.inserir_lead(corpo_da_lead(linha, imovel))
+                ego_id = _ego_id_do_imovel(linha.get("imovel_ref"))
+                ident = egorealestate.inserir_lead_webapi(
+                    linha.get("nome") or "Lead Meta compra", linha.get("email"), tel,
+                    observacao_da_lead(linha, bool(ego_id)), ego_id)
+                if ident and ident.isdigit():
+                    marca["ego_lead_id"] = int(ident)
                 contagem["criadas"] += 1
             get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
         except Exception:
             logger.exception("Falha a enviar a lead %s para o eGO", linha["id"])
             contagem["erros"] += 1
     return contagem
+
+
+def _email_do_responsavel(nome: str | None) -> str | None:
+    if not nome:
+        return None
+    r = get_supabase().table("profiles").select("email").eq("ego_responsavel", nome).limit(1).execute().data
+    return (r[0].get("email") if r else None) or None
+
+
+def _contacto_conhecido(linha: dict, tel: str | None) -> bool:
+    """Já há outro contacto do eGO com este telefone (`ego_link`): pessoa de uma campanha antiga."""
+    if not tel or len(tel) < 9:
+        return False
+    r = (get_supabase().table("contactos").select("id").not_.is_("ego_link", "null")
+         .ilike("telefone", f"%{tel[-9:]}%").neq("id", linha["id"]).limit(1).execute().data)
+    return bool(r)
+
+
+def _id_da_lead(tel: str | None, email: str | None) -> int | None:
+    """Confirma na caixa de leads do eGO e devolve o id (o PUT da Web API pode não o devolver). Melhor esforço."""
+    try:
+        for l in ego_api.leads_abertas():
+            if _ja_nas_leads({"telefone": tel, "email": email}, [l]) and str(l.get("id", "")).isdigit():
+                return int(l["id"])
+    except Exception:
+        logger.warning("Não foi possível confirmar a lead no eGO", exc_info=True)
+    return None
+
+
+def recusou_whatsapp(meta_lead_id: str) -> dict | None:
+    """Comprador que recusou o WhatsApp: tem de ficar no eGO já, sem esperar 2 h (chamado pelo n8n, a par do email).
+
+    Quatro casos: (1) oportunidade ativa com consultor, não cria e devolve esse consultor para avisar; (2) já na caixa
+    de leads, não cria; (3) contacto antigo ou (4) sem histórico, cria a lead. Se o eGO não responder à verificação,
+    cria na mesma (perder a lead é pior que duplicá-la) e diz `verificado_no_ego: false`. Devolve `None` se o
+    contacto não existe. Falha do PUT levanta: a lead fica por marcar e o n8n vê o erro."""
+    linhas = (get_supabase().table("contactos").select(_COLUNAS + ",ego_lead_em")
+              .eq("meta_lead_id", meta_lead_id).limit(1).execute().data)
+    if not linhas:
+        return None
+    linha = linhas[0]
+    if linha.get("ego_lead_em"):
+        return {"resultado": "ja_tratada"}
+    agora = datetime.now(timezone.utc)
+    tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
+    email = linha.get("email")
+
+    try:
+        na_caixa = _ja_nas_leads(linha, ego_api.leads_abertas())
+        verificado = True
+    except Exception:
+        logger.exception("Falha a ler as leads do eGO — a criar sem confirmar")
+        na_caixa, verificado = False, False
+
+    responsavel = _responsavel_da_oportunidade(tel, email)
+    marca = {"ego_lead_em": agora.isoformat()}
+    if responsavel:
+        resultado = "oportunidade_ativa"
+    elif na_caixa:
+        resultado = "ja_na_caixa"
+    else:
+        resultado = "criada"
+        ego_id = _ego_id_do_imovel(linha.get("imovel_ref"))
+        egorealestate.inserir_lead_webapi(
+            linha.get("nome") or "Lead Meta compra", email, tel,
+            observacao_da_lead(linha, bool(ego_id), recusou=True, ja_conhecido=_contacto_conhecido(linha, tel)), ego_id)
+        id_lead = _id_da_lead(tel, email) if verificado else None
+        if id_lead:
+            marca["ego_lead_id"] = id_lead
+    get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
+    return {"resultado": resultado, "criada": resultado == "criada", "verificado_no_ego": verificado,
+            "responsavel": responsavel, "email_responsavel": _email_do_responsavel(responsavel)}
