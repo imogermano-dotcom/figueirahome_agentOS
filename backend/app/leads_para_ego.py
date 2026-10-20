@@ -178,7 +178,8 @@ def recusou_whatsapp(meta_lead_id: str) -> dict | None:
     linha = linhas[0]
     if linha.get("ego_lead_em"):
         return {"resultado": "ja_tratada"}
-    if (_dt(linha.get("criado_em")) or datetime.min.replace(tzinfo=timezone.utc)) < _dt(settings.lead_compra_ego_desde):
+    # `contactos.criado_em` é uma `date` (sem hora): compara-se por dia
+    if str(linha.get("criado_em") or "")[:10] < str(settings.lead_compra_ego_desde)[:10]:
         return {"resultado": "anterior_a_ativacao", "criada": False}
     agora = datetime.now(timezone.utc)
     tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))

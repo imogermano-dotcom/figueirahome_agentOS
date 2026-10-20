@@ -254,6 +254,14 @@ def test_recusa_de_contacto_anterior_a_ativacao_nao_cria(monkeypatch):
     assert lp.recusou_whatsapp("m1")["resultado"] == "anterior_a_ativacao" and enviados == []
 
 
+def test_recusa_com_criado_em_so_data_como_na_base(monkeypatch):
+    """`contactos.criado_em` é `date` ('2026-10-17'), não timestamp: a comparação não pode rebentar."""
+    _, enviados = _recusa(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em="2026-10-17"))
+    assert lp.recusou_whatsapp("m1")["criada"] and len(enviados) == 1
+    _, enviados = _recusa(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em="2026-10-16"))
+    assert lp.recusou_whatsapp("m1")["resultado"] == "anterior_a_ativacao" and enviados == []
+
+
 def test_recusa_ja_tratada_nao_repete(monkeypatch):
     _, enviados = _recusa(monkeypatch, linha=_linha(ego_lead_em=ISO(1), meta_lead_id="m1", criado_em=ISO(1)))
     assert lp.recusou_whatsapp("m1") == {"resultado": "ja_tratada"} and enviados == []
