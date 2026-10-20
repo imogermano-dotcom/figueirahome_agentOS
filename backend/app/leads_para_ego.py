@@ -119,6 +119,10 @@ def processar(agora: datetime | None = None) -> dict:
             tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
             if _ja_nas_leads(linha, leads) or _ja_tem_oportunidade(tel):
                 contagem["ja_existiam"] += 1
+            elif not (linha.get("email") or "").strip():  # a Web API recusa sem email: fica por criar, à vista
+                logger.warning("Lead %s sem email: não se cria no eGO (Web API exige)", linha["id"])
+                contagem["erros"] += 1
+                continue
             else:
                 ego_id = _ego_id_do_imovel(linha.get("imovel_ref"))
                 ident = egorealestate.inserir_lead_webapi(
@@ -198,6 +202,10 @@ def recusou_whatsapp(meta_lead_id: str) -> dict | None:
         resultado = "oportunidade_ativa"
     elif na_caixa:
         resultado = "ja_na_caixa"
+    elif not (email or "").strip():
+        # a Web API devolve 400 sem email (teste de 20/10); os formulários da Meta obrigam a pô-lo, por isso é raro
+        return {"resultado": "sem_email", "criada": False, "verificado_no_ego": verificado, "responsavel": None,
+                "email_responsavel": None}
     else:
         resultado = "criada"
         ego_id = _ego_id_do_imovel(linha.get("imovel_ref"))

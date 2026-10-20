@@ -262,6 +262,19 @@ def test_recusa_com_criado_em_so_data_como_na_base(monkeypatch):
     assert lp.recusou_whatsapp("m1")["resultado"] == "anterior_a_ativacao" and enviados == []
 
 
+def test_recusa_sem_email_nao_chama_o_eGO_e_diz_porque(monkeypatch):
+    bd, enviados = _recusa(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em=ISO(1), email=None))
+    r = lp.recusou_whatsapp("m1")
+    assert r["resultado"] == "sem_email" and not r["criada"] and enviados == [] and bd.updates == []
+
+
+def test_cron_sem_email_nao_cria_nem_marca(monkeypatch):
+    bd = _BD([_linha(email="")])
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
+    r = lp.processar(AGORA)
+    assert (r["criadas"], r["erros"]) == (0, 1) and bd.updates == []
+
+
 def test_recusa_ja_tratada_nao_repete(monkeypatch):
     _, enviados = _recusa(monkeypatch, linha=_linha(ego_lead_em=ISO(1), meta_lead_id="m1", criado_em=ISO(1)))
     assert lp.recusou_whatsapp("m1") == {"resultado": "ja_tratada"} and enviados == []
