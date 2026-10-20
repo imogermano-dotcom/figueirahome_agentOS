@@ -55,7 +55,7 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 > `X-N8N-Secret`, valor = segredo `N8N_SECRET` do Fly), 60 s, `onError: continueRegularOutput`. O backend decide quatro casos (oportunidade ativa → não
 > cria e devolve o consultor; já na caixa; contacto antigo; sem histórico → cria pela Web API do eGO) e o email passa a ter uma linha `eGO:` com o
 > resultado (e a pôr em `to` o consultor da oportunidade). Testado a 20/10 (execução manual com pin): a Web API deu 400 sem email e 200 com ele; a lead
-> entrou no eGO e foi atribuída pela regra de distribuição deles. **Para ligar**: definir `LEAD_COMPRA_EGO_DESDE` no Fly e **ativar o nó**. ⚠️ O n8n
+> entrou no eGO; com imóvel **publicado** (FH2584) ligou-o e foi atribuída ao seu angariador, com imóvel despublicado entrou sem imóvel e a atribuição foi da regra geral do eGO. **Para ligar**: definir `LEAD_COMPRA_EGO_DESDE` no Fly e **ativar o nó**. ⚠️ O n8n
 > publica ao gravar um fluxo ativo: nunca gravar com o nó ligado sem querer criar leads. `docs/fases/lead-compra-para-ego-plano.md`.
 
 ## Antes de importar
