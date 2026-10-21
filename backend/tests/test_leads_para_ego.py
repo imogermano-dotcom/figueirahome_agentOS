@@ -396,5 +396,15 @@ def test_recusa_pelo_insert_lead_grava_o_id_sem_ir_a_caixa(monkeypatch):
     assert r["criada"] and bd.updates[0][1]["ego_lead_id"] == 60550999
 
 
+def test_cron_apanha_o_id_na_caixa_quando_a_web_api_nao_o_devolve(monkeypatch):
+    bd = _BD([_linha()])
+    _usa(monkeypatch, bd, lambda *a: None)
+    # 1.ª leitura (antes de criar): vazia; depois de criar a lead já aparece na caixa
+    leituras = iter([[], [{"id": 60555496, "phone": "+351912345678"}]])
+    monkeypatch.setattr(lp.ego_api, "leads_abertas", lambda: next(leituras))
+    lp.processar(AGORA)
+    assert bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat(), "ego_lead_id": 60555496})]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

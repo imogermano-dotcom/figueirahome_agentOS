@@ -166,7 +166,7 @@ def processar(agora: datetime | None = None) -> dict:
                 contagem["erros"] += 1
                 continue
             else:
-                ident = _criar_lead(linha, tel)
+                ident = _criar_lead(linha, tel) or _id_da_lead(tel, linha.get("email"))  # a Web API não devolve o id
                 if ident:
                     marca["ego_lead_id"] = ident
                 contagem["criadas"] += 1
