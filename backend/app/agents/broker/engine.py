@@ -21,6 +21,7 @@ from app.agents.broker.assistants import (
     A1,
     A3,
     A4,
+    A5,
     APRESENTACAO_A1,
     ASSISTENTES,
     MAX_TOKENS,
@@ -41,6 +42,7 @@ from app.agents.broker.guards import (
     tools_ja_usadas,
     normalizar_telefone,
     promover_se_qualificada,
+    satisfacao_aberta,
     variantes_telefone,
 )
 from app.agents.broker.router import route
@@ -264,6 +266,50 @@ async def _contexto_recrutamento(
     return perfil, None, lead
 
 
+async def _contexto_satisfacao(
+    telefone: str, perfil: str, thread_nova: bool
+) -> tuple[str, dict | None, dict | None]:
+    """Contexto da Sofia (A5): o inquérito em curso (`fn_satisf_aberto`, portal). A conversa é
+    semeada com o template no envio (`satisfacao.enviar_inqueritos`); se a thread já expirou
+    (48 h), o template volta a entrar como mensagem do assistente no 1.º turno, como na Inês.
+    Sem lead: nada de `leads` nem de promoção MQL para quem já comprou/vendeu."""
+    inq = await satisfacao_aberta(telefone)
+    if not inq:
+        return perfil, None, None
+    tipos = {
+        "escritura_comprador": "COMPRADOR — fez escritura de compra connosco há cerca de uma semana",
+        "escritura_vendedor": "VENDEDOR — fez escritura de venda connosco há cerca de uma semana",
+        "rescisao_vendedor": "RESCISÃO — vendedor cujo contrato de mediação terminou",
+    }
+    linhas = [f"\n\nINQUÉRITO EM CURSO: {tipos.get(inq.get('tipo'), inq.get('tipo'))}."]
+    if inq.get("primeiro_nome"):
+        linhas.append(f"Nome: {inq['primeiro_nome']} (já o sabes — não o perguntes).")
+    if inq.get("consultor"):
+        linhas.append(f"Consultor que acompanhou: {inq['consultor']}.")
+    if inq.get("nps") is not None:
+        linhas.append(f"Já respondeu à nota: {inq['nps']}/10 — não a voltes a pedir.")
+    if inq.get("nota_consultor") is not None:
+        linhas.append(f"Já avaliou o consultor: {inq['nota_consultor']}/5.")
+    if inq.get("concluido"):
+        linhas.append("O inquérito já foi registado: responde ao que a pessoa disser, sem repetir perguntas"
+                      + ("; se mandar o testemunho por escrito, usa registar_testemunho." if inq.get("tipo") != "rescisao_vendedor" else "."))
+    perfil += " ".join(linhas)
+
+    def _respondeu():
+        get_supabase().rpc("fn_satisf_respondeu", {"p_id": inq["id"]}).execute()
+
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _respondeu)
+    except Exception:
+        logger.exception("Falha a marcar resposta do inquérito %s", inq.get("id"))
+
+    template = inq.get("template_texto")
+    if thread_nova and template and not inq.get("respondeu_em"):
+        now = datetime.now(timezone.utc).isoformat()
+        return perfil, {"role": "assistant", "content": template, "timestamp": now}, None
+    return perfil, None, None
+
+
 async def _contexto_inicial(
     telefone: str, thread_nova: bool, agente: str | None = None
 ) -> tuple[str, dict | None, dict | None]:
@@ -286,6 +332,8 @@ async def _contexto_inicial(
 
     if agente == A3:
         return await _contexto_recrutamento(telefone, perfil, thread_nova)
+    if agente == A5:
+        return await _contexto_satisfacao(telefone, perfil, thread_nova)
 
     lead = await lead_aberta(telefone)
     if not lead:
@@ -692,7 +740,8 @@ async def _responder_sem_lock(
     # dados para escrever, `find_or_create_cliente` nunca corre e a promoção
     # nunca dispara. Ao fim do turno sabem-se as duas metades da condição —
     # respondeu (é este turno) e o perfil está completo.
-    if telefone:
+    # Fora a Sofia (A5): quem responde ao inquérito pós-venda não é uma lead nova.
+    if telefone and agente != A5:
         await promover_se_qualificada(telefone, agente=agente)
 
     return resposta

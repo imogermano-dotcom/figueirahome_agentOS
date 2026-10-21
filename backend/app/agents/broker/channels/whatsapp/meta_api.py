@@ -68,3 +68,32 @@ async def mark_as_read(message_id: str, phone_number_id: str | None = None) -> N
         resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code not in (200, 201):
             logger.debug("mark_as_read falhou para %s: %s", message_id, resp.status_code)
+
+
+async def send_template(
+    to: str, nome: str, lingua: str, parametros: list[str], phone_number_id: str | None = None,
+) -> tuple[bool, str]:
+    """Template aprovado (fora da janela de 24 h). Devolve `(ok, detalhe)`: o id da mensagem ou o
+    erro da Graph API. `200 accepted` não é entrega — os recibos chegam ao webhook (recibos.py)."""
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "template",
+        "template": {
+            "name": nome,
+            "language": {"code": lingua},
+            "components": [{
+                "type": "body",
+                "parameters": [{"type": "text", "text": p} for p in parametros],
+            }] if parametros else [],
+        },
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(_url(phone_number_id), headers=_headers(), json=payload)
+    if resp.status_code not in (200, 201):
+        logger.error("Meta API erro (template %s) %s: %s", nome, resp.status_code, resp.text)
+        return False, f"{resp.status_code}: {resp.text[:300]}"
+    try:
+        return True, (resp.json().get("messages") or [{}])[0].get("id", "")
+    except Exception:
+        return True, ""
