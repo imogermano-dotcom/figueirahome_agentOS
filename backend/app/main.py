@@ -17,6 +17,7 @@ from app.api.agentes import router as agentes_router
 from app.api.config import router as config_router
 from app.api.dashboard import router as dashboard_router
 from app.api.nudge import router as nudge_router
+from app.api.satisfacao import router as satisfacao_router
 from app.api.leads_ego import router as leads_ego_router
 from app.api.whatsapp_falhas import router as whatsapp_falhas_router
 from app.api.site_uptime import router as site_uptime_router
@@ -60,6 +61,7 @@ app.include_router(agentes_router)
 app.include_router(leads_ego_router)  # lead de compra sem resposta → eGO — cron, X-Automacao-Secret
 app.include_router(whatsapp_falhas_router)  # resumo diário de números sem WhatsApp — cron, X-Automacao-Secret
 app.include_router(nudge_router)  # lembrete dentro da janela de 24h — cron, X-Automacao-Secret
+app.include_router(satisfacao_router)  # inquérito pós-venda (Sofia) — cron, X-Automacao-Secret
 app.include_router(site_uptime_router)  # uptime do figueirahome.pt — cron, X-Automacao-Secret
 
 

@@ -19,7 +19,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 
-from app.agents.broker.assistants import A1, A2, A3, A4, NOME_A1, NOME_A3, NOME_A4
+from app.agents.broker.assistants import A1, A2, A3, A4, A5, NOME_A1, NOME_A3, NOME_A4
 from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.notificacoes import notificar
@@ -549,12 +549,35 @@ async def contacto_meta_aberto(telefone: str | None, tipo_contacto: str) -> dict
     return resp.data[0] if resp.data else None
 
 
+async def satisfacao_aberta(telefone: str | None) -> dict | None:
+    """Inquérito de satisfação em curso deste número (`fn_satisf_aberto`, portal): enviado há
+    ≤ 14 dias e não concluído há mais de 24 h. Uma falha nunca parte o encaminhamento: None."""
+    numero = normalizar_telefone(telefone)
+    if not numero:
+        return None
+
+    def _fetch():
+        return get_supabase().rpc("fn_satisf_aberto", {"p_telefone": numero}).execute()
+
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+        return resp.data or None
+    except Exception:
+        logger.exception("Falha a ler o inquérito de satisfação de %s", numero)
+        return None
+
+
 async def agente_de_lead(telefone: str | None) -> str | None:
     """Assistente dono da lead/candidato/contacto ainda em aberto deste
     número, ou `None`.
 
+    O inquérito de satisfação ganha a tudo: quem acabou de fazer escritura pode
+    ter uma lead antiga aberta, e a resposta à nota ("9") iria para a Matilde.
+
     Devolve `None` em qualquer outro caso, para o router decidir como decidia.
     """
+    if await satisfacao_aberta(telefone):
+        return A5
     lead = await lead_aberta(telefone)
     if lead:
         tipo = lead.get("tipo")

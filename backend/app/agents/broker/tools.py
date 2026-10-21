@@ -14,7 +14,7 @@ from urllib.parse import quote
 
 from anthropic import AsyncAnthropic
 
-from app.agents.broker.assistants import A1, A2, A3, A4, BROKER, NOME_A1, NOME_A3, NOME_A4
+from app.agents.broker.assistants import A1, A2, A3, A4, A5, BROKER, NOME_A1, NOME_A3, NOME_A4, NOME_A5
 from app.agents.broker.guards import (
     encerrar_lead_do_telefone,
     find_or_create_cliente,
@@ -198,6 +198,47 @@ TOOL_DEFINITIONS = [
                 "nota": {"type": "string", "description": "O que a pessoa disse, em poucas palavras — inclui prazo/motivo se houver"},
             },
             "required": ["motivo"],
+        },
+    },
+    # ── Satisfação pós-venda (A5) ─────────────────────────────
+    {
+        "name": "registar_satisfacao",
+        "description": (
+            "Grava as respostas do inquérito de satisfação (escritura ou rescisão) e devolve o "
+            "passo seguinte: links a enviar (Google, testemunho, resumo da venda) ou que a direção "
+            "vai contactar a pessoa. Chama quando tiveres as respostas, ou quando a pessoa não quiser "
+            "continuar (com o que houver)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nps": {"type": "integer", "minimum": 0, "maximum": 10,
+                        "description": "Nota de 0 a 10 (probabilidade de recomendar). Só escrituras."},
+                "motivo": {"type": "string",
+                           "description": "Escritura: o que pesou na nota. Rescisão: o que mais pesou para não continuar. Palavras da pessoa, resumidas."},
+                "nota_consultor": {"type": "integer", "minimum": 1, "maximum": 5,
+                                   "description": "Acompanhamento do consultor, 1 a 5. Só escrituras."},
+                "melhorar": {"type": "string", "description": "O que podíamos ter feito melhor/diferente."},
+                "voltaria": {"type": "string", "description": "Rescisão: se voltaria a falar connosco (sim / não / talvez + o que disse)."},
+                "temas": {"type": "array", "items": {"type": "string"},
+                          "description": "1 a 4 temas curtos, ex.: 'acompanhamento', 'rapidez', 'comunicação', 'preço', 'visitas', 'divulgação', 'burocracia'."},
+            },
+        },
+    },
+    {
+        "name": "registar_testemunho",
+        "description": (
+            "Grava o testemunho escrito na conversa e se a pessoa autoriza publicá-lo (site e redes "
+            "sociais) e com que nome. Pergunta a autorização antes de chamar."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "texto": {"type": "string", "description": "O testemunho, nas palavras da pessoa (sem corrigir o sentido)."},
+                "autoriza_publicar": {"type": "boolean"},
+                "nome_a_publicar": {"type": "string", "description": "Ex.: 'Ana R.' — o que a pessoa indicar."},
+            },
+            "required": ["texto", "autoriza_publicar"],
         },
     },
     # ── Internas (só o assistente `broker`) ───────────────────
@@ -852,7 +893,7 @@ async def _encerrar_lead(inputs: dict, contexto: dict) -> str:
 
 # Nome que aparece nos emails de notificação — `contexto["agente"]` é o id
 # interno (`a1_vendedor`), ilegível para quem recebe o aviso.
-_NOME_AGENTE = {A1: NOME_A1, A2: "Maria", A3: NOME_A3, A4: NOME_A4, BROKER: "Broker"}
+_NOME_AGENTE = {A1: NOME_A1, A2: "Maria", A3: NOME_A3, A4: NOME_A4, A5: NOME_A5, BROKER: "Broker"}
 
 
 async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
@@ -1019,6 +1060,130 @@ def _inserir_tarefa(dados: dict) -> None:
 
 
 # ══════════════════════════════════════════════════════════════
+# Satisfação pós-venda (A5) — docs/fases/satisfacao-pos-venda-plano.md
+# ══════════════════════════════════════════════════════════════
+
+_TIPOS_SATISFACAO = {
+    "escritura_comprador": "comprador (escritura)",
+    "escritura_vendedor": "vendedor (escritura)",
+    "rescisao_vendedor": "vendedor (rescisão do contrato de mediação)",
+}
+
+
+def _satisfacao_aberta(telefone: str | None) -> dict | None:
+    """Inquérito em curso deste telefone (`fn_satisf_aberto`, no portal), ou None."""
+    numero = normalizar_telefone(telefone)
+    if not numero:
+        return None
+    return get_supabase().rpc("fn_satisf_aberto", {"p_telefone": numero}).execute().data or None
+
+
+def _rpc(fn: str, params: dict):
+    return get_supabase().rpc(fn, params).execute().data
+
+
+async def _escalar_satisfacao(inquerito: dict, respostas: dict, contexto: dict) -> None:
+    """Nota ≤ 6 ou rescisão: tarefa + email à direção, uma vez por inquérito.
+
+    Não usa `_escalar_para_humano`: essa cria cliente/lead (`find_or_create_cliente`), o que não faz
+    sentido para quem já comprou/vendeu. O "uma vez" é o `escalado_em` do inquérito, escrito aqui.
+    """
+    rescisao = inquerito.get("tipo") == "rescisao_vendedor"
+    motivo = "satisfação — rescisão" if rescisao else "satisfação — nota baixa"
+    nome = inquerito.get("primeiro_nome") or "cliente"
+    linhas = [
+        f"Tipo: {_TIPOS_SATISFACAO.get(inquerito.get('tipo'), inquerito.get('tipo'))}",
+        f"Contacto: {nome} — {contexto.get('telefone') or '?'}",
+        f"Consultor: {inquerito.get('consultor') or '—'}",
+    ]
+    if respostas.get("nps") is not None:
+        linhas.append(f"Nota: {respostas['nps']}/10")
+    if respostas.get("nota_consultor") is not None:
+        linhas.append(f"Acompanhamento do consultor: {respostas['nota_consultor']}/5")
+    for chave, rotulo in (("motivo", "O que pesou"), ("melhorar", "O que podíamos ter feito"), ("voltaria", "Voltaria a falar connosco")):
+        if respostas.get(chave):
+            linhas.append(f"{rotulo}: {respostas[chave]}")
+    descricao = "\n".join(linhas)
+
+    await _run(
+        _inserir_tarefa,
+        {
+            "titulo": f"ESCALAR — {motivo} — {nome}",
+            "descricao": descricao,
+            "prazo": date.today().isoformat(),
+            "estado": "pendente",
+            "tipo": "escalar",
+            "agente": A5,
+            "conversa_id": contexto.get("conversa_id"),
+            "motivo": motivo,
+        },
+    )
+    await _run(_rpc, "fn_satisf_marcar_escalado", {"p_id": inquerito["id"]})
+    await _run(
+        notificar,
+        f"{'Rescisão' if rescisao else 'Cliente insatisfeito'} — inquérito de satisfação — {nome}",
+        "\n".join((
+            f"A {NOME_A5} (pós-venda) recebeu respostas que pedem contacto da direção.",
+            "",
+            descricao,
+            "",
+            "Ver na aba ⭐ Satisfação do portal. A pessoa foi informada de que a direção a contacta.",
+        )),
+    )
+
+
+async def _registar_satisfacao(inputs: dict, contexto: dict) -> str:
+    inquerito = await _run(_satisfacao_aberta, contexto.get("telefone"))
+    if not inquerito:
+        return "Não há inquérito em curso para esta pessoa. Agradece e despede-te."
+    respostas = {k: inputs.get(k) for k in ("nps", "nota_consultor", "motivo", "melhorar", "voltaria", "temas")
+                 if inputs.get(k) not in (None, "", [])}
+    passo = await _run(_rpc, "fn_satisf_registar", {"p_id": inquerito["id"], "p": respostas}) or {}
+
+    if passo.get("falta") == "nps":
+        return "Falta a nota de 0 a 10. Pede-a (só o número) antes de continuar."
+    if passo.get("escalar"):
+        await _escalar_satisfacao(inquerito, respostas, contexto)
+    if passo.get("tipo") == "rescisao_vendedor" or passo.get("escalar") is not None:
+        if passo.get("tipo") == "rescisao_vendedor":
+            return "Registado e entregue à direção. Agradece com sinceridade numa frase e despede-te. Não peças mais nada."
+        return ("Registado. A direção vai contactar a pessoa. Agradece, pede desculpa pelo que correu mal e diz "
+                "que a direção entra em contacto (sem prometer prazo). Não peças avaliação nem testemunho.")
+
+    partes = ["Registado."]
+    if passo.get("google_link"):
+        partes.append(f"Pede a avaliação no Google com este endereço, tal e qual: {passo['google_link']}")
+    if passo.get("testemunho_link"):
+        partes.append(
+            "Depois pede o testemunho: um vídeo curto (30 a 60 segundos) gravado nesta página, ou duas ou três "
+            f"frases escritas aqui na conversa. Endereço, tal e qual: {passo['testemunho_link']}"
+        )
+        if passo.get("resumo_link"):
+            partes.append("Diz que nessa mesma página está também o resumo da venda do imóvel.")
+    elif passo.get("resumo_link"):
+        partes.append(f"Diz que preparámos o resumo da venda do imóvel e escreve este endereço, tal e qual: {passo['resumo_link']}")
+    if len(partes) == 1:
+        partes.append("Agradece e despede-te.")
+    return " ".join(partes)
+
+
+async def _registar_testemunho(inputs: dict, contexto: dict) -> str:
+    inquerito = await _run(_satisfacao_aberta, contexto.get("telefone"))
+    if not inquerito:
+        return "Não há inquérito em curso para esta pessoa. Agradece e despede-te."
+    if inquerito.get("tipo") == "rescisao_vendedor":
+        return "Não se pedem testemunhos nas rescisões. Agradece e despede-te."
+    texto = (inputs.get("texto") or "").strip()
+    if not texto:
+        return "Falta o texto do testemunho."
+    await _run(_rpc, "fn_satisf_testemunho", {
+        "p_id": inquerito["id"], "p_texto": texto,
+        "p_autoriza": bool(inputs.get("autoriza_publicar")), "p_nome": inputs.get("nome_a_publicar"),
+    })
+    return "Testemunho guardado. Agradece com calor numa frase e despede-te."
+
+
+# ══════════════════════════════════════════════════════════════
 # Tools internas (broker)
 # ══════════════════════════════════════════════════════════════
 
@@ -1093,6 +1258,10 @@ async def execute_tool(name: str, inputs: dict, contexto: dict | None = None) ->
             return await _escalar_para_humano(inputs, contexto)
         if name == "encerrar_lead":
             return await _encerrar_lead(inputs, contexto)
+        if name == "registar_satisfacao":
+            return await _registar_satisfacao(inputs, contexto)
+        if name == "registar_testemunho":
+            return await _registar_testemunho(inputs, contexto)
 
         if name in _CONSULTAS:
             resultado = await _run(_CONSULTAS[name], inputs)
