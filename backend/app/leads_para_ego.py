@@ -85,6 +85,15 @@ def corpo_insert_lead(linha: dict, tel: str | None, observacao: str, imovel_id: 
         masterLeadTypeId=_MASTER_VENDA, realestateId=imovel_id, **atribuicao)
 
 
+def _consultor_do_imovel(im: dict | None) -> int | None:
+    """Consultora responsável pelo imóvel no eGO: `assignToSecurityUserId`; se o imóvel não a tiver, `securityUserId`.
+    ⚠️ `securityUserId` sozinho é QUEM CRIOU o registo: no FH2584 era outra pessoa e a lead de teste de 21/10 foi
+    atribuída a quem não devia (o responsável era o Miguel). Medido em 3 imóveis contra o `angariador`."""
+    if not im:
+        return None
+    return im.get("assignToSecurityUserId") or im.get("securityUserId") or None
+
+
 def _criar_lead(linha: dict, tel: str | None, recusou: bool = False, ja_conhecido: bool = False) -> int | None:
     """Cria a lead no eGO pelo caminho de `EGO_CRIAR_LEAD_POR` e devolve o id se o caminho o der (a Web API não o dá).
     Levanta se o eGO recusar: a lead fica por marcar."""
@@ -92,7 +101,7 @@ def _criar_lead(linha: dict, tel: str | None, recusou: bool = False, ja_conhecid
     if settings.ego_criar_lead_por == "api":
         im = ego_api.imovel(ref) if ref else None
         obs = observacao_da_lead(linha, bool(im), recusou, ja_conhecido)
-        return ego_api.inserir_lead(corpo_insert_lead(linha, tel, obs, (im or {}).get("id"), (im or {}).get("securityUserId")))
+        return ego_api.inserir_lead(corpo_insert_lead(linha, tel, obs, (im or {}).get("id"), _consultor_do_imovel(im)))
     ego_id = _ego_id_do_imovel(ref)
     ident = egorealestate.inserir_lead_webapi(
         linha.get("nome") or "Lead Meta compra", linha.get("email"), tel,

@@ -406,5 +406,14 @@ def test_cron_apanha_o_id_na_caixa_quando_a_web_api_nao_o_devolve(monkeypatch):
     assert bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat(), "ego_lead_id": 60555496})]
 
 
+@pytest.mark.parametrize("imovel,esperado", [
+    ({"id": 1, "securityUserId": 67559, "assignToSecurityUserId": 25611}, 25611),  # FH2584: criador ≠ responsável
+    ({"id": 1, "securityUserId": 77529, "assignToSecurityUserId": None}, 77529),   # FH2583: sem responsável, vale o dono
+    ({"id": 1, "securityUserId": 25611, "assignToSecurityUserId": 77529}, 77529),  # FH2450A
+    ({"id": 1}, None), (None, None)])
+def test_consultor_do_imovel_prefere_o_responsavel_ao_criador(imovel, esperado):
+    assert lp._consultor_do_imovel(imovel) == esperado
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
