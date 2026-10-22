@@ -322,9 +322,9 @@ def test_endpoint_da_recusa_exige_segredo_e_devolve_404(monkeypatch):
     assert TestClient(app).post(url).status_code == 401
     app.dependency_overrides[require_n8n_access] = lambda: "teste"
     try:
-        monkeypatch.setattr(lp, "recusou_whatsapp", lambda mid: None)
+        monkeypatch.setattr(lp, "recusou_whatsapp", lambda *a: None)
         assert TestClient(app).post(url).status_code == 404
-        monkeypatch.setattr(lp, "recusou_whatsapp", lambda mid: {"resultado": "criada"})
+        monkeypatch.setattr(lp, "recusou_whatsapp", lambda *a: {"resultado": "criada"})
         assert TestClient(app).post(url).json() == {"resultado": "criada"}
     finally:
         app.dependency_overrides.clear()
@@ -336,7 +336,7 @@ def test_segredo_do_n8n_abre_so_o_endpoint_da_recusa(monkeypatch):
 
     monkeypatch.setattr(settings, "n8n_secret", "segredo-n8n")
     monkeypatch.setattr(settings, "automacao_secret", "outro-segredo")
-    monkeypatch.setattr(lp, "recusou_whatsapp", lambda mid: {"resultado": "criada"})
+    monkeypatch.setattr(lp, "recusou_whatsapp", lambda *a: {"resultado": "criada"})
     c = TestClient(app)
     recusa = "/api/leads/meta/m1/recusou-whatsapp"
     assert c.post(recusa, headers={"X-N8N-Secret": "segredo-n8n"}).status_code == 200
@@ -413,6 +413,60 @@ def test_cron_apanha_o_id_na_caixa_quando_a_web_api_nao_o_devolve(monkeypatch):
     ({"id": 1}, None), (None, None)])
 def test_consultor_do_imovel_prefere_o_responsavel_ao_criador(imovel, esperado):
     assert lp._consultor_do_imovel(imovel) == esperado
+
+
+# ── recusa sem imóvel em `contactos` (21/10: ficou sem imóvel nem consultora) ───────────────────────────────
+
+
+@pytest.mark.parametrize("ad,ref", [("FH2584_V1", "FH2584"), ("FH2584_Carrossel", "FH2584"), ("fh2450a_video", "FH2450A"),
+                                    ("Campanha geral", None), (None, None)])
+def test_ref_do_anuncio(ad, ref):
+    assert lp.ref_do_anuncio(ad) == ref
+
+
+def test_recusa_usa_o_imovel_que_o_n8n_manda_e_grava_no_contacto(monkeypatch):
+    bd, enviados = _recusa(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em=ISO(1), imovel_ref=None, ad_name="Outro"))
+    lp.recusou_whatsapp("m1", "FH2584")
+    assert bd.updates[0][1]["imovel_ref"] == "FH2584" and len(enviados) == 1
+
+
+def test_recusa_sem_imovel_no_contacto_nem_no_n8n_usa_o_nome_do_anuncio(monkeypatch):
+    visto = []
+    bd, _ = _recusa(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em=ISO(1), imovel_ref=None, ad_name="FH2584_V1"))
+    monkeypatch.setattr(lp, "_ego_id_do_imovel", lambda ref: visto.append(ref) or 1)
+    lp.recusou_whatsapp("m1")
+    assert visto == ["FH2584"]
+
+
+def test_insert_lead_sem_responsavel_nao_cria_lead_orfa(monkeypatch):
+    monkeypatch.setattr(settings, "ego_criar_lead_por", "api")
+    monkeypatch.setattr(lp.ego_api, "imovel", lambda ref: None)
+    monkeypatch.setattr(lp.ego_api, "inserir_lead", lambda corpo: pytest.fail("não devia criar"))
+    with pytest.raises(lp.SemConsultora):
+        lp._criar_lead(_linha(imovel_ref=None), "912345678", recusou=True)
+
+
+def test_recusa_sem_consultora_nao_marca_e_diz_porque(monkeypatch):
+    bd, _ = _recusa(monkeypatch)
+
+    def sem(*a, **k):
+        raise lp.SemConsultora("sem imóvel")
+
+    monkeypatch.setattr(lp, "_criar_lead", sem)
+    r = lp.recusou_whatsapp("m1")
+    assert r["resultado"] == "sem_consultora" and not r["criada"] and bd.updates == []
+
+
+def test_cron_sem_consultora_conta_erro_e_nao_marca(monkeypatch):
+    bd = _BD([_linha()])
+    _usa(monkeypatch, bd, lambda *a: None)
+
+    def sem(*a, **k):
+        raise lp.SemConsultora("sem imóvel")
+
+    monkeypatch.setattr(lp, "_criar_lead", sem)
+    r = lp.processar(AGORA)
+    assert (r["criadas"], r["erros"]) == (0, 1) and bd.updates == []
 
 
 if __name__ == "__main__":

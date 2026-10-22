@@ -8,6 +8,7 @@ Travão: `contactos.ego_lead_em` (0050). Só leads criadas depois de `LEAD_COMPR
 """
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -73,6 +74,16 @@ def _ego_id_do_imovel(ref: str | None) -> int | None:
     return (resp.data[0].get("ego_id") if resp.data else None) or None
 
 
+class SemConsultora(Exception):
+    """Sem imóvel (ou sem responsável no eGO) a lead ficaria sem consultora: criada mas invisível para todos."""
+
+
+def ref_do_anuncio(ad_name: str | None) -> str | None:
+    """«FH2584_V1» → «FH2584»: os anúncios chamam-se pela referência do imóvel."""
+    m = re.match(r"\s*(FH\d+[A-Z]?)(?![A-Za-z0-9])", ad_name or "", re.I)
+    return m.group(1).upper() if m else None
+
+
 def corpo_insert_lead(linha: dict, tel: str | None, observacao: str, imovel_id: int | None, consultor_id: int | None) -> dict:
     """Corpo do `InsertLead`. Sem `assignToSecurityUserId` a lead fica invisível (teste de 21/10, outra agência), por isso
     vai atribuída à consultora do imóvel (`securityUserId` do imóvel). `typeId`, não `leadTypeId` (esse é ignorado)."""
@@ -101,7 +112,10 @@ def _criar_lead(linha: dict, tel: str | None, recusou: bool = False, ja_conhecid
     if settings.ego_criar_lead_por == "api":
         im = ego_api.imovel(ref) if ref else None
         obs = observacao_da_lead(linha, bool(im), recusou, ja_conhecido)
-        return ego_api.inserir_lead(corpo_insert_lead(linha, tel, obs, (im or {}).get("id"), _consultor_do_imovel(im)))
+        consultor = _consultor_do_imovel(im)
+        if not consultor:  # nunca criar uma lead que ninguém vê (21/10: a de um comprador que recusou ficou sem imóvel nem consultora)
+            raise SemConsultora(f"imóvel {ref or '—'} sem responsável no eGO")
+        return ego_api.inserir_lead(corpo_insert_lead(linha, tel, obs, (im or {}).get("id"), consultor))
     ego_id = _ego_id_do_imovel(ref)
     ident = egorealestate.inserir_lead_webapi(
         linha.get("nome") or "Lead Meta compra", linha.get("email"), tel,
@@ -180,6 +194,9 @@ def processar(agora: datetime | None = None) -> dict:
                     marca["ego_lead_id"] = ident
                 contagem["criadas"] += 1
             get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
+        except SemConsultora as e:
+            logger.warning("Lead %s não criada: %s", linha["id"], e)
+            contagem["erros"] += 1
         except Exception:
             logger.exception("Falha a enviar a lead %s para o eGO", linha["id"])
             contagem["erros"] += 1
@@ -213,7 +230,7 @@ def _id_da_lead(tel: str | None, email: str | None) -> int | None:
     return None
 
 
-def recusou_whatsapp(meta_lead_id: str) -> dict | None:
+def recusou_whatsapp(meta_lead_id: str, imovel_ref: str | None = None) -> dict | None:
     """Comprador que recusou o WhatsApp: tem de ficar no eGO já, sem esperar 2 h (chamado pelo n8n, a par do email).
 
     Quatro casos: (1) oportunidade ativa com consultor, não cria e devolve esse consultor para avisar; (2) já na caixa
@@ -236,6 +253,8 @@ def recusou_whatsapp(meta_lead_id: str) -> dict | None:
     agora = datetime.now(timezone.utc)
     tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
     email = linha.get("email")
+    # o RPC da compra não grava `imovel_ref` em `contactos` para quem recusa: vem do n8n, ou do nome do anúncio
+    linha["imovel_ref"] = linha.get("imovel_ref") or (imovel_ref or "").strip() or ref_do_anuncio(linha.get("ad_name"))
 
     try:
         na_caixa = _ja_nas_leads(linha, ego_api.leads_abertas())
@@ -256,11 +275,18 @@ def recusou_whatsapp(meta_lead_id: str) -> dict | None:
                 "email_responsavel": None}
     else:
         resultado = "criada"
-        id_lead = _criar_lead(linha, tel, recusou=True, ja_conhecido=_contacto_conhecido(linha, tel))
+        try:
+            id_lead = _criar_lead(linha, tel, recusou=True, ja_conhecido=_contacto_conhecido(linha, tel))
+        except SemConsultora as e:  # não marca: o email diz para criar à mão
+            logger.warning("Recusa %s: lead não criada (%s)", linha["id"], e)
+            return {"resultado": "sem_consultora", "criada": False, "verificado_no_ego": verificado,
+                    "responsavel": None, "email_responsavel": None}
         if not id_lead and verificado:  # a Web API não devolve o id: apanha-se na caixa do eGO (melhor esforço)
             id_lead = _id_da_lead(tel, email)
         if id_lead:
             marca["ego_lead_id"] = id_lead
+    if linha.get("imovel_ref"):
+        marca["imovel_ref"] = linha["imovel_ref"]  # fica para os follow-ups e para quem ler o contacto
     get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
     return {"resultado": resultado, "criada": resultado == "criada", "verificado_no_ego": verificado,
             "responsavel": responsavel, "email_responsavel": _email_do_responsavel(responsavel)}
