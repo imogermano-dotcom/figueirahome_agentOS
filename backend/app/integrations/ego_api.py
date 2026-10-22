@@ -75,6 +75,68 @@ def corpo_de_lead(**campos) -> dict:
     return corpo | {k: v for k, v in campos.items() if v is not None}
 
 
+# O `GetLead` e o corpo do `UpdateLead` chamam de forma diferente ao mesmo campo (medido a 22/10 contra a especificação).
+_RENOMEAR_LEITURA_ESCRITA = {
+    "obs": "observation", "leadTypeId": "typeId", "masterTypeId": "masterLeadTypeId", "leadSubOriginId": "subOriginId",
+    "leadCategoryId": "categoryId", "leadSubCategoryId": "subCategoryId", "leadDeleteReasonId": "deleteReasonId",
+    "leadPaymentMethodId": "paymentMethodId", "leadPurchaseReasonId": "purchaseReasonId",
+    "leadCreditSimulationId": "creditSimulationId", "LeadCIStatusBitFlag": "leadCIStatusBitFlag",
+    "LeadQualificationResult": "leadQualificationResult", "LeadQualificationStatus": "leadQualificationStatus",
+    "leadProbabilitySucess": "leadProbabilitySuccess",  # a API escreve «Sucess» ao ler e «Success» ao escrever
+    "assignToSecurityUserIds": "assignToSecurityUserIDList", "assignToSecurityGroupIds": "assignToSecurityGroupIDList",
+    "accessApplicationListId": "accessApplicationIDList", "accessExternalUserListId": "accessExternalUserIDList",
+    "cpcvChecklistIds": "cpcvChecklistIDList", "scripturesChecklistIds": "scripturesChecklistIDList",
+    "negotiationTimelineCheckIds": "negotiationTimelineCheckIDList",
+    "prospectionTimelineCheckIds": "prospectionTimelineCheckIDList", "creditTypeModalityIDs": "creditTypeModalityIDList",
+    "timelineCheckListId": "timelineCheckIDList", "financingChecklistIds": "financingChecklistId",
+}
+
+
+def corpo_de_atualizacao(atual: dict, **mudancas) -> dict:
+    """Corpo do `UpdateLead` a partir do `GetLead`. ⚠️ O `UpdateLead` SUBSTITUI a lead: o que não for enviado fica vazio
+    (22/10: um corpo só com o `id` e as observações apagou título, email e telefone). Por isso leva tudo o que o
+    `GetLead` devolveu, com os nomes de escrita, e só depois as `mudancas`. Objetos aninhados (`leadOrigin`, …) são
+    só de leitura e ficam de fora."""
+    corpo = {k: [] for k in _ARRAYS} | {"leadCIStatusBitFlag": 0}
+    for k, v in atual.items():
+        if isinstance(v, dict) or (isinstance(v, list) and v and isinstance(v[0], dict)):
+            continue
+        corpo[_RENOMEAR_LEITURA_ESCRITA.get(k, k)] = v
+    return corpo | mudancas
+
+
+def atualizar_lead(lead_id: int, **mudancas) -> dict:
+    """Altera campos de uma lead (`PUT /lead/Lead/UpdateLead`, corpo completo) e confirma lendo-a de volta. Devolve
+    `{campo: (antes, depois)}` do que mudou; levanta se o eGO responder 0 ou se mudar algo além do pedido.
+    Os campos de `mudancas` usam os nomes de ESCRITA (`observation`, `assignToSecurityUserId`, `realestateId`, …)."""
+    with httpx.Client(timeout=30, headers={"User-Agent": _UA}) as c:
+        s = _sessao_valida(c)
+        h = {"Authorization": f"Bearer {s['token']}"}
+        q = {"applicationId": s["application_id"], "securityUserId": s["security_user_id"]}
+
+        def ler() -> dict:
+            return _dados(c.get(f"{settings.egoapi_base_url}/lead/Lead/GetLead", params={"leadId": lead_id, **q}, headers=h))
+
+        antes = ler()
+        corpo = corpo_de_atualizacao(antes, id=lead_id, applicationId=s["application_id"], **mudancas)
+        r = c.put(f"{settings.egoapi_base_url}/lead/Lead/UpdateLead", params=q, json=corpo, headers=h)
+        resposta = _dados(r)
+        if not resposta:  # `0`/`false`: nada foi alterado
+            raise EgoApiErro(f"UpdateLead {lead_id} não alterou nada (resposta {resposta!r})")
+        depois = ler()
+    ignorar = {"alterDate", "updateDate", "assignToSecurityUserAlterDate", "assignToSecurityUserNames"}
+    mudou = {k: (antes.get(k), depois.get(k)) for k in antes.keys() | depois.keys()
+             if k not in ignorar and not isinstance(antes.get(k), (dict, list)) and antes.get(k) != depois.get(k)}
+    pedidos = {_RENOMEAR_LEITURA_ESCRITA_INVERSO.get(k, k) for k in mudancas}
+    inesperados = {k: v for k, v in mudou.items() if k not in pedidos}
+    if inesperados:
+        raise EgoApiErro(f"UpdateLead {lead_id} mudou campos que não pediste: {inesperados}")
+    return mudou
+
+
+_RENOMEAR_LEITURA_ESCRITA_INVERSO = {v: k for k, v in _RENOMEAR_LEITURA_ESCRITA.items()}
+
+
 def _pedido(metodo: str, caminho: str, **kw):
     with httpx.Client(timeout=60, headers={"User-Agent": _UA}) as c:
         s = _sessao_valida(c)
