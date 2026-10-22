@@ -12,6 +12,7 @@ dentro dela.
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from app.agents.broker import guards
@@ -44,12 +45,22 @@ TEXTO_NUDGE_A4 = (
 # Marcadores da despedida da própria Matilde — voz nossa, controlada, por
 # isso mais fiável do que adivinhar o tom de quem escreve. Substring, não
 # prefixo: aparecem a meio da frase ("Cuide-se, Maria. Até quando precisar!").
-_MARCAS_FECHO = ("👋", "cuide-se", "boa continuação", "muita força", "boa sorte")
+_MARCAS_FECHO = ("👋", "cuide-se", "boa continuação", "muita força", "boa sorte", "bom resto de dia")
 
 
 def _e_despedida(texto: str) -> bool:
     texto = (texto or "").lower()
     return any(marca in texto for marca in _MARCAS_FECHO)
+
+
+# A pessoa fecha a conversa ela própria: «Obrigado.», «Ok, obrigada!», «Muito grato». Mensagem curta que é só
+# agradecimento — a Matilde despede-se, e 2 h depois o nudge perguntava «Ainda está interessado?» (22/10).
+# Curta de propósito: «Obrigado, mas e o preço?» não fecha nada.
+_AGRADECIMENTO = re.compile(r"^(ok[,.! ]*|certo[,.! ]*|muito )?(obrigad[oa]s?|grat[oa]s?|agradeço)\b[\s\w,.!😊🙏👍]{0,25}$", re.I)
+
+
+def _e_agradecimento(texto: str) -> bool:
+    return bool(_AGRADECIMENTO.match((texto or "").strip())) and "?" not in (texto or "")
 
 
 async def _pode_enviar_a1(telefone: str | None) -> bool:
@@ -170,6 +181,9 @@ async def _candidatos(agente: str, guarda) -> list[dict]:
             continue
         if _e_despedida(ultima.get("content", "")):
             continue
+        da_pessoa = next((m for m in reversed(mensagens) if m.get("role") == "user"), None)
+        if da_pessoa and _e_agradecimento(da_pessoa.get("content", "")):
+            continue
         if guarda is not None and not await guarda(row["participante"]):
             continue
         candidatos.append(row)
@@ -229,6 +243,7 @@ def demo() -> None:
     assert _e_despedida("Cuide-se, Maria. Até quando precisar! 👋")
     assert _e_despedida("Boa continuação, João! 😊")
     assert not _e_despedida("Antes de lhe dar o preço, só duas perguntas rápidas:")
+    assert _e_agradecimento("Obrigado.") and not _e_agradecimento("Obrigado, mas e o preço?")
     print("nudge.demo: ok")
 
 

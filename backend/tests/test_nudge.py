@@ -258,3 +258,28 @@ def test_falha_a_consultar_escaladas_nao_envia_nada(monkeypatch):
 
     assert resumo == {"candidatos": 0, "enviados": 0, "erros": 0}
     assert "enviados" not in estado
+
+
+def test_e_agradecimento_so_mensagens_curtas_de_fecho():
+    for ok in ("Obrigado.", "Obrigada!", "Ok, obrigada!", "Muito obrigado 😊", "obrigado pela ajuda"):
+        assert nudge._e_agradecimento(ok), ok
+    for nao in ("Obrigado, mas e o preço?", "Obrigado. Pode enviar-me as fotos do imóvel para ver melhor?", "Quanto custa?", "", None):
+        assert not nudge._e_agradecimento(nao), nao
+
+
+def test_agradecimento_da_pessoa_nao_recebe_nudge(monkeypatch):
+    conversa = _conversa("c1", "351900000001", ultimo_texto="De nada! Se precisar, estarei por aqui.")
+    conversa["mensagens"].insert(1, {"role": "assistant", "timestamp": "t", "content": "Posso ajudar?"})
+    conversa["mensagens"].insert(2, {"role": "user", "timestamp": "t", "content": "Obrigado."})
+    conversa["mensagens"] = conversa["mensagens"][:3] + conversa["mensagens"][-1:]
+    leads = {"351900000001": {"estado": "contactada", "contacto_humano_em": None}}
+    estado = _montar(monkeypatch, [conversa], leads)
+
+    resumo = asyncio.run(nudge.enviar_nudges(nudge.A1))
+
+    assert resumo == {"candidatos": 0, "enviados": 0, "erros": 0}
+    assert "enviados" not in estado
+
+
+def test_bom_resto_de_dia_e_despedida():
+    assert nudge._e_despedida("De nada, Carla! Bom resto de dia! 😊")
