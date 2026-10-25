@@ -51,6 +51,23 @@
         }
     },
     {
+        "name": "sync-propostas",
+        "app_name": "figueirahome-crons",
+        "schedule": "17 4 * * *",
+        "region": "ams",
+        "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/oportunidades/sync/propostas -H \\\"X-Sync-Secret: $EGOREALESTATE_SYNC_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 120\"",
+        "command_timeout": 150,
+        "enabled": true,
+        "config": {
+            "metadata": { "fly_process_group": "cron" },
+            "auto_destroy": true,
+            "disable_machine_autostart": true,
+            "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 },
+            "image": "docker-hub-mirror.fly.io/curlimages/curl:latest",
+            "restart": { "max_retries": 1, "policy": "no" }
+        }
+    },
+    {
         "name": "sync-tarefas",
         "app_name": "figueirahome-crons",
         "schedule": "7 5 * * *",

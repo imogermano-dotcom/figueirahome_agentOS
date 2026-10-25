@@ -173,6 +173,31 @@ def oportunidades_editadas_desde(horas: int) -> int:
     return sum(1 for o in lista if (o.get("alterDate") or "") >= limite)
 
 
+# Estado da proposta no eGO → texto que o relatório grava em `oportunidades.estado_proposta`. Os códigos não vêm
+# documentados: deduzidos a 22/10/2026 por correspondência com o Supabase (88 de 90 oportunidades ativas coincidiam).
+_ESTADO_PROPOSTA = {1: "Em avaliação", 3: "Aceite", 4: "Rejeitado"}
+_PRECEDENCIA = ("Aceite", "Em avaliação", "Rejeitado")  # com várias propostas manda a melhor (visto: {Aceite, Rejeitado} → Aceite)
+
+
+def estados_de_proposta(desde: str = "2020-01-01T00:00:00") -> dict[str, str]:
+    """`{referência da oportunidade: estado da proposta}` para as oportunidades ativas com proposta desde `desde`.
+
+    O sync das oportunidades só lê as editadas nas últimas 48 h e aceitar/recusar uma proposta não conta como edição
+    (VEN_22173, VEN_20521, VEN_20311): esta consulta apanha-as sem depender dessa data. Três pedidos, uma página cada;
+    se vier menos do que o `totalRows` levanta, porque comparar com dados parciais corrigiria linhas à toa.
+    ponytail: propostas anteriores a `desde` e oportunidades arquivadas ficam de fora; alargar se aparecer um caso."""
+    por_ref: dict[str, set[str]] = {}
+    for codigo, estado in _ESTADO_PROPOSTA.items():
+        d = _pedido("POST", "/lead/Opportunity/ListOpportunityByPage",
+                    json={"leadArchived": 0, "proposalMinDate": desde, "proposalStatusIDList": [codigo]})
+        lista = next((v for v in d.values() if isinstance(v, list)), []) if isinstance(d, dict) else d
+        if isinstance(d, dict) and d.get("totalRows", len(lista)) > len(lista):
+            raise EgoApiErro(f"propostas com estado {codigo}: página incompleta ({len(lista)} de {d['totalRows']})")
+        for o in lista:
+            por_ref.setdefault(o["name"], set()).add(estado)
+    return {ref: next(e for e in _PRECEDENCIA if e in estados) for ref, estados in por_ref.items()}
+
+
 def inserir_lead(corpo: dict) -> int | None:
     """Cria a lead no eGO. Devolve o id, ou None se a resposta não o trouxer (a lead foi criada: HTTP 2xx)."""
     with httpx.Client(timeout=30, headers={"User-Agent": _UA}) as c:

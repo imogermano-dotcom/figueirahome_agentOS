@@ -106,6 +106,42 @@ async def sync_tarefas_endpoint(acesso=Depends(require_sync_access)):
     return resumo
 
 
+def reconciliar_propostas() -> dict:
+    """Corrige `estado_proposta` das oportunidades cuja proposta mudou no eGO sem a oportunidade ser editada (pedido #34).
+    Só toca no estado e só em linhas que já o têm; as que a API conhece e o Supabase não (proposta nova por ler) só
+    se contam, o valor e a data vêm do relatório."""
+    api = ego_api.estados_de_proposta()
+    sb = get_supabase()
+    atuais: dict[str, str | None] = {}
+    refs = list(api)
+    for i in range(0, len(refs), 50):
+        r = sb.table("oportunidades").select("oportunidade_ref,estado_proposta").in_("oportunidade_ref", refs[i:i + 50]).execute()
+        atuais.update({x["oportunidade_ref"]: x["estado_proposta"] for x in r.data})
+    corrigidas, por_ler = [], 0
+    for ref, estado in api.items():
+        antigo = atuais.get(ref)
+        if antigo is None:
+            por_ler += 1
+        elif antigo != estado:
+            sb.table("oportunidades").update({"estado_proposta": estado}).eq("oportunidade_ref", ref).eq("estado_proposta", antigo).execute()
+            corrigidas.append(f"{ref}: {antigo} → {estado}")
+    return {"na_api": len(api), "corrigidas": corrigidas, "por_ler": por_ler}
+
+
+@router.post("/oportunidades/sync/propostas")
+async def sync_propostas_endpoint(acesso=Depends(require_sync_access)):
+    """Passo diário depois do sync das oportunidades: corrige o estado das propostas pela API do eGO."""
+    origem = "cron" if acesso == "sync-secret" else "manual"
+    try:
+        resumo = await asyncio.get_event_loop().run_in_executor(None, reconciliar_propostas)
+    except Exception as e:
+        logger.exception("Falha na reconciliação das propostas")
+        await falha_de_sync("egorealestate_propostas", "propostas", origem, repr(e))
+        raise HTTPException(status_code=502, detail="Falha a reconciliar as propostas.")
+    await _log_execucao(resumo, origem, tipo="egorealestate_propostas")
+    return resumo
+
+
 @router.get("/oportunidades/sync/log", dependencies=[Depends(require_auth)])
 async def oportunidades_sync_log_endpoint(limit: int = 20):
     def _fetch():
