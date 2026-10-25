@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     # de internetlead/insert no utilizador da API). Muda-se no Fly sem deploy.
     ego_criar_lead_por: str = "webapi"
     lead_compra_ego_desde: str = ""
+    # Pedido #17: quem responde à Matilde com interesse real também vira lead no eGO. Vazio = desligado (nada se marca).
+    lead_interesse_ego: str = ""
 
     # Scraper de relatório eGO (jmarques_todas_as_colunas) — app Fly.io
     # separada e dedicada, Playwright não cabe na RAM da app principal.

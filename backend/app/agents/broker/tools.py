@@ -18,6 +18,8 @@ from app.agents.broker.assistants import A1, A2, A3, A4, BROKER, NOME_A1, NOME_A
 from app.agents.broker.guards import (
     encerrar_lead_do_telefone,
     find_or_create_cliente,
+    marcar_interesse_real,
+    motivo_de_compra,
     normalizar_email,
     normalizar_telefone,
     promover_lead_do_cliente,
@@ -811,6 +813,12 @@ async def _pedir_visita(inputs: dict, contexto: dict) -> str:
         imovel.get("imovel_ref"),
     )
 
+    await _run(
+        marcar_interesse_real, telefone, "visita",
+        f"Pediu para visitar o {imovel.get('imovel_ref')}." + (f" Preferência: {quando}." if quando else "")
+        + (f" Orçamento: {orcamento:.0f}€." if orcamento else ""),
+    )
+
     return (
         "Pedido registado. Diz ao cliente que a consultora responsável vai "
         "entrar em contacto para combinar a visita — não proponhas horário nenhum."
@@ -905,6 +913,9 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
     # descreve o que a equipa vai fazer, não o que o assistente disse ao
     # cliente — isso é só a instrução dada ao modelo no `return` desta função,
     # nunca verificada, e o modelo pode parafrasear ou omitir por completo.
+    if motivo_de_compra(motivo):
+        await _run(marcar_interesse_real, telefone, motivo, inputs.get("resumo"))
+
     agente = _NOME_AGENTE.get(contexto.get("agente"), contexto.get("agente") or "assistente")
     await _run(
         notificar,

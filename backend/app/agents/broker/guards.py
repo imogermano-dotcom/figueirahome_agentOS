@@ -20,6 +20,7 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from app.agents.broker.assistants import A1, A2, A3, A4, NOME_A1, NOME_A3, NOME_A4
+from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.notificacoes import notificar
 
@@ -125,6 +126,59 @@ _JANELA_AVISO_HORAS = 24  # um aviso (tarefa + email) por pessoa nesta janela
 _TIPOS_QUE_PROMOVEM = ("compra", "arrendamento")
 
 
+# --- Interesse real (pedido #17, `docs/fases/lead-interesse-real-ego-plano.md`) ---------------------------------------
+# Motivos de escalada que são compra. Fora: recrutamento, angariação, reclamação, assuntos legais.
+_MOTIVO_COMPRA = re.compile(r"proposta|negoci|visita|oferta|compra", re.I)
+_MOTIVO_FORA = re.compile(r"recrut|angaria|reclama|legal|jur[ií]dic", re.I)
+_MAX_RESUMO = 1500
+
+
+def motivo_de_compra(motivo: str | None) -> bool:
+    motivo = motivo or ""
+    return bool(_MOTIVO_COMPRA.search(motivo)) and not _MOTIVO_FORA.search(motivo)
+
+
+def marcar_interesse_real(telefone: str | None, motivo: str, resumo: str | None) -> bool:
+    """Marca o contacto Meta de comprador com interesse real; o cron `leads-compra-para-ego` cria a lead no eGO.
+
+    A conversa nunca fala com o eGO: só grava a marca. Sem efeito (e sem escrita) com `LEAD_INTERESSE_EGO` vazio, para
+    nada ficar marcado e ser criado de repente quando se ligar. O 1.º sinal grava; os seguintes, antes de a lead ser
+    criada, acrescentam ao resumo. Nunca levanta: um erro aqui não pode estragar a resposta ao cliente."""
+    if not settings.lead_interesse_ego:
+        return False
+    try:
+        numero = normalizar_telefone(telefone)
+        if not numero:
+            return False
+        lista = ",".join(variantes_telefone(numero))
+        linhas = (
+            get_supabase().table("contactos")
+            .select("id,interesse_real_em,interesse_real_resumo")
+            .or_(f"telefone.in.({lista}),telemovel.in.({lista})")
+            .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"]).is_("ego_lead_em", "null")
+            .order("criado_em", desc=True).limit(1).execute().data
+        )
+        if not linhas:
+            return False
+        linha = linhas[0]
+        resumo = (resumo or "").strip()
+        if linha.get("interesse_real_em"):
+            antigo = linha.get("interesse_real_resumo") or ""
+            if resumo and resumo not in antigo:
+                junto = (antigo + "\n" + resumo).strip()[:_MAX_RESUMO]
+                get_supabase().table("contactos").update({"interesse_real_resumo": junto}).eq("id", linha["id"]).execute()
+            return True
+        get_supabase().table("contactos").update({
+            "interesse_real_em": datetime.now(timezone.utc).isoformat(),
+            "interesse_real_motivo": (motivo or "interesse real")[:80],
+            "interesse_real_resumo": resumo[:_MAX_RESUMO] or None,
+        }).eq("id", linha["id"]).execute()
+        return True
+    except Exception:
+        logger.exception("Falha a marcar o interesse real")
+        return False
+
+
 def lead_qualificada(cliente: dict | None) -> bool:
     """Os três campos do MQL preenchidos. Função pura, sem DB."""
     if not cliente:
@@ -185,6 +239,15 @@ def _promover_lead(
         "cliente_id": cliente.get("id"),
         "atualizado_em": agora,
     }).eq("id", lead["id"]).execute()
+
+    marcar_interesse_real(
+        telefone, "qualificada",
+        ", ".join(p for p in (
+            f"procura {cliente['tipo_interesse']}" if cliente.get("tipo_interesse") else None,
+            f"orçamento {cliente['orcamento']}" if cliente.get("orcamento") else None,
+            f"zona {cliente['zona_preferida']}" if cliente.get("zona_preferida") else None,
+        ) if p),
+    )
 
     quem = cliente.get("nome") or telefone or email
     titulo = f"{_TAREFA_QUALIFICADA} — {quem}"

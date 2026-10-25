@@ -54,8 +54,8 @@ Contactos que não são leads Meta (chat do site, WhatsApp sem campanha), recrut
 
 ## Interruptor e reversão
 
-Segredo `LEAD_INTERESSE_EGO` no Fly (vazio = desligado, o código só marca e o cron ignora). Entra desligado; liga-se com ordem expressa.
-Desligar: apagar o segredo. As marcas ficam em `contactos` sem efeito.
+Segredo `LEAD_INTERESSE_EGO` no Fly (vazio = desligado: **nada se marca** e o cron ignora; alterado a 25/10 face ao plano inicial, para não ficarem marcas que criassem leads de repente ao ligar). Entra desligado; liga-se com ordem expressa.
+Desligar: apagar o segredo. As marcas já feitas ficam em `contactos` sem efeito.
 
 ## Testes
 

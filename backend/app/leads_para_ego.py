@@ -28,9 +28,11 @@ _ORIGEM_OUTROS = 11
 _SUBORIGEM_FACEBOOK_CAMPANHA = 34798477
 _TIPO_PEDIDO_DE_INFORMACAO = 4
 _MASTER_VENDA = 2
+_MAX_RESUMO_OBS = 600  # do resumo da conversa que vai no OBS da lead
 
 _COLUNAS = ("id,nome,telefone,telemovel,email,meta_lead_id,imovel_ref,ad_name,meta_form_name,criado_em,"
-            "template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em")
+            "template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em,"
+            "interesse_real_em,interesse_real_motivo,interesse_real_resumo")
 
 
 def dentro_do_horario(agora: datetime) -> bool:
@@ -54,9 +56,17 @@ def elegivel(linha: dict, agora: datetime) -> bool:
 
 def observacao_da_lead(linha: dict, com_imovel: bool, recusou: bool = False, ja_conhecido: bool = False) -> str:
     """Texto do campo OBS da lead no eGO. Sem a conversa."""
-    obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads",
-           "recusou o WhatsApp: contactar por telefone, nunca por WhatsApp." if recusou
-           else "sem resposta ao WhatsApp da Matilde."]
+    if linha.get("interesse_real_em"):  # pedido #17: respondeu à Matilde e mostrou interesse
+        resumo = " ".join((linha.get("interesse_real_resumo") or "").split())[:_MAX_RESUMO_OBS]
+        quando = (f"respondeu à Matilde com interesse real ({linha['interesse_real_motivo']})."
+                  if linha.get("interesse_real_motivo") else "respondeu à Matilde com interesse real.")
+        obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads", quando,
+               f"Resumo: {resumo}" if resumo else "", "Contactar por telefone ou WhatsApp."]
+        obs = [o for o in obs if o]
+    else:
+        obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads",
+               "recusou o WhatsApp: contactar por telefone, nunca por WhatsApp." if recusou
+               else "sem resposta ao WhatsApp da Matilde."]
     if ja_conhecido:
         obs.append("Contacto já existente no eGO.")
     if linha.get("imovel_ref") and not com_imovel:
@@ -162,6 +172,19 @@ def _candidatas(agora: datetime) -> list[dict]:
     return [l for l in resp.data or [] if elegivel(l, agora)][:LIMITE_POR_VOLTA]
 
 
+def _candidatas_interesse() -> list[dict]:
+    """Compradores Meta marcados com interesse real (pedido #17), **mesmo os que já responderam**. Desligado sem o segredo."""
+    if not settings.lead_interesse_ego:
+        return []
+    resp = (
+        get_supabase().table("contactos").select(_COLUNAS)
+        .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
+        .not_.is_("interesse_real_em", "null").is_("ego_lead_em", "null")
+        .gte("criado_em", settings.lead_compra_ego_desde).order("interesse_real_em").limit(LIMITE_POR_VOLTA).execute()
+    )
+    return [l for l in resp.data or [] if not l.get("ego_lead_em")]
+
+
 def processar(agora: datetime | None = None) -> dict:
     """Uma volta do cron. Falha da API deixa a lead por marcar (a próxima volta repete)."""
     if not settings.lead_compra_ego_desde:
@@ -171,6 +194,8 @@ def processar(agora: datetime | None = None) -> dict:
         return {"ativo": True, "fora_do_horario": True}
     contagem = {"ativo": True, "criadas": 0, "ja_existiam": 0, "erros": 0}
     candidatas = _candidatas(agora)
+    vistas = {l["id"] for l in candidatas}
+    candidatas += [l for l in _candidatas_interesse() if l["id"] not in vistas]
     if not candidatas:
         return contagem
     try:
