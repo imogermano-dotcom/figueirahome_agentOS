@@ -637,6 +637,147 @@ async def validar_disponibilidade_crm(
     return total, detalhes
 
 
+# ── Todos os estados, pela API nova (pedido #45, `docs/fases/imoveis-todos-os-estados-plano.md`) ──────────────────────
+
+# `realestateStatusId` do eGO → `imoveis.disponibilidade` (confirmado pelos 5 159 imóveis de 25/10)
+ESTADO_IMOVEL = {2: "Disponível", 3: "Vendido", 4: "Reservado", 5: "Arrendado", 7: "Em Prospecção", 8: "Retirado", 9: "Por validar"}
+_NEGOCIO_VENDA, _NEGOCIO_ARRENDAMENTO = 1, 2  # `businesses[].businessTypeId`
+_LOTE_INSERT = 200
+
+
+def _lisboa_para_utc(valor: str | None) -> str | None:
+    """`lastUpdate` da API nova vem na hora de Lisboa, sem offset (ao contrário da Web API, que é UTC)."""
+    if not valor:
+        return None
+    from zoneinfo import ZoneInfo
+
+    return datetime.fromisoformat(valor).replace(tzinfo=ZoneInfo("Europe/Lisbon")).astimezone(timezone.utc).isoformat()
+
+
+def _preco_do_negocio(item: dict, tipo: int) -> float | None:
+    for b in item.get("businesses") or []:
+        if b.get("businessTypeId") == tipo:
+            for p in b.get("prices") or []:
+                if p.get("value"):
+                    return float(p["value"])
+    return None
+
+
+def _inteiro(v):
+    """Rooms/Bathrooms: o eGO manda INT32_MIN (ou None) para «sem valor»."""
+    return v if isinstance(v, int) and v != _INT_SENTINEL and v >= 0 else None
+
+
+def mapear_imovel_novo(item: dict) -> dict:
+    """Linha nova para `imoveis`. **Sempre as mesmas chaves** (o upsert por lotes do PostgREST escreve NULL em tudo o
+    que falta a algum registo) e `disponivel_na_api=False`: a coluna `publicado` é GENERATED e um Disponível com preço
+    e `disponivel_na_api` verdadeiro apareceria no site sem estar publicado (o APA_5495 é Disponível a 100 000 €)."""
+    nome = item.get("name")
+    titulo = (nome.get("PT-PT") if isinstance(nome, dict) else nome) or None
+    return {
+        "imovel_ref": item["reference"].strip(),
+        "disponibilidade": ESTADO_IMOVEL[item["realestateStatusId"]],
+        "fonte": "egorealestate",
+        "disponivel_na_api": False,
+        "ego_atualizado_em": _lisboa_para_utc(item.get("lastUpdate")),
+        "data_criacao": _data(item.get("createDate")),
+        "data_alteracao": _data(item.get("lastUpdate")),
+        "titulo": titulo,
+        "quartos": _inteiro(item.get("rooms")),
+        "casas_banho": _inteiro(item.get("bathrooms")),
+        "area_util": item.get("nettArea") or None,
+        "area_bruta": item.get("grossArea") or None,
+        "area_terreno": item.get("landArea") or None,
+        "venda_preco": _preco_do_negocio(item, _NEGOCIO_VENDA),
+        "arrendamento_preco": _preco_do_negocio(item, _NEGOCIO_ARRENDAMENTO),
+    }
+
+
+def planear_imoveis_todos(api: dict[str, dict], existentes: dict[str, dict]) -> dict:
+    """Decide o que fazer, sem tocar na BD (serve ao `dry`). `api` e `existentes` vão por `imovel_ref`.
+
+    - novo → insere (`disponivel_na_api=False`);
+    - existente que a Web API vê (`disponivel_na_api`) → NÃO se escreve, a Web API manda; divergência só no resumo;
+    - existente `fonte='manual'` → NÃO se escreve; divergência só no resumo;
+    - o resto → atualiza `disponibilidade` e `ego_atualizado_em` se mudaram."""
+    plano = {"inserir": [], "atualizar": [], "divergencias_web_api": [], "divergencias_manual": [], "desconhecidos": 0}
+    for ref, item in api.items():
+        estado = ESTADO_IMOVEL.get(item.get("realestateStatusId"))
+        if estado is None:
+            plano["desconhecidos"] += 1
+            continue
+        atual = existentes.get(ref)
+        if atual is None:
+            plano["inserir"].append(mapear_imovel_novo(item))
+            continue
+        diverge = atual.get("disponibilidade") != estado
+        if atual.get("fonte") == "manual":
+            if diverge:
+                plano["divergencias_manual"].append({"imovel_ref": ref, "no_supabase": atual.get("disponibilidade"), "no_ego": estado})
+        elif atual.get("disponivel_na_api"):
+            if diverge:
+                plano["divergencias_web_api"].append({"imovel_ref": ref, "no_supabase": atual.get("disponibilidade"), "no_ego": estado})
+        else:
+            novo_em = _lisboa_para_utc(item.get("lastUpdate"))
+            mais_recente = bool(novo_em and (not atual.get("ego_atualizado_em") or novo_em > str(atual["ego_atualizado_em"])))
+            if diverge or mais_recente:
+                valores = {"disponibilidade": estado}
+                if novo_em:
+                    valores["ego_atualizado_em"] = novo_em
+                plano["atualizar"].append((ref, valores))
+    return plano
+
+
+async def sync_imoveis_todos(origem: str = "manual", dry: bool = False) -> dict:
+    """Traz para `imoveis` os imóveis de TODOS os estados (a Web API só dá os publicados). Nunca apaga linhas e não
+    escreve em imóveis que a Web API vê nem em `fonte='manual'`. `dry=True` só conta."""
+    from app.integrations import ego_api
+
+    lista = await _run(ego_api.todos_os_imoveis)
+    api = ego_api.um_por_referencia(lista)
+
+    def _ler():
+        linhas, inicio = [], 0
+        while True:
+            lote = (get_supabase().table("imoveis")
+                    .select("imovel_ref,fonte,disponibilidade,disponivel_na_api,ego_atualizado_em")
+                    .range(inicio, inicio + 999).execute().data)
+            linhas += lote
+            inicio += 1000
+            if len(lote) < 1000:
+                return linhas
+
+    existentes = {r["imovel_ref"]: r for r in await _run(_ler)}
+    plano = planear_imoveis_todos(api, existentes)
+
+    resumo = {
+        "dry": dry, "no_ego": len(api), "no_supabase": len(existentes),
+        "a_inserir": len(plano["inserir"]), "a_atualizar": len(plano["atualizar"]),
+        "divergencias_web_api": plano["divergencias_web_api"], "divergencias_manual": plano["divergencias_manual"],
+        "desconhecidos": plano["desconhecidos"], "inseridos": 0, "atualizados": 0, "erros": 0,
+    }
+    if not dry:
+        for i in range(0, len(plano["inserir"]), _LOTE_INSERT):
+            lote = plano["inserir"][i:i + _LOTE_INSERT]
+            try:  # ignore_duplicates: se uma linha apareceu entretanto (Web API), não se escreve por cima
+                await _run(lambda lote=lote: get_supabase().table("imoveis")
+                           .upsert(lote, on_conflict="imovel_ref", ignore_duplicates=True).execute())
+                resumo["inseridos"] += len(lote)
+            except Exception:
+                logger.exception("Falha a inserir um lote de imóveis do eGO")
+                resumo["erros"] += len(lote)
+        for ref, valores in plano["atualizar"]:
+            try:  # se a Web API a viu entretanto (disponivel_na_api) ou é manual, a condição não apanha nenhuma linha
+                await _run(lambda ref=ref, valores=valores: get_supabase().table("imoveis").update(valores)
+                           .eq("imovel_ref", ref).eq("disponivel_na_api", False).neq("fonte", "manual").execute())
+                resumo["atualizados"] += 1
+            except Exception:
+                logger.exception("Falha a atualizar o imóvel %s", ref)
+                resumo["erros"] += 1
+        await _log_execucao("egorealestate_imoveis_todos", resumo, [], origem)
+    return resumo
+
+
 async def _log_execucao(tipo: str, resumo: dict, detalhes: list[dict], origem: str = "manual") -> None:
     """O log é o registo, não o trabalho — se falhar, o sync não passa a ter
     falhado.

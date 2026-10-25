@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.deps import require_auth, require_sync_access
 from app.db.supabase_client import get_supabase
-from app.integrations.imoveis_sync import sync_egorealestate_api, sync_egorealestate_crm
+from app.integrations.imoveis_sync import sync_egorealestate_api, sync_egorealestate_crm, sync_imoveis_todos
 from app.notificacoes import falha_de_sync
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,18 @@ async def sync_egorealestate_api_endpoint(request: Request, acesso=Depends(requi
         logger.exception("Falha no sync eGO Real Estate (API)")
         await falha_de_sync("egorealestate_api", "imóveis (Web API)", origem, repr(e))
         raise HTTPException(status_code=502, detail="Falha ao sincronizar com a Web API do eGO Real Estate.")
+
+
+@router.post("/imoveis/sync/egorealestate/todos")
+async def sync_imoveis_todos_endpoint(dry: bool = False, acesso=Depends(require_sync_access)):
+    """Imóveis de todos os estados pela API nova do eGO (pedido #45). `?dry=1` lê e compara sem escrever."""
+    origem = "cron" if acesso == "sync-secret" else "manual"
+    try:
+        return await sync_imoveis_todos(origem, dry)
+    except Exception as e:
+        logger.exception("Falha no sync dos imóveis de todos os estados")
+        await falha_de_sync("egorealestate_imoveis_todos", "imóveis (todos os estados)", origem, repr(e))
+        raise HTTPException(status_code=502, detail="Falha a sincronizar os imóveis de todos os estados.")
 
 
 @router.post("/imoveis/sync/egorealestate/crm")

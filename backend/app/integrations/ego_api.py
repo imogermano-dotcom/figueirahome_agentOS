@@ -198,6 +198,41 @@ def estados_de_proposta(desde: str = "2020-01-01T00:00:00") -> dict[str, str]:
     return {ref: next(e for e in _PRECEDENCIA if e in estados) for ref, estados in por_ref.items()}
 
 
+def todos_os_imoveis(por_pagina: int = 500) -> list[dict]:
+    """Todos os imóveis do eGO, de todos os estados (`ListRealestateByPage`, ~11 pedidos de 500 a 25/10: 5 163 linhas).
+    A Web API pública só lista os publicados; esta lista tudo (pedido #45). Levanta se vierem menos linhas do que o
+    `totalRows`: comparar com dados parciais atualizaria imóveis à toa."""
+    todos: list[dict] = []
+    pagina = 0
+    total = None
+    while True:
+        d = _pedido("POST", "/realestate/Realestate/ListRealestateByPage",
+                    json={"pageIndex": pagina, "numberOfRecords": por_pagina})
+        lote = next((v for v in d.values() if isinstance(v, list)), []) if isinstance(d, dict) else d
+        todos += lote
+        total = d.get("totalRows") if isinstance(d, dict) else total
+        if len(lote) < por_pagina:
+            break
+        pagina += 1
+    if total is not None and len(todos) < total:
+        raise EgoApiErro(f"imóveis: página incompleta ({len(todos)} de {total})")
+    return todos
+
+
+def um_por_referencia(imoveis: list[dict]) -> dict[str, dict]:
+    """Uma linha por `reference`: o mesmo imóvel pode ter vários registos internos (FH2483_A: 3). Fica o ativo
+    (`fieldStatusId` 0) de `lastUpdate` mais recente; empate pelo `id` maior. Sem referência não entra."""
+    def chave(x):
+        return (x.get("fieldStatusId") in (0, None), x.get("lastUpdate") or "", x.get("id") or 0)
+
+    por_ref: dict[str, dict] = {}
+    for i in imoveis:
+        ref = (i.get("reference") or "").strip()
+        if ref and (ref not in por_ref or chave(i) > chave(por_ref[ref])):
+            por_ref[ref] = i
+    return por_ref
+
+
 def inserir_lead(corpo: dict) -> int | None:
     """Cria a lead no eGO. Devolve o id, ou None se a resposta não o trouxer (a lead foi criada: HTTP 2xx)."""
     with httpx.Client(timeout=30, headers={"User-Agent": _UA}) as c:
