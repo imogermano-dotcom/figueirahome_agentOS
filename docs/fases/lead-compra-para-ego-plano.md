@@ -1,5 +1,12 @@
 # Lead de compra → eGO (plano)
 
+> ## Estado 25/10: **recusa e «sem resposta em 2 h» confirmadas com leads reais** (campanha FH2584, Porto)
+> - Entre 22/10 17:00 e 25/10 19:30 UTC entraram 38 leads Meta (32 de compra) e **22 foram criadas no eGO**: todas na caixa de leads, todas ligadas ao FH2584 e atribuídas ao consultor do imóvel. Nenhuma ficou por criar; as que entraram depois das 20h esperam pelas 9h.
+> - **2 recusas reais** (24/10 21:25 e 25/10 15:28): lead criada em segundos, `verificado_no_ego`, email à consultora (lido de `profiles` por HTTP) e ao Miguel por Resend; o fluxo n8n correu os 8 nós.
+> - **4 números sem WhatsApp** (131026), todos de compra: já tinham lead no eGO (a regra manda logo). Sem aviso próprio para angariação/recrutamento (ver `resumo-falhas-whatsapp`, `enabled: false`).
+> - **Por fazer: quem responde à Matilde com interesse real não cria lead** (só tarefa em `agente_tarefas` + email). Casos de 24/10: pedido de negociação de preço, pedido de visita, "quero comprar". É o pedido #17 do Miguel; precisa de plano (sinal de interesse real, `InsertLead` com o resumo da conversa, atribuição).
+> - Desalinhamento a contar ao Miguel: 5 de 8 compradores que responderam ao FH2584 queriam arrendar (450–600 €), e o anúncio é de venda a 340 000 €.
+>
 > ## Estado 21/10: **recusa do WhatsApp e «sem resposta em 2 h» LIGADAS** (criação pelo `InsertLead`)
 > - **Recusa**: `LEAD_COMPRA_EGO_DESDE=2026-10-20` no Fly e nó «Criar lead no eGO (recusou WhatsApp)» ativo no fluxo `4rDc9amm6HpO5F4j`. Imediata, sem janela. Por ver com a 1.ª recusa real automática (as de 19/10, anteriores à ativação, criaram-se à mão a 20/10: eGO 60550008 e 60550010, ambas atribuídas à consultora do FH2583).
 > - **2 h**: cron `leads-compra-para-ego` ligado a 21/10 (`enabled: true`, job 8, `*/10`), **só cria das 9h às 20h de Lisboa** (`dentro_do_horario`; fora disso `{"fora_do_horario": true}` sem tocar na BD nem no eGO; as leads esperam pelas 9h). Sem email extra; os follow-ups de WhatsApp (24h/72h) mantêm-se. 1.ª volta (00:40) devolveu 200 fora da janela; a 1.ª criação real só às 9h.
