@@ -28,7 +28,7 @@ Três pontos, todos já existentes, que passam a chamar `marcar_interesse_real(t
 
 Responder, perguntar o preço ou pedir fotografias **não** é interesse real.
 
-### Dados (migration `0051`, corres tu; aditiva e nullable)
+### Dados (migration `0052`, corres tu; aditiva e nullable)
 
 `contactos.interesse_real_em timestamptz`, `interesse_real_motivo text`, `interesse_real_resumo text`.
 `marcar_interesse_real` procura o contacto Meta do comprador por variantes do telefone; o 1.º sinal grava, os seguintes (antes de a lead
@@ -67,7 +67,7 @@ não marca; `ego_lead_em` impede a segunda; interruptor desligado ignora. OBS co
 ## Passos (cada escrita em produção só com ordem expressa)
 
 1. Decisões abaixo.
-2. Migration `0051` (a correres tu).
+2. Migration `0052` (a correres tu).
 3. Código + testes; deploy do `figueirahome-agentos` com o interruptor desligado.
 4. Retroativo (opcional, com lista aprovada): marcar os casos dos últimos dias.
 5. Ligar `LEAD_INTERESSE_EGO` e verificar a próxima lead real (contacto marcado, lead na caixa, consultora certa).
