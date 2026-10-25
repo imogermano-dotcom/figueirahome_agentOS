@@ -167,6 +167,8 @@ async def _handle_message(
         # Responder sempre pelo número que recebeu a mensagem (`phone_number_id`
         # do webhook), não por um número fixo — necessário para ter 2+ números
         # activos na mesma app sem trocar a resposta de sítio.
+        if not response:  # conversa já fechada e a mensagem só se despede: nada a responder
+            return
         await send_text_message(from_number, response, phone_number_id)
     except Exception as exc:
         logger.exception("Erro ao processar mensagem WhatsApp de %s", from_number)

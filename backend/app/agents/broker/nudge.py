@@ -12,7 +12,6 @@ dentro dela.
 
 import asyncio
 import logging
-import re
 from datetime import datetime, timedelta, timezone
 
 from app.agents.broker import guards
@@ -42,25 +41,9 @@ TEXTO_NUDGE_A4 = (
     "para continuar, ou diga-me só que não para eu não voltar a incomodar."
 )
 
-# Marcadores da despedida da própria Matilde — voz nossa, controlada, por
-# isso mais fiável do que adivinhar o tom de quem escreve. Substring, não
-# prefixo: aparecem a meio da frase ("Cuide-se, Maria. Até quando precisar!").
-_MARCAS_FECHO = ("👋", "cuide-se", "boa continuação", "muita força", "boa sorte", "bom resto de dia")
-
-
-def _e_despedida(texto: str) -> bool:
-    texto = (texto or "").lower()
-    return any(marca in texto for marca in _MARCAS_FECHO)
-
-
-# A pessoa fecha a conversa ela própria: «Obrigado.», «Ok, obrigada!», «Muito grato». Mensagem curta que é só
-# agradecimento — a Matilde despede-se, e 2 h depois o nudge perguntava «Ainda está interessado?» (22/10).
-# Curta de propósito: «Obrigado, mas e o preço?» não fecha nada.
-_AGRADECIMENTO = re.compile(r"^(ok[,.! ]*|certo[,.! ]*|muito )?(obrigad[oa]s?|grat[oa]s?|agradeço)\b[\s\w,.!😊🙏👍]{0,25}$", re.I)
-
-
-def _e_agradecimento(texto: str) -> bool:
-    return bool(_AGRADECIMENTO.match((texto or "").strip())) and "?" not in (texto or "")
+# Os detetores de despedida/agradecimento/recusa vivem em `guards` (o motor também os usa). Nomes antigos mantidos.
+_e_despedida = guards.e_despedida
+_e_agradecimento = guards.e_agradecimento
 
 
 async def _pode_enviar_a1(telefone: str | None) -> bool:
@@ -182,7 +165,7 @@ async def _candidatos(agente: str, guarda) -> list[dict]:
         if _e_despedida(ultima.get("content", "")):
             continue
         da_pessoa = next((m for m in reversed(mensagens) if m.get("role") == "user"), None)
-        if da_pessoa and _e_agradecimento(da_pessoa.get("content", "")):
+        if da_pessoa and (_e_agradecimento(da_pessoa.get("content", "")) or guards.e_recusa(da_pessoa.get("content", ""))):
             continue
         if guarda is not None and not await guarda(row["participante"]):
             continue

@@ -34,6 +34,8 @@ from app.agents.broker.custos import calcular_custo, somar_usage
 from app.agents.broker.guards import (
     campos_mql_da_ficha,
     contacto_meta_aberto,
+    e_despedida,
+    e_fecho_da_pessoa,
     lead_aberta,
     marcar_contacto_respondeu,
     marcar_lead_respondeu,
@@ -455,6 +457,17 @@ async def _responder_sem_lock(
     agente: str | None = None,
 ) -> str:
     conversa_id, mensagens, agente_atual = await load_conversation(canal, participante)
+
+    # A conversa já acabou (a assistente despediu-se) e a pessoa só responde com emojis, «obrigado» ou «até logo»:
+    # não se responde. Visto a 22/10: uma lead trocou ~40 mensagens de carinhas e «tchau» e o modelo respondeu a todas.
+    # Só no WhatsApp: no site e no painel a mensagem vem sempre de quem a escreveu para ser lida.
+    if (
+        canal == "whatsapp" and mensagens and mensagens[-1].get("role") == "assistant"
+        and e_despedida(mensagens[-1].get("content") if isinstance(mensagens[-1].get("content"), str) else "")
+        and e_fecho_da_pessoa(mensagem)
+    ):
+        logger.info("Conversa já fechada e a mensagem só se despede: sem resposta (%s).", participante[-3:])
+        return ""
 
     agente = agente or route(mensagem, agente_atual)
     if agente not in ASSISTENTES:

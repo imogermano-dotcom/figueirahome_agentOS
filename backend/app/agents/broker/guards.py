@@ -32,6 +32,52 @@ _LIMIAR_VISITA = 0.80
 _SO_DIGITOS = re.compile(r"\D+")
 
 
+# --- Fim de conversa ------------------------------------------------------------------------------------------------
+# Marcadores da despedida da própria assistente — voz nossa, controlada, mais fiável do que adivinhar o tom de quem
+# escreve. Substring, não prefixo: aparecem a meio da frase ("Cuide-se, Maria. Até quando precisar!").
+_MARCAS_FECHO = (
+    "👋", "cuide-se", "boa continuação", "muita força", "boa sorte", "bom resto de dia", "bom fim de semana",
+    "até breve", "até logo", "tudo de bom", "boa estadia", "disponha",
+)
+_SO_SIMBOLOS = re.compile(r"^[\W_]*$")  # sem uma única letra ou dígito: emojis, pontuação, espaços
+
+
+def e_despedida(texto: str | None) -> bool:
+    """A assistente fechou a conversa (ou respondeu só com um emoji)."""
+    texto = (texto or "").strip().lower()
+    return bool(texto) and (any(marca in texto for marca in _MARCAS_FECHO) or bool(_SO_SIMBOLOS.match(texto)))
+
+
+# A pessoa fecha a conversa ela própria: «Obrigado.», «Ok, obrigada!», «Muito grato». Mensagem curta que é só
+# agradecimento. Curta de propósito: «Obrigado, mas e o preço?» não fecha nada.
+_AGRADECIMENTO = re.compile(r"^(ok[,.! ]*|certo[,.! ]*|muito )?(obrigad[oa]s?|grat[oa]s?|agradeço)\b[\s\w,.!😊🙏👍]{0,25}$", re.I)
+_SAUDACAO_FINAL = re.compile(
+    r"^(ok|certo|combinado|está bem|tá bem|até (logo|breve|já|muito breve)|adeus|tchau|chau|chao|igualmente|abraço|"
+    r"boa (noite|tarde|semana)|bom (dia|fim de semana)|cuide-se)[\s\W]*$", re.I)
+
+
+def e_agradecimento(texto: str | None) -> bool:
+    return bool(_AGRADECIMENTO.match((texto or "").strip())) and "?" not in (texto or "")
+
+
+def e_fecho_da_pessoa(texto: str | None) -> bool:
+    """Mensagem que não pede nada: só emojis, agradecimento ou saudação final («até logo», «tchau»)."""
+    texto = (texto or "").strip()
+    return bool(texto) and (bool(_SO_SIMBOLOS.match(texto)) or e_agradecimento(texto) or bool(_SAUDACAO_FINAL.match(texto)))
+
+
+# A pessoa diz que não quer: «não estou interessada», «sem interesse», «já não preciso». Curta e sem pergunta, para
+# «Não tenho interesse em arrendar mas quero comprar» continuar a contar como conversa.
+_RECUSA = re.compile(
+    r"\b(n[ãa]o (estou|tenho|quero|me interessa|preciso|pretendo)|j[áa] n[ãa]o (preciso|quero|tenho)|sem interesse|"
+    r"deixe de|n[ãa]o (me )?(contacte|incomode|ligue)|j[áa] (encontrei|comprei|arrendei))\b", re.I)
+
+
+def e_recusa(texto: str | None) -> bool:
+    texto = (texto or "").strip()
+    return bool(_RECUSA.search(texto)) and "?" not in texto and len(texto) <= 120
+
+
 def normalizar_telefone(raw: str | None) -> str | None:
     """Reduz um número português à sua forma nacional de 9 dígitos.
 
