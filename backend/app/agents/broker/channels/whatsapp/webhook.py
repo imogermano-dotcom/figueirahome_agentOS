@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import time
 import traceback
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request, Response
@@ -94,19 +95,73 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
             for msg in value.get("messages", []):
                 # Quem nos escreve (seja o que for) tem WhatsApp: limpa a marca de falha.
                 background_tasks.add_task(recibos.limpar_falha, msg.get("from"))
-                if msg.get("type") != "text":
-                    # Ignorar imagens, áudio, etc.
-                    continue
                 from_number = msg.get("from")
                 message_id = msg.get("id")
-                text_body = msg.get("text", {}).get("body", "")
+                text_body = _texto_da_mensagem(msg)
 
                 if from_number and text_body:
                     background_tasks.add_task(
                         _handle_message, from_number, message_id, text_body, phone_number_id
                     )
+                elif from_number and msg.get("type") in _TIPOS_COM_AVISO:
+                    # Áudio, imagem, ficheiro sem texto: antes ficava sem resposta nenhuma (pedido #10, 26/10).
+                    background_tasks.add_task(
+                        _avisar_que_so_le_texto, from_number, message_id, msg["type"], phone_number_id
+                    )
 
     return {"status": "ok"}
+
+
+# Mensagens que não são texto e a que se responde uma vez a pedir que escreva. Ficam de fora: `reaction` (um emoji sobre a nossa
+# mensagem), `sticker` (conta como emoji), `system`, `unsupported` e `order`.
+_TIPOS_COM_AVISO = {"audio", "image", "video", "document", "location", "contacts"}
+_AVISO_AUDIO = "Ainda não consigo ouvir mensagens de voz. Pode escrever-me a sua mensagem, por favor?"
+_AVISO_OUTRO = "Ainda não consigo abrir imagens, vídeos, ficheiros ou localizações. Pode escrever-me a sua mensagem, por favor?"
+_ESPERA_ENTRE_AVISOS_S = 600
+_ultimo_aviso: dict[str, float] = {}  # ponytail: por processo (1 máquina); numa reinício repete o aviso uma vez, sem mais consequência
+
+
+def _texto_da_mensagem(msg: dict) -> str:
+    """O texto que a pessoa escreveu, seja qual for o tipo da mensagem: `text`, a legenda de uma imagem, vídeo ou ficheiro, a resposta a
+    um botão. Vazio quando só há mídia (áudio, imagem sem legenda...)."""
+    tipo = msg.get("type")
+    if tipo == "text":
+        return (msg.get("text") or {}).get("body") or ""
+    if tipo in ("image", "video", "document"):
+        return ((msg.get(tipo) or {}).get("caption") or "").strip()
+    if tipo == "button":
+        return ((msg.get("button") or {}).get("text") or "").strip()
+    if tipo == "interactive":
+        i = msg.get("interactive") or {}
+        return ((i.get("button_reply") or i.get("list_reply") or {}).get("title") or "").strip()
+    return ""
+
+
+async def _avisar_que_so_le_texto(from_number: str, message_id: str, tipo: str, phone_number_id: str | None = None) -> None:
+    """Responde uma vez («escreva, por favor») a quem manda áudio, imagem ou ficheiro sem legenda. Nunca levanta. Uma só vez por pessoa
+    em 10 min (cinco fotografias seguidas não dão cinco respostas) e a pessoa acabou de escrever, por isso a janela de 24 h está aberta."""
+    try:
+        if await asyncio.get_event_loop().run_in_executor(None, _ja_processada, message_id):
+            return
+        agora = time.monotonic()
+        if agora - _ultimo_aviso.get(from_number, -_ESPERA_ENTRE_AVISOS_S) < _ESPERA_ENTRE_AVISOS_S:
+            return
+        _ultimo_aviso[from_number] = agora
+        await mark_as_read(message_id, phone_number_id)
+        await send_text_message(from_number, _AVISO_AUDIO if tipo == "audio" else _AVISO_OUTRO, phone_number_id)
+        await asyncio.get_event_loop().run_in_executor(None, _registar_nao_texto, from_number, tipo)
+    except Exception:
+        logger.exception("Falha a avisar que só lemos texto (%s)", tipo)
+
+
+def _registar_nao_texto(participante: str, tipo: str) -> None:
+    """Fica contado: sem isto não se sabe quantas pessoas mandam áudio. Só os 3 últimos dígitos."""
+    try:
+        get_supabase().table("agente_sync_log").insert({
+            "tipo": "whatsapp_nao_texto", "origem": "whatsapp", "resumo": {"tipo": tipo, "participante": f"…{participante[-3:]}"},
+        }).execute()
+    except Exception:
+        logger.exception("Falha a registar a mensagem que não é texto")
 
 
 def _ja_processada(message_id: str) -> bool:
