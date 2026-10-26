@@ -285,5 +285,52 @@ def test_cron_contacto_que_entra_pelas_duas_vias_cria_uma_so_vez(monkeypatch):
     assert r["criadas"] == 1 and len(criadas) == 1
 
 
+# ── contacto antigo reaproveitado por uma lead Meta nova (26/10) ──────────
+
+def test_entrou_pela_meta_em_ignora_o_criado_em_do_contacto_antigo():
+    """O comprador escalado a 24/10 era uma pessoa do eGO de 14/08: o `criado_em` ficou em 14/08 e excluía-o de tudo."""
+    assert lp.entrou_pela_meta_em({"criado_em": "2026-08-14", "meta_created_at": "2026-10-24T14:14:00+00:00"}) == "2026-10-24"
+    assert lp.entrou_pela_meta_em({"criado_em": "2026-10-17"}) == "2026-10-17", "sem meta_created_at, cai para o criado_em"
+    assert lp.entrou_pela_meta_em({}) == ""
+
+
+def test_consultas_do_cron_filtram_pela_entrada_da_lead_meta(monkeypatch):
+    filtros = []
+
+    class _Q:
+        def __getattr__(self, nome):
+            if nome == "not_":
+                return self
+            return lambda *a, **k: self
+
+        def gte(self, campo, valor):
+            filtros.append(campo)
+            return self
+
+        def execute(self):
+            return type("R", (), {"data": []})()
+
+    monkeypatch.setattr(lp, "get_supabase", lambda: type("S", (), {"table": lambda self, n: _Q()})())
+    monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-20")
+    monkeypatch.setattr(settings, "lead_interesse_ego", "1")
+    lp._candidatas(AGORA)
+    lp._candidatas_interesse()
+    assert filtros == ["meta_created_at", "meta_created_at"]
+
+
+def test_recusa_de_contacto_antigo_com_lead_meta_recente_cria(monkeypatch):
+    from tests.test_leads_para_ego import _recusa
+    _, enviados = _recusa(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em="2026-08-14",
+                                                    meta_created_at="2026-10-24T14:14:00+00:00"))
+    assert lp.recusou_whatsapp("m1")["resultado"] == "criada" and len(enviados) == 1
+
+
+def test_recusa_com_lead_meta_anterior_a_ativacao_continua_a_nao_criar(monkeypatch):
+    from tests.test_leads_para_ego import _recusa
+    _, enviados = _recusa(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em="2026-10-24",
+                                                    meta_created_at="2026-10-01T10:00:00+00:00"))
+    assert lp.recusou_whatsapp("m1")["resultado"] == "anterior_a_ativacao" and enviados == []
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

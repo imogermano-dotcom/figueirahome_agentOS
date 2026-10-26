@@ -31,13 +31,20 @@ _MASTER_VENDA = 2
 _MAX_RESUMO_OBS = 600  # do resumo da conversa que vai no OBS da lead
 
 _COLUNAS = ("id,nome,telefone,telemovel,email,meta_lead_id,imovel_ref,ad_name,meta_form_name,criado_em,"
-            "template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em,"
+            "meta_created_at,template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em,"
             "interesse_real_em,interesse_real_motivo,interesse_real_resumo")
 
 
 def dentro_do_horario(agora: datetime) -> bool:
     """Das 9h às 20h, hora de Lisboa. Não vale para a recusa do WhatsApp, que vai logo (n8n)."""
     return HORA_ABRE <= agora.astimezone(ZoneInfo("Europe/Lisbon")).hour < HORA_FECHA
+
+
+def entrou_pela_meta_em(linha: dict) -> str:
+    """Dia (AAAA-MM-DD) em que a lead Meta entrou. É `meta_created_at`, não `contactos.criado_em`: quando a pessoa já existia no
+    eGO (contacto antigo), a lead Meta reaproveita a linha e o `criado_em` fica na data original, o que a excluía de tudo
+    (26/10: um comprador de 14/08 escalado com interesse real nunca era apanhado). `criado_em` só como último recurso."""
+    return str(linha.get("meta_created_at") or linha.get("criado_em") or "")[:10]
 
 
 def _dt(valor: str | None) -> datetime | None:
@@ -166,8 +173,8 @@ def _candidatas(agora: datetime) -> list[dict]:
     resp = (
         get_supabase().table("contactos").select(_COLUNAS)
         .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
-        .is_("ego_lead_em", "null").gte("criado_em", settings.lead_compra_ego_desde)
-        .order("criado_em").limit(200).execute()
+        .is_("ego_lead_em", "null").gte("meta_created_at", settings.lead_compra_ego_desde)
+        .order("meta_created_at").limit(200).execute()
     )
     return [l for l in resp.data or [] if elegivel(l, agora)][:LIMITE_POR_VOLTA]
 
@@ -180,7 +187,7 @@ def _candidatas_interesse() -> list[dict]:
         get_supabase().table("contactos").select(_COLUNAS)
         .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
         .not_.is_("interesse_real_em", "null").is_("ego_lead_em", "null")
-        .gte("criado_em", settings.lead_compra_ego_desde).order("interesse_real_em").limit(LIMITE_POR_VOLTA).execute()
+        .gte("meta_created_at", settings.lead_compra_ego_desde).order("interesse_real_em").limit(LIMITE_POR_VOLTA).execute()
     )
     return [l for l in resp.data or [] if not l.get("ego_lead_em")]
 
@@ -272,8 +279,8 @@ def recusou_whatsapp(meta_lead_id: str, imovel_ref: str | None = None) -> dict |
     linha = linhas[0]
     if linha.get("ego_lead_em"):
         return {"resultado": "ja_tratada"}
-    # `contactos.criado_em` é uma `date` (sem hora): compara-se por dia
-    if str(linha.get("criado_em") or "")[:10] < str(settings.lead_compra_ego_desde)[:10]:
+    # compara-se por dia (a data de ativação é um dia) e pela entrada da lead Meta, não pelo `criado_em` do contacto
+    if entrou_pela_meta_em(linha) < str(settings.lead_compra_ego_desde)[:10]:
         return {"resultado": "anterior_a_ativacao", "criada": False}
     agora = datetime.now(timezone.utc)
     tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
