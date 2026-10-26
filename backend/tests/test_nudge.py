@@ -36,6 +36,14 @@ class _FakeTable:
     def lte(self, *a, **k):
         return self
 
+    def or_(self, *a, **k):
+        return self
+
+    def __getattr__(self, nome):  # `.not_` (propriedade do PostgREST)
+        if nome == "not_":
+            return self
+        raise AttributeError(nome)
+
     def order(self, *a, **k):
         return self
 
@@ -66,6 +74,10 @@ class _FakeTable:
                 t for t in self.estado.get("tarefas", [])
                 if t["conversa_id"] in getattr(self, "_ids", []) and t["tipo"] == tipo
             ])
+        if self.nome == "contactos":
+            if self.estado.get("contactos_erro"):
+                raise RuntimeError("falha simulada")
+            return SimpleNamespace(data=self.estado.get("recusaram", []))
         if self.nome == "leads":
             lead = self.estado["leads_por_participante"].get(getattr(self, "_telefone_pedido", None))
             return SimpleNamespace(data=[lead] if lead else [])
@@ -80,9 +92,9 @@ class _FakeSupabase:
         return _FakeTable(nome, self.estado)
 
 
-def _montar(monkeypatch, conversas, leads_por_participante, tarefas=None, tarefas_erro=False):
+def _montar(monkeypatch, conversas, leads_por_participante, tarefas=None, tarefas_erro=False, recusaram=None, contactos_erro=False):
     estado = {"conversas": conversas, "leads_por_participante": leads_por_participante, "updates": [], "inserts": [],
-              "tarefas": tarefas or [], "tarefas_erro": tarefas_erro}
+              "tarefas": tarefas or [], "tarefas_erro": tarefas_erro, "recusaram": recusaram or [], "contactos_erro": contactos_erro}
     monkeypatch.setattr(nudge, "get_supabase", lambda: _FakeSupabase(estado))
 
     # Decisão testada aqui é a de `_pode_enviar` (fecho/contacto_humano_em),
@@ -283,3 +295,27 @@ def test_agradecimento_da_pessoa_nao_recebe_nudge(monkeypatch):
 
 def test_bom_resto_de_dia_e_despedida():
     assert nudge._e_despedida("De nada, Carla! Bom resto de dia! 😊")
+
+
+# ── recusa gravada em `contactos` (pedido #49) ────────────────────────────
+
+def test_contacto_que_recusou_nao_recebe_nudge_em_nenhum_assistente(monkeypatch):
+    """A Bárbara (24/10): o `encerrar_lead` não deixava nada para contactos sem linha em `leads`, e o nudge escreveu."""
+    for agente in (nudge.A1, nudge.A3, nudge.A4):
+        conversas = [_conversa("c1", "351900000001"), _conversa("c2", "351900000002")]
+        leads = {"351900000001": {"estado": "contactada", "contacto_humano_em": None},
+                 "351900000002": {"estado": "contactada", "contacto_humano_em": None}}
+        estado = _montar(monkeypatch, conversas, leads, recusaram=[{"telefone": "351900000001", "telemovel": None}])
+        resumo = asyncio.run(nudge.enviar_nudges(agente))
+        assert resumo["enviados"] == 1 and estado["enviados"][0][0] == "351900000002", agente
+
+
+def test_telemovel_tambem_conta_para_a_recusa(monkeypatch):
+    conversas = [_conversa("c1", "351900000001")]
+    estado = _montar(monkeypatch, conversas, {}, recusaram=[{"telefone": None, "telemovel": "351900000001"}])
+    assert asyncio.run(nudge.enviar_nudges(nudge.A4))["enviados"] == 0 and "enviados" not in estado
+
+
+def test_falha_a_consultar_a_recusa_nao_envia_nada(monkeypatch):
+    estado = _montar(monkeypatch, [_conversa("c1", "351900000001")], {}, contactos_erro=True)
+    assert asyncio.run(nudge.enviar_nudges(nudge.A3))["enviados"] == 0 and "enviados" not in estado

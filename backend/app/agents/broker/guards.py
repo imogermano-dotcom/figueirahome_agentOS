@@ -79,6 +79,40 @@ def e_recusa(texto: str | None) -> bool:
     return bool(_RECUSA.search(texto)) and "?" not in texto and len(texto) <= 120
 
 
+# Pedido explícito de não ser contactada: marca o opt-out logo, em código, sem esperar que o modelo chame `encerrar_lead`
+# (pedido #49). Estrito de propósito: «não tenho interesse em arrendar, só comprar» NÃO é um opt-out.
+_OPTOUT = re.compile(
+    r"\b(n[ãa]o (me )?(contactem|contacte|liguem|ligue|incomodem|incomode|escrevam|escreva|enviem|envie)|"
+    r"deix(e|em) de (me )?(contactar|ligar|escrever|enviar|incomodar)|par(e|em) de (me )?(contactar|ligar|escrever|enviar|incomodar)|"
+    r"n[ãa]o quero (mais )?(ser contactad[oa]|receber (mais )?(mensagens|contactos|chamadas))|retirem-me|tirem-me|"
+    r"stop|unsubscribe|cancelar subscri[cç][ãa]o)\b", re.I)
+
+
+def e_optout_explicito(texto: str | None) -> bool:
+    return bool(_OPTOUT.search((texto or "").strip())) and len(texto or "") <= 200
+
+
+def marcar_nao_contactar(telefone: str | None) -> int:
+    """`contactos.nao_contactar_em` = agora para as linhas deste número que ainda não o têm (a 1.ª marca fica). Bloqueia os
+    envios proativos (nudge, follow-ups, cascata, reativação), não a conversa: se a pessoa escrever, responde-se.
+    Nunca levanta. Devolve quantas linhas marcou."""
+    try:
+        numero = normalizar_telefone(telefone)
+        if not numero:
+            return 0
+        lista = ",".join(variantes_telefone(numero))
+        r = (
+            get_supabase().table("contactos")
+            .update({"nao_contactar_em": datetime.now(timezone.utc).isoformat()})
+            .or_(f"telefone.in.({lista}),telemovel.in.({lista})")
+            .is_("nao_contactar_em", "null").execute()
+        )
+        return len(r.data or [])
+    except Exception:
+        logger.exception("Falha a marcar nao_contactar_em")
+        return 0
+
+
 def normalizar_telefone(raw: str | None) -> str | None:
     """Reduz um número português à sua forma nacional de 9 dígitos.
 
@@ -667,6 +701,10 @@ async def encerrar_lead_do_telefone(
     if not numero or motivo not in _MOTIVOS_ENCERRAMENTO:
         return False
 
+    # A recusa fica gravada em `contactos` mesmo sem linha em `leads` (angariação e recrutamento só vivem lá): foi isso
+    # que deixou o nudge escrever a quem tinha dito que não (24/10, pedido #49).
+    marcados = await asyncio.get_event_loop().run_in_executor(None, marcar_nao_contactar, numero)
+
     agora = datetime.now(timezone.utc).isoformat()
     dados = {"estado": motivo, "atualizado_em": agora}
     if nota:
@@ -686,11 +724,11 @@ async def encerrar_lead_do_telefone(
         resp = await asyncio.get_event_loop().run_in_executor(None, _fechar)
     except Exception:
         logger.exception("Falha a encerrar lead de %s (%s)", numero, motivo)
-        return False
+        return marcados > 0
 
     fechadas = len(resp.data or [])
-    logger.info("Lead de %s encerrada como '%s' (%d linha(s))", numero, motivo, fechadas)
-    return fechadas > 0
+    logger.info("Lead de %s encerrada como '%s' (%d linha(s) em leads, %d contacto(s) marcados)", numero, motivo, fechadas, marcados)
+    return fechadas > 0 or marcados > 0
 
 
 def visita_permitida(orcamento: float | None, preco: float | None) -> bool:

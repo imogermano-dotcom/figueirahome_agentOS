@@ -36,8 +36,10 @@ from app.agents.broker.guards import (
     contacto_meta_aberto,
     e_despedida,
     e_fecho_da_pessoa,
+    e_optout_explicito,
     lead_aberta,
     marcar_contacto_respondeu,
+    marcar_nao_contactar,
     marcar_lead_respondeu,
     motivos_escalados,
     tools_ja_usadas,
@@ -468,6 +470,11 @@ async def _responder_sem_lock(
     ):
         logger.info("Conversa já fechada e a mensagem só se despede: sem resposta (%s).", participante[-3:])
         return ""
+
+    # Pedido explícito de não ser contactada («não me contactem», «stop»): fica gravado já, em código, sem esperar que o
+    # modelo chame `encerrar_lead` (pedido #49). Bloqueia só os envios proativos; a resposta a esta mensagem segue normal.
+    if canal == "whatsapp" and e_optout_explicito(mensagem):
+        await asyncio.get_event_loop().run_in_executor(None, marcar_nao_contactar, participante)
 
     agente = agente or route(mensagem, agente_atual)
     if agente not in ASSISTENTES:

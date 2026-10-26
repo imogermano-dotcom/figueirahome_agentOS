@@ -131,6 +131,30 @@ async def _conversas_escaladas(ids: list[str]) -> set[str]:
     return {t["conversa_id"] for t in resp.data}
 
 
+async def _numeros_sem_contacto(participantes: list[str]) -> set[str]:
+    """Números (9 dígitos) que recusaram: `contactos.nao_contactar_em` preenchido (`encerrar_lead` ou opt-out explícito).
+    Vale para os 3 assistentes e para contactos sem linha em `leads` (angariação e recrutamento), que era o buraco do
+    pedido #49 (24/10). Falha fechado: sem saber, não se envia nada nesta volta."""
+    numeros = {n for n in (guards.normalizar_telefone(p) for p in participantes) if n}
+    if not numeros:
+        return set()
+    variantes = [v for n in numeros for v in guards.variantes_telefone(n)]
+    lista = ",".join(variantes)
+
+    def _fetch():
+        return (
+            get_supabase().table("contactos").select("telefone,telemovel")
+            .or_(f"telefone.in.({lista}),telemovel.in.({lista})").not_.is_("nao_contactar_em", "null").execute()
+        )
+
+    try:
+        resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+    except Exception:
+        logger.exception("Falha a consultar nao_contactar_em — nenhum nudge nesta volta")
+        return set(numeros)
+    return {n for r in resp.data for n in (guards.normalizar_telefone(r.get("telefone")), guards.normalizar_telefone(r.get("telemovel"))) if n}
+
+
 async def _candidatos(agente: str, guarda) -> list[dict]:
     agora = datetime.now(timezone.utc)
     desde = (agora - timedelta(hours=_JANELA_MAX_HORAS)).isoformat()
@@ -151,10 +175,11 @@ async def _candidatos(agente: str, guarda) -> list[dict]:
 
     resp = await asyncio.get_event_loop().run_in_executor(None, _fetch)
     escaladas = await _conversas_escaladas([r["id"] for r in resp.data])
+    recusaram = await _numeros_sem_contacto([r["participante"] for r in resp.data])
 
     candidatos = []
     for row in resp.data:
-        if row["id"] in escaladas:
+        if row["id"] in escaladas or guards.normalizar_telefone(row["participante"]) in recusaram:
             continue
         mensagens = row.get("mensagens") or []
         if not mensagens:
