@@ -3,6 +3,7 @@
 > Estado 25/10: **implementado e LIGADO** (`8bf60e6`, migration `0052` corrida, `LEAD_INTERESSE_EGO=1` no Fly às 21:31 UTC). Decisões 1–4 tomadas a 25/10 (as propostas do plano, ver fim).
 > - Código: `guards.marcar_interesse_real` e `motivo_de_compra`; ligações em `_pedir_visita`, `_escalar_para_humano` e `_promover_lead`; `leads_para_ego._candidatas_interesse` e o OBS com o resumo. 38 testes em `test_interesse_real.py`.
 > - Sem retroativo: um comprador escalado antes de ligar foi marcado à mão (25/10 23:36 UTC); a lead sai na janela das 9h do dia seguinte. **Por verificar:** a lead no eGO, o imóvel e a consultora certos, e se a pessoa que já existia no eGO (contacto antigo) é reutilizada ou duplicada (pedido #48 do Miguel).
+> - **26/10:** a lead do comprador marcado à mão foi criada às 09:20 UTC (id 60617326) com o FH2584, o consultor do imóvel e o OBS com o resumo. Antes não era apanhada: o contacto era uma pessoa antiga do eGO e a lead Meta reaproveitou a linha, que **mantém o `criado_em` original** (14/08), e o cron filtrava por ele. Passou a filtrar por `meta_created_at` (cron e recusa, `entrou_pela_meta_em`; `b25d425`). Uma lead do eGO não tem pessoa ligada (`potencialClientId` vazio) até a consultora a promover: se o eGO reaproveita a pessoa antiga só se vê depois dessa promoção.
 > - No pedido #47 do Miguel as leads que respondem sem sinal de interesse (8 de 9 desde 21/10, 5 a procurar arrendamento) **não** são passadas; a pergunta «todas as leads Meta ou só com interesse real?» ficou ao Miguel.
 
 ## Problema

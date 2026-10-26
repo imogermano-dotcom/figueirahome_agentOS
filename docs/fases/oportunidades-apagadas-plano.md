@@ -1,6 +1,8 @@
 # Oportunidades apagadas no eGO (plano, pedido #31 do Miguel)
 
-> Estado 26/10: **plano, código e testes escritos; migration `0054` por correr (utilizador).**
+> Estado 26/10: **implementado e em produção** (`973bc22`, `7fe10f9`; migration `0054` corrida). Corrida manual às 12:07 UTC marcou VEN_22261 e VEN_22277, sem erros. Falta só ver o cron das 04:17 a correr sozinho e a nota ao Miguel (#31 «Entregue»).
+> - **Armadilha encontrada na 1.ª corrida:** o `GetOpportunity` dava 400 em produção porque o id ia no caminho (`?opportunityId=`) e o httpx 0.28 do Fly substitui a query pelo `params=` (o 0.27 local junta-os). `_pedido` passa a juntar `params=` ao `applicationId`; teste de regressão.
+> - O resumo só regista `erros`; sem email se falhar a confirmação (avisar quando `erros` > 0 fica por fazer).
 
 ## Problema
 

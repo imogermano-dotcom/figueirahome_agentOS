@@ -51,3 +51,10 @@ O prompt não dizia que a agência só atua no concelho: a Inês registava qualq
 entregue. Secção «ZONA DE ACTUAÇÃO» no `_PROMPT_A3`: zona de fora ou mista → explica, pergunta se interessa, **só escala depois de a pessoa
 aceitar** (`encerrar_lead` se não). Ensaiado contra o modelo com 9 situações sintéticas (zonas de fora, mistas, fronteira com Pombal, dentro
 do concelho): nenhuma escalada de fora. A lista de freguesias do prompt é nossa; o Miguel ainda não a confirmou.
+
+## 5. Marcação direta da entrevista (pedido #43, 26/10, `05a2244`)
+
+Passo 8 do `_PROMPT_A3`: se as instruções adicionais da Inês (`agente_config`, `a3_recrutamento`) trouxerem um link de marcação, vai **na mesma resposta**
+em que diz que a candidatura está entregue (junto com «o responsável entra em contacto», não em vez dela), sozinho numa linha, só a quem ficou escalada
+com a zona confirmada (#33). O link está só na base de dados (repo público; o Miguel pode mudá-lo sem deploy). Ensaiado contra o modelo (8 de 8; sem
+link nas instruções não diz nada sobre marcação). A pergunta «junto ou em vez da frase» ficou como «junto», por confirmar com o Miguel.
