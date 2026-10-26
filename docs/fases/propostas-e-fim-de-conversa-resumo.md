@@ -58,3 +58,12 @@ Passo 8 do `_PROMPT_A3`: se as instruções adicionais da Inês (`agente_config`
 em que diz que a candidatura está entregue (junto com «o responsável entra em contacto», não em vez dela), sozinho numa linha, só a quem ficou escalada
 com a zona confirmada (#33). O link está só na base de dados (repo público; o Miguel pode mudá-lo sem deploy). Ensaiado contra o modelo (8 de 8; sem
 link nas instruções não diz nada sobre marcação). A pergunta «junto ou em vez da frase» ficou como «junto», por confirmar com o Miguel.
+
+## 6. Mensagens que não são texto (pedido #10, 26/10, `97eaef0`)
+
+O webhook só tratava `type == "text"`: áudio, imagem e ficheiros ficavam sem resposta e sem rasto. `_texto_da_mensagem` devolve o texto de uma mensagem
+de texto, a legenda de imagem/vídeo/documento e o título de uma resposta a botão ou lista; sem texto e de tipo `audio`, `image`, `video`, `document`,
+`location` ou `contacts`, `_avisar_que_so_le_texto` responde uma vez em 10 minutos por pessoa (a janela de 24 h acabou de abrir) e regista em `agente_sync_log`
+(`whatsapp_nao_texto`, só os 3 últimos dígitos). Reações, stickers e mensagens de sistema continuam ignorados. O aviso não entra na conversa do assistente.
+Fica por tratar: transcrever áudio (custo e privacidade), o `referral` dos anúncios de clique-para-WhatsApp e as respostas de WhatsApp Flow (`interactive` `nfm_reply`),
+sem sinais de uso (de 83 conversas desde 25/09, 2 vêm de números sem formulário). Testes em `test_whatsapp_nao_texto.py`.
