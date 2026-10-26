@@ -33,3 +33,21 @@ O nudge salta agradecimentos e recusas curtas sem pergunta. Detetores públicos 
 **Prompt da Matilde (22/10).** A KB dizia «Zona de atuação: concelho da Figueira da Foz» e a Matilde afirmou que o FH2584 (Porto) estava
 «fora da nossa área». Linha corrigida e regra acrescentada em `agente_config` (`a1_vendedor`): nunca dizer que um imóvel da ficha está fora
 da área. A fonte (`kb-a1-vendedor.md`, fora do repo) tem de receber a mesma correção.
+
+## 3. A recusa fica gravada (pedido #49, 26/10, `c89deba`, migration `0053`)
+
+**Problema (24/10).** A Bárbara (angariação) recebeu um nudge 2 h depois de a pessoa dizer «não estou interessada». O `encerrar_lead` só
+escrevia em `leads` e os contactos de angariação e recrutamento vivem só em `contactos`: ficava `nova` e nada registava a recusa. Os follow-ups
+de 24 h e 72 h do n8n já não escrevem a quem respondeu (`respondeu_em` vazio), por isso o nudge era o único envio automático em causa.
+
+**Correção.** `contactos.nao_contactar_em` (coluna, não o `estado`: o estado é editável no painel e reescrito pelo n8n). `encerrar_lead`
+grava-a mesmo sem linha em `leads`; um opt-out explícito («não me contactem», «deixem de me enviar», «stop») grava-a em código, no motor,
+antes do modelo; o nudge dos 3 assistentes consulta-a (falha fechado). Só bloqueia envios proativos: se a pessoa escrever, responde-se.
+A cascata e a reativação do pedido #21 ainda não existem e terão de ler a mesma marca. Testes em `test_nao_contactar.py` e `test_nudge.py`.
+
+## 4. Inês só no concelho da Figueira da Foz (pedido #33, 25/10, `4c52023`)
+
+O prompt não dizia que a agência só atua no concelho: a Inês registava qualquer zona (Sesimbra, Cantanhede, Sintra) e dava a candidatura como
+entregue. Secção «ZONA DE ACTUAÇÃO» no `_PROMPT_A3`: zona de fora ou mista → explica, pergunta se interessa, **só escala depois de a pessoa
+aceitar** (`encerrar_lead` se não). Ensaiado contra o modelo com 9 situações sintéticas (zonas de fora, mistas, fronteira com Pombal, dentro
+do concelho): nenhuma escalada de fora. A lista de freguesias do prompt é nossa; o Miguel ainda não a confirmou.

@@ -35,7 +35,7 @@ No espelho do eGO: `oportunidades 1 ── N tarefas | notas | oportunidade_pref
 
 ## Migrations: o que o repo sabe e o que a base tem
 
-- Repo: `0001`–`0051` (a `0020` vive só no ramo `feat/landing-pages`; a `0049` está reservada às colunas da API do eGO em `oportunidades`, por correr). A `0047` (`contactos.contacto_humano_em`) foi corrida à mão a 15/10; a `0048` (recibos de entrega do WhatsApp em `contactos`) a 16/10; a `0050` (`contactos.ego_lead_em`/`ego_lead_id`) a 17/10; a `0051` (RPC `lead_meta_compra`: `whatsapp_permissao` segue a resposta, `sim*` = consentimento; corrigiu 4 linhas) a 18/10.
+- Repo: `0001`–`0053` (a `0020` vive só no ramo `feat/landing-pages`; a `0049` está reservada às colunas da API do eGO em `oportunidades`, por correr). A `0047` (`contactos.contacto_humano_em`) foi corrida à mão a 15/10; a `0048` (recibos de entrega do WhatsApp em `contactos`) a 16/10; a `0050` (`contactos.ego_lead_em`/`ego_lead_id`) a 17/10; a `0051` (RPC `lead_meta_compra`: `whatsapp_permissao` segue a resposta, `sim*` = consentimento; corrigiu 4 linhas) a 18/10; a `0052` (`contactos.interesse_real_em`/`_motivo`/`_resumo`: o assistente marca o comprador Meta com interesse real e o cron cria a lead no eGO) e a `0053` (`contactos.nao_contactar_em`: recusa gravada; bloqueia envios proativos) a 25–26/10.
 - Base (`supabase migration list`, 07/10): 31 em comum (`0001`–`0030`), **16 só locais** (`0031`–`0046`,
   corridas à mão no editor SQL e **não registadas** em `supabase_migrations`) e **168 só remotas**
   (nomes com timestamp, de outras ferramentas/utilizadores, até 07/10; não estão no repo).
@@ -323,6 +323,10 @@ presente num só registo escreve `NULL` nos outros). Backfill do histórico a 05
 | `whatsapp_erro_codigo` | integer | `0048`. Código que originou `whatsapp_falhou_em` (0 = não identificado). |
 | `ego_lead_em` | timestamp with time zone | `0050` (17/10). Quando o backend tratou a lead de compra sem resposta (criou-a no eGO ou saltou por já haver oportunidade ativa). Travão: não-nulo = não repetir. |
 | `ego_lead_id` | bigint | `0050`. Id da lead criada no eGO via API. NULL com `ego_lead_em` = não criada. |
+| `interesse_real_em` | timestamp with time zone | `0052` (25/10). Quando o assistente confirmou interesse real (visita, escalada de compra, lead qualificada). Não-nulo com `ego_lead_em` nulo = o cron `leads-compra-para-ego` cria a lead no eGO. Só escreve com `LEAD_INTERESSE_EGO` ligado. |
+| `interesse_real_motivo` | text | `0052`. Origem do sinal: `visita`, `qualificada` ou o motivo da escalada. |
+| `interesse_real_resumo` | text | `0052`. Resumo da conversa para o OBS da lead no eGO (≤1500 caracteres; vão ≤600). |
+| `nao_contactar_em` | timestamp with time zone | `0053` (26/10). A pessoa recusou (`encerrar_lead` ou opt-out explícito). Não-nulo = nenhum envio **proativo** (nudge, cascata, reativação) lhe escreve; responder-lhe continua normal. Escritor: `guards.marcar_nao_contactar`. |
 | `ad_id` | text | ID do anúncio Meta que gerou a lead (RPCs lead_meta_*, campo já pedido pelo n8n à Graph API). Sempre sobrescrito na submissão mais recente. |
 | `ad_name` | text | Nome do anúncio Meta que gerou a lead. |
 | `adset_id` | text | ID do conjunto de anúncios (adset) Meta que gerou a lead. |

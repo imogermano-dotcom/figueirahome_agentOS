@@ -1,6 +1,9 @@
 # Imóveis: todos os estados pela API nova (plano, pedido #45 do Miguel)
 
-> Estado 25/10: **só plano, nada implementado.** Decisões 1–4 tomadas a 25/10 (as propostas do plano, ver fim). Pedido original e proposta do Miguel (19/10) em `SYNC_IMOVEIS_DEV_PROPOSTA.md` (fora do repo).
+> Estado 25/10: **código e testes deployados** (`c1edd03`, versão 164), **1.ª passagem real por fazer**, cron `sync-imoveis-todos` `enabled: false`. Decisões 1–4 tomadas a 25/10 (as propostas do plano, ver fim).
+> - `ego_api.todos_os_imoveis`/`um_por_referencia`, `imoveis_sync.mapear_imovel_novo`/`planear_imoveis_todos`/`sync_imoveis_todos` e o endpoint com `?dry=1`; 25 testes em `test_imoveis_todos.py`.
+> - **Dry-run em produção (25/10):** 5 159 no eGO, 4 469 no Supabase; 705 a inserir (Prospecção 520, Retirado 63, Por validar 61, Vendido 50, Arrendado 7, Disponível 2, Reservado 2), 21 a atualizar (18 só com data mais recente; 3 mudanças de estado), 2 divergências com a Web API e 2 manuais só no resumo, 0 desconhecidos.
+> - Passos que faltam: avisar o Miguel, 1.ª passagem real (conferir que os publicados continuam 49), ligar o cron (deploy do `figueirahome-crons`), e docs. Pedido original e proposta do Miguel (19/10) em `SYNC_IMOVEIS_DEV_PROPOSTA.md` (fora do repo).
 
 ## Problema
 

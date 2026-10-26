@@ -1,6 +1,9 @@
 # Lead no eGO quando a pessoa responde com interesse real (plano, pedido #17)
 
-> Estado 25/10: **só plano, nada implementado.** Decisões 1–4 tomadas a 25/10 (as propostas do plano, ver fim).
+> Estado 25/10: **implementado e LIGADO** (`8bf60e6`, migration `0052` corrida, `LEAD_INTERESSE_EGO=1` no Fly às 21:31 UTC). Decisões 1–4 tomadas a 25/10 (as propostas do plano, ver fim).
+> - Código: `guards.marcar_interesse_real` e `motivo_de_compra`; ligações em `_pedir_visita`, `_escalar_para_humano` e `_promover_lead`; `leads_para_ego._candidatas_interesse` e o OBS com o resumo. 38 testes em `test_interesse_real.py`.
+> - Sem retroativo: um comprador escalado antes de ligar foi marcado à mão (25/10 23:36 UTC); a lead sai na janela das 9h do dia seguinte. **Por verificar:** a lead no eGO, o imóvel e a consultora certos, e se a pessoa que já existia no eGO (contacto antigo) é reutilizada ou duplicada (pedido #48 do Miguel).
+> - No pedido #47 do Miguel as leads que respondem sem sinal de interesse (8 de 9 desde 21/10, 5 a procurar arrendamento) **não** são passadas; a pergunta «todas as leads Meta ou só com interesse real?» ficou ao Miguel.
 
 ## Problema
 
