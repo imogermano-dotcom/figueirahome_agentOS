@@ -56,6 +56,38 @@ def test_404_conta_como_apagada_outro_erro_levanta(monkeypatch):
         ego_api.oportunidade_apagada(1)
 
 
+def test_pedido_junta_os_params_ao_application_id_e_nao_poe_query_no_caminho(monkeypatch):
+    """httpx 0.28 (Fly) troca a query do URL pelo `params=`: o id da oportunidade perdia-se e o eGO respondia 400 (26/10)."""
+    visto = {}
+
+    class _Resp:
+        status_code = 200
+        request = type("R", (), {"url": type("U", (), {"path": "/x"})()})()
+
+        def json(self):
+            return {"fieldStatusId": 1}
+
+    class _Cliente:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def request(self, metodo, url, **kw):
+            visto.update(url=url, **kw)
+            return _Resp()
+
+    monkeypatch.setattr(ego_api.httpx, "Client", _Cliente)
+    monkeypatch.setattr(ego_api, "_sessao_valida", lambda c: {"application_id": 6429, "token": "t"})
+    monkeypatch.setattr(ego_api, "_dados", lambda r: r.json())
+    assert ego_api.oportunidade_apagada(60617326) is True
+    assert "?" not in visto["url"] and visto["params"] == {"applicationId": 6429, "opportunityId": 60617326}
+
+
 # ── a reconciliação ───────────────────────────────────────────────────────
 
 class _BD:

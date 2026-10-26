@@ -138,9 +138,12 @@ _RENOMEAR_LEITURA_ESCRITA_INVERSO = {v: k for k, v in _RENOMEAR_LEITURA_ESCRITA.
 
 
 def _pedido(metodo: str, caminho: str, **kw):
+    """Os parâmetros próprios do pedido vão em `params=` e juntam-se ao `applicationId`. **Nunca no caminho** (`?x=1`): o httpx 0.28 (o do
+    Fly) substitui a query do URL pelo `params=`, e o `GetOpportunity` dava 400 em produção com o httpx 0.27 do PC a funcionar (26/10)."""
     with httpx.Client(timeout=60, headers={"User-Agent": _UA}) as c:
         s = _sessao_valida(c)
-        r = c.request(metodo, f"{settings.egoapi_base_url}{caminho}", params={"applicationId": s["application_id"]},
+        params = {"applicationId": s["application_id"], **(kw.pop("params", None) or {})}
+        r = c.request(metodo, f"{settings.egoapi_base_url}{caminho}", params=params,
                       headers={"Authorization": f"Bearer {s['token']}"}, **kw)
         return _dados(r)
 
@@ -248,7 +251,7 @@ def oportunidade_apagada(opportunity_id: int | str) -> bool:
     """Apagada no eGO: `fieldStatusId = 1` (a apagada é lógica e continua legível) ou 404. Arquivada NÃO é apagada.
     Qualquer outro erro levanta (não se marca sem saber)."""
     try:
-        d = _pedido("GET", f"/lead/Opportunity/GetOpportunity?opportunityId={opportunity_id}")
+        d = _pedido("GET", "/lead/Opportunity/GetOpportunity", params={"opportunityId": opportunity_id})
     except EgoApiErro as e:
         if "HTTP 404" in str(e):
             return True
