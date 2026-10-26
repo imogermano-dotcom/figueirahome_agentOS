@@ -153,7 +153,8 @@ def _ja_nas_leads(linha: dict, leads: list[dict]) -> bool:
 def _responsavel_da_oportunidade(telefone: str | None, email: str | None = None) -> str | None:
     """Consultor de uma oportunidade ativa deste número ou email (espelho do eGO, atraso até ~1 dia)."""
     tabela = get_supabase().table("oportunidades")
-    base = lambda: tabela.select("responsavel").eq("oportunidade_estado", "Ativa").not_.is_("responsavel", "null")  # noqa: E731
+    base = lambda: (tabela.select("responsavel").eq("oportunidade_estado", "Ativa").eq("apagada_no_ego", False)  # noqa: E731
+                    .not_.is_("responsavel", "null"))  # uma apagada no eGO não é uma oportunidade ativa (pedido #31)
     if telefone and len(telefone) >= 9:
         r = base().ilike("cliente_telefone", f"%{telefone[-9:]}%").limit(1).execute().data
         if r:

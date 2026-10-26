@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -128,16 +129,69 @@ def reconciliar_propostas() -> dict:
     return {"na_api": len(api), "corrigidas": corrigidas, "por_ler": por_ler}
 
 
+_JANELA_APAGADAS_DIAS = 90
+_LIMITE_APAGADAS = 100  # chamadas ao eGO por volta; o resto fica para o dia seguinte
+
+
+def reconciliar_apagadas(hoje: date | None = None) -> dict:
+    """Marca `apagada_no_ego` nas oportunidades apagadas no eGO e desmarca as que voltaram (pedido #31, migration 0054).
+
+    O sync só lê as «editadas nas últimas 48 h» e uma apagada nunca mais aparece, por isso ficava «Ativa» para sempre e bloqueava a
+    criação de leads dessa pessoa. Faltar na lista ativa NÃO chega (as arquivadas também faltam): cada candidata é confirmada com
+    o `GetOpportunity` (`fieldStatusId = 1` ou 404). Candidatas: editadas nos últimos 90 dias, não marcadas, fora da lista ativa."""
+    ativas = ego_api.refs_ativas()
+    sb = get_supabase()
+    desde = ((hoje or date.today()) - timedelta(days=_JANELA_APAGADAS_DIAS)).isoformat()
+    candidatas, inicio = [], 0
+    while True:  # ordenado: sem `order` a paginação do PostgREST salta e repete linhas
+        lote = (sb.table("oportunidades").select("oportunidade_ref,url,apagada_no_ego").gte("ego_editado_em", desde)
+                .order("oportunidade_ref").range(inicio, inicio + 999).execute().data)
+        candidatas += lote
+        inicio += 1000
+        if len(lote) < 1000:
+            break
+    por_confirmar = [r for r in candidatas if not r.get("apagada_no_ego") and r["oportunidade_ref"] not in ativas and r.get("url")]
+    voltaram = [r for r in candidatas if r.get("apagada_no_ego") and r["oportunidade_ref"] in ativas]
+    resumo = {"candidatas": len(por_confirmar), "marcadas": [], "desmarcadas": [], "adiadas": 0, "erros": 0}
+    for r in voltaram:
+        sb.table("oportunidades").update({"apagada_no_ego": False, "apagada_em": None}).eq("oportunidade_ref", r["oportunidade_ref"]).execute()
+        resumo["desmarcadas"].append(r["oportunidade_ref"])
+    resumo["adiadas"] = max(0, len(por_confirmar) - _LIMITE_APAGADAS)
+    for r in por_confirmar[:_LIMITE_APAGADAS]:
+        try:
+            if ego_api.oportunidade_apagada(r["url"].rstrip("/").rsplit("/", 1)[1]):
+                sb.table("oportunidades").update({"apagada_no_ego": True, "apagada_em": datetime.now(timezone.utc).isoformat()}) \
+                    .eq("oportunidade_ref", r["oportunidade_ref"]).execute()
+                resumo["marcadas"].append(r["oportunidade_ref"])
+        except Exception:
+            logger.exception("Falha a confirmar a oportunidade %s", r["oportunidade_ref"])
+            resumo["erros"] += 1
+    return resumo
+
+
 @router.post("/oportunidades/sync/propostas")
 async def sync_propostas_endpoint(acesso=Depends(require_sync_access)):
-    """Passo diário depois do sync das oportunidades: corrige o estado das propostas pela API do eGO."""
+    """Passo diário depois do sync das oportunidades: corrige o estado das propostas pela API do eGO e marca as oportunidades
+    apagadas (`apagadas` no resumo). Cada parte corre à parte: a falha de uma não esconde a outra."""
     origem = "cron" if acesso == "sync-secret" else "manual"
+    loop = asyncio.get_event_loop()
+    resumo: dict = {}
+    falhas: list[str] = []
     try:
-        resumo = await asyncio.get_event_loop().run_in_executor(None, reconciliar_propostas)
+        resumo = await loop.run_in_executor(None, reconciliar_propostas)
     except Exception as e:
         logger.exception("Falha na reconciliação das propostas")
-        await falha_de_sync("egorealestate_propostas", "propostas", origem, repr(e))
-        raise HTTPException(status_code=502, detail="Falha a reconciliar as propostas.")
+        falhas.append(f"propostas: {e!r}")
+    try:
+        resumo["apagadas"] = await loop.run_in_executor(None, reconciliar_apagadas)
+    except Exception as e:
+        logger.exception("Falha na reconciliação das oportunidades apagadas")
+        falhas.append(f"apagadas: {e!r}")
+    if falhas:
+        await falha_de_sync("egorealestate_propostas", "propostas e oportunidades apagadas", origem, "; ".join(falhas))
+        if len(falhas) == 2:
+            raise HTTPException(status_code=502, detail="Falha a reconciliar as propostas e as oportunidades apagadas.")
+        resumo["falhas"] = falhas
     await _log_execucao(resumo, origem, tipo="egorealestate_propostas")
     return resumo
 

@@ -233,6 +233,29 @@ def um_por_referencia(imoveis: list[dict]) -> dict[str, dict]:
     return por_ref
 
 
+def refs_ativas() -> set[str]:
+    """Referências das oportunidades ATIVAS no eGO (`ListOpportunityByPage` com `leadArchived: 0`, uma página: 2 688 a 26/10).
+    As arquivadas e as apagadas não estão aqui, por isso faltar não prova nada: serve só para escolher candidatas.
+    Levanta se vier menos do que o `totalRows`: marcar apagadas com uma lista parcial seria um desastre."""
+    d = _pedido("POST", "/lead/Opportunity/ListOpportunityByPage", json={"leadArchived": 0})
+    lista = next((v for v in d.values() if isinstance(v, list)), []) if isinstance(d, dict) else d
+    if isinstance(d, dict) and d.get("totalRows", len(lista)) > len(lista):
+        raise EgoApiErro(f"oportunidades ativas: página incompleta ({len(lista)} de {d['totalRows']})")
+    return {o["name"] for o in lista if o.get("name")}
+
+
+def oportunidade_apagada(opportunity_id: int | str) -> bool:
+    """Apagada no eGO: `fieldStatusId = 1` (a apagada é lógica e continua legível) ou 404. Arquivada NÃO é apagada.
+    Qualquer outro erro levanta (não se marca sem saber)."""
+    try:
+        d = _pedido("GET", f"/lead/Opportunity/GetOpportunity?opportunityId={opportunity_id}")
+    except EgoApiErro as e:
+        if "HTTP 404" in str(e):
+            return True
+        raise
+    return isinstance(d, dict) and d.get("fieldStatusId") == 1
+
+
 def inserir_lead(corpo: dict) -> int | None:
     """Cria a lead no eGO. Devolve o id, ou None se a resposta não o trouxer (a lead foi criada: HTTP 2xx)."""
     with httpx.Client(timeout=30, headers={"User-Agent": _UA}) as c:
