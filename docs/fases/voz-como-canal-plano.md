@@ -42,6 +42,13 @@ Isto viola «um motor, N assistentes» e deixa a voz de fora de tudo o que os ou
 Numa conversa de texto é irrelevante; numa chamada soma-se ao STT e ao TTS. Mitigação: carregar tudo **uma vez no início da chamada** e manter em memória durante a chamada;
 só a gravação do turno vai à base, fora do caminho da resposta.
 
+## F1.1: fim do turno depois da resposta (27/10)
+
+A 1.ª chamada real (27/10, 4 turnos, 91 s) correu bem, mas o turno que gravou os dados demorou 6,9 s só no motor (duas chamadas ao modelo com a ferramenta no meio) e ainda a gravação e a promoção antes de responder.
+Agora, na voz: o modelo escreve a frase **e** chama a ferramenta de registo na mesma resposta; o motor devolve a frase e corre a ferramenta, a gravação e a promoção a seguir, com o bloqueio da conversa
+(o turno seguinte espera e lê a conversa gravada). Só `guardar_dados_cliente`, `escalar_para_humano` e `encerrar_lead`; `pedir_visita` continua inline porque pode recusar (regra dos 80 %). Sem frase escrita, volta ao caminho normal.
+Ensaio: 10 de 11 turnos com ferramenta trouxeram a frase. Falta medir com uma chamada real.
+
 ## Resultados da F0 (26/10/2026, só leitura)
 
 - **Logs das chamadas de teste:** o Fly guarda ~100 linhas e nenhuma é de chamadas; os tempos de STT e de Claude por frase **não se recuperam**. Medem-se na F1.

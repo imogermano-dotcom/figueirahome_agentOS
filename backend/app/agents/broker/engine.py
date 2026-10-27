@@ -58,6 +58,8 @@ logger = logging.getLogger(__name__)
 _URL = "https://api.anthropic.com/v1/messages"
 _MODEL = "claude-sonnet-4-6"
 _TEMPERATURE = 0.4  # spec §2.3: consistente sem ser robótico
+# Na voz, estas ferramentas só registam: corre-se depois de a frase sair (a que pode recusar, `pedir_visita`, não).
+_TOOLS_DIFERIVEIS_NA_VOZ = ("guardar_dados_cliente", "escalar_para_humano", "encerrar_lead")
 _MAX_TOOL_ITERATIONS = 4  # A1 encadeia ficha -> guardar -> agendar
 _ERRO = "Ocorreu um erro. Tenta novamente."
 # Turno sem texto depois de o caso ir para um humano (achado 08/10: "Obrigado" a seguir a
@@ -175,6 +177,8 @@ _INSTRUCAO_VOZ = (
     "prazos nem horas («hoje», «amanhã de manhã»). "
     "O nome ouve-se mal ao telefone: repete-o para confirmar e, se a pessoa corrigir, usa sempre a versão nova. "
     "Se uma resposta for incoerente ou impercetível, não a trates como dado: pede de novo, com calma. "
+    "Quando tiveres de registar algo (guardar dados, escalar, encerrar), escreve primeiro a frase que vais dizer à pessoa "
+    "e chama a ferramenta na mesma resposta: assim a pessoa ouve-te já. "
     "A despedida final é a tua última frase da chamada: termina-a com a palavra {fim}, que nunca é falada. "
     "Usa-a uma só vez, e só nessa frase."
 )
@@ -483,8 +487,48 @@ async def responder(
     Serializado por (canal, participante) — ver `_lock_conversa`.
     """
     lock = await _lock_conversa(canal, participante)
-    async with lock:
-        return await _responder_sem_lock(canal, participante, mensagem, agente, telefone)
+    if canal != "voz":
+        async with lock:
+            return await _responder_sem_lock(canal, participante, mensagem, agente, telefone)
+
+    # Voz: a resposta sai logo e o resto do turno (ferramentas de registo, gravação, lead) corre a seguir, ainda com o
+    # bloqueio da conversa — o turno seguinte espera por ele e lê a conversa já gravada. Ao telefone, cada segundo
+    # antes da resposta é silêncio (chamada de 27/10: 6,9 s no turno que gravou os dados).
+    await lock.acquire()
+    diferido: list = []
+    try:
+        resposta = await _responder_sem_lock(canal, participante, mensagem, agente, telefone, diferido)
+    except BaseException:
+        lock.release()
+        raise
+    if not diferido:
+        lock.release()
+        return resposta
+    tarefa = asyncio.ensure_future(_correr_diferido(lock, diferido))
+    _diferidos.add(tarefa)
+    tarefa.add_done_callback(_diferidos.discard)
+    return resposta
+
+
+_diferidos: set = set()
+
+
+async def _correr_diferido(lock: asyncio.Lock, passos: list) -> None:
+    """O fim do turno de voz, depois de a resposta sair. Um passo que falha não impede os seguintes nem prende o bloqueio."""
+    try:
+        for passo in passos:
+            try:
+                await passo()
+            except Exception:
+                logger.exception("Erro no fim do turno de voz")
+    finally:
+        lock.release()
+
+
+async def esperar_diferidos() -> None:
+    """Para os testes (e para um encerramento limpo): espera pelo que ficou por fazer depois das respostas."""
+    if _diferidos:
+        await asyncio.gather(*list(_diferidos), return_exceptions=True)
 
 
 async def _responder_sem_lock(
@@ -493,6 +537,7 @@ async def _responder_sem_lock(
     mensagem: str,
     agente: str | None = None,
     telefone_voz: str | None = None,
+    diferir: list | None = None,
 ) -> str:
     conversa_id, mensagens, agente_atual = await load_conversation(canal, participante)
 
@@ -637,6 +682,25 @@ async def _responder_sem_lock(
 
             if data.get("stop_reason") == "tool_use":
                 claude_messages.append({"role": "assistant", "content": blocos})
+                chamadas = [b for b in blocos if b.get("type") == "tool_use"]
+                falado = " ".join(b.get("text", "") for b in blocos if b.get("type") == "text").strip()
+                if (
+                    diferir is not None and falado and chamadas
+                    and all(b["name"] in _TOOLS_DIFERIVEIS_NA_VOZ for b in chamadas)
+                ):
+                    # A frase já vem escrita e estas ferramentas só registam (o resultado não muda o que se diz):
+                    # a pessoa ouve a resposta já e o registo corre a seguir. Uma 2.ª chamada ao modelo custava ~2 s.
+                    for b in chamadas:
+                        tools_usadas.append(b["name"])
+                        tools_detalhe.append(_detalhe_tool(b))
+
+                    async def _registar(chamadas=chamadas):
+                        for b in chamadas:
+                            await execute_tool(b["name"], b.get("input", {}), contexto)
+
+                    diferir.append(_registar)
+                    resposta = falado
+                    break
                 resultados = []
                 for bloco in blocos:
                     if bloco.get("type") != "tool_use":
@@ -707,62 +771,70 @@ async def _responder_sem_lock(
     now = datetime.now(timezone.utc).isoformat()
     mensagens.append({"role": "assistant", "content": resposta, "timestamp": now})
 
-    try:
-        conversa_id = await save_conversation(
-            conversa_id, canal, participante, mensagens, agente
-        )
-    except Exception:
-        logger.exception("Erro ao guardar conversa %s/%s", canal, participante)
+    async def _fechar_turno() -> None:
+        nonlocal conversa_id
+        try:
+            conversa_id = await save_conversation(
+                conversa_id, canal, participante, mensagens, agente
+            )
+        except Exception:
+            logger.exception("Erro ao guardar conversa %s/%s", canal, participante)
 
-    await _registar_interacao({
-        "conversa_id": conversa_id,
-        "agente": agente,
-        "canal": canal,
-        "modelo": _MODEL,
-        **tokens,
-        "custo_usd": calcular_custo(tokens, _MODEL),
-        "latencia_ms": latencia_ms,
-        "iteracoes": iteracoes,
-        "tools_usadas": tools_usadas or None,
-        "tools_detalhe": tools_detalhe or None,
-        # A coluna é boolean (migration 0016). Qual foi a tool forçada lê-se em
-        # `tools_detalhe[0]`, que é sempre a da iteração 0.
-        "tool_forcada": bool(tool_a_forcar),
-        "erro": erro,
-    })
+        await _registar_interacao({
+            "conversa_id": conversa_id,
+            "agente": agente,
+            "canal": canal,
+            "modelo": _MODEL,
+            **tokens,
+            "custo_usd": calcular_custo(tokens, _MODEL),
+            "latencia_ms": latencia_ms,
+            "iteracoes": iteracoes,
+            "tools_usadas": tools_usadas or None,
+            "tools_detalhe": tools_detalhe or None,
+            # A coluna é boolean (migration 0016). Qual foi a tool forçada lê-se em
+            # `tools_detalhe[0]`, que é sempre a da iteração 0.
+            "tool_forcada": bool(tool_a_forcar),
+            "erro": erro,
+        })
 
-    # Este turno é a prova de que a lead respondeu — e é a única. Sem o registar,
-    # uma lead que fala mas não qualifica fica indistinguível de uma que nunca
-    # respondeu, e o follow-up às 48h escreveria a quem já está em conversa.
-    # A lead vem de `_contexto_inicial`, que já a leu: não há consulta extra.
-    if lead:
-        await marcar_lead_respondeu(lead["id"], conversa_id)
-        if agente == A1 and telefone:
-            # Os follow-ups da Matilde passaram a viver em `contactos`
-            # (23/09, mesmo padrão da Inês/Bárbara) — `respondeu_em` tem de
-            # ficar marcado lá também, ou o follow-up nunca saberia que a
-            # pessoa já respondeu (só olha a `contactos`, não a `leads`).
-            contacto = await contacto_meta_aberto(telefone, "comprador")
+        # Este turno é a prova de que a lead respondeu — e é a única. Sem o registar,
+        # uma lead que fala mas não qualifica fica indistinguível de uma que nunca
+        # respondeu, e o follow-up às 48h escreveria a quem já está em conversa.
+        # A lead vem de `_contexto_inicial`, que já a leu: não há consulta extra.
+        if lead:
+            await marcar_lead_respondeu(lead["id"], conversa_id)
+            if agente == A1 and telefone:
+                # Os follow-ups da Matilde passaram a viver em `contactos`
+                # (23/09, mesmo padrão da Inês/Bárbara) — `respondeu_em` tem de
+                # ficar marcado lá também, ou o follow-up nunca saberia que a
+                # pessoa já respondeu (só olha a `contactos`, não a `leads`).
+                contacto = await contacto_meta_aberto(telefone, "comprador")
+                if contacto:
+                    await marcar_contacto_respondeu(contacto["id"])
+        elif agente == A3 and telefone:
+            # Recrutamento não passa por `_contexto_inicial`/`leads` — mesmo sinal,
+            # tabela diferente (`contactos`, sem semeadura). Ver `guards.py`.
+            contacto = await contacto_meta_aberto(telefone, "recrutamento")
             if contacto:
                 await marcar_contacto_respondeu(contacto["id"])
-    elif agente == A3 and telefone:
-        # Recrutamento não passa por `_contexto_inicial`/`leads` — mesmo sinal,
-        # tabela diferente (`contactos`, sem semeadura). Ver `guards.py`.
-        contacto = await contacto_meta_aberto(telefone, "recrutamento")
-        if contacto:
-            await marcar_contacto_respondeu(contacto["id"])
-    elif agente == A4 and telefone:
-        # Angariação via Meta (`lead_meta_angariacao`) tem o mesmo problema:
-        # só escreve em `contactos`, nunca em `leads`.
-        contacto = await contacto_meta_aberto(telefone, "vendedor")
-        if contacto:
-            await marcar_contacto_respondeu(contacto["id"])
+        elif agente == A4 and telefone:
+            # Angariação via Meta (`lead_meta_angariacao`) tem o mesmo problema:
+            # só escreve em `contactos`, nunca em `leads`.
+            contacto = await contacto_meta_aberto(telefone, "vendedor")
+            if contacto:
+                await marcar_contacto_respondeu(contacto["id"])
 
-    # A lead da Meta chega com o MQL já preenchido pelo formulário: o A1 não tem
-    # dados para escrever, `find_or_create_cliente` nunca corre e a promoção
-    # nunca dispara. Ao fim do turno sabem-se as duas metades da condição —
-    # respondeu (é este turno) e o perfil está completo.
-    if telefone:
-        await promover_se_qualificada(telefone, agente=agente)
+        # A lead da Meta chega com o MQL já preenchido pelo formulário: o A1 não tem
+        # dados para escrever, `find_or_create_cliente` nunca corre e a promoção
+        # nunca dispara. Ao fim do turno sabem-se as duas metades da condição —
+        # respondeu (é este turno) e o perfil está completo.
+        if telefone:
+            await promover_se_qualificada(telefone, agente=agente)
+
+
+    if diferir is not None:
+        diferir.append(_fechar_turno)
+    else:
+        await _fechar_turno()
 
     return resposta

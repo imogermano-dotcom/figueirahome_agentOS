@@ -138,8 +138,18 @@ def motor(monkeypatch):
     return visto
 
 
+def _turno(*args, **kw):
+    """Um turno inteiro: a resposta e o que ficou por fazer a seguir (gravação, lead), no mesmo ciclo de eventos."""
+    async def _c():
+        r = await engine.responder(*args, **kw)
+        await engine.esperar_diferidos()
+        return r
+
+    return asyncio.run(_c())
+
+
 def test_turno_de_voz_usa_o_telefone_da_chamada_e_so_ferramentas_de_registo(motor):
-    r = asyncio.run(engine.responder("voz", "call-1", "Quero comprar uma casa", telefone="+351912345678"))
+    r = _turno("voz", "call-1", "Quero comprar uma casa", telefone="+351912345678")
     assert r == "Boa tarde, diga-me o seu nome."
     p = motor["payloads"][0]
     assert p["max_tokens"] == assistants.MAX_TOKENS["voz"]
@@ -153,9 +163,9 @@ def test_turno_de_voz_usa_o_telefone_da_chamada_e_so_ferramentas_de_registo(moto
 
 def test_perfil_e_configuracao_lidos_uma_vez_por_chamada(motor):
     for _ in range(3):
-        asyncio.run(engine.responder("voz", "call-1", "olá", agente=assistants.A2, telefone="912345678"))
+        _turno("voz", "call-1", "olá", agente=assistants.A2, telefone="912345678")
     assert motor["config"] == 1 and motor["perfil"] == 1
-    asyncio.run(engine.responder("voz", "call-2", "olá", agente=assistants.A2, telefone="912345678"))
+    _turno("voz", "call-2", "olá", agente=assistants.A2, telefone="912345678")
     assert motor["config"] == 2, "outra chamada, outra leitura"
     engine.descartar_cache_voz("call-1")
     assert "call-1" not in engine._cache_voz
@@ -168,8 +178,130 @@ def test_whatsapp_continua_a_ler_tudo_em_cada_turno(motor):
 
 
 def test_chamada_sem_numero_nao_procura_perfil(motor):
-    asyncio.run(engine.responder("voz", "call-1", "olá", agente=assistants.A2, telefone="desconhecido"))
+    _turno("voz", "call-1", "olá", agente=assistants.A2, telefone="desconhecido")
     assert motor["perfil"] == 0
+
+
+# ── o fim do turno depois da resposta ─────────────────────────────────────
+
+def _resposta_com_tool(texto, nome="guardar_dados_cliente"):
+    blocos = ([{"type": "text", "text": texto}] if texto else []) + [
+        {"type": "tool_use", "id": "t1", "name": nome, "input": {"nome": "Ana"}}]
+    return {"stop_reason": "tool_use", "usage": {}, "content": blocos}
+
+
+def _preparar(monkeypatch, motor, respostas):
+    """Respostas do modelo em fila; regista a ordem de tudo o que acontece."""
+    ordem = []
+    fila = list(respostas)
+
+    class _R:
+        def __init__(self, d):
+            self.d = d
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.d
+
+    class _C:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            ordem.append("modelo")
+            return _R(fila.pop(0))
+
+    async def _tool(nome, entrada, contexto):
+        ordem.append("tool:" + nome)
+        return "Registado."
+
+    original = engine.save_conversation
+
+    async def _gravar(*a, **k):
+        ordem.append("gravar")
+        return await original(*a, **k)
+
+    monkeypatch.setattr(engine.httpx, "AsyncClient", _C)
+    monkeypatch.setattr(engine, "execute_tool", _tool)
+    monkeypatch.setattr(engine, "save_conversation", _gravar)
+    return ordem
+
+
+def test_frase_com_ferramenta_de_registo_sai_logo_e_o_registo_corre_a_seguir(monkeypatch, motor):
+    ordem = _preparar(monkeypatch, motor, [_resposta_com_tool("Obrigada, Ana. Um consultor entra em contacto.")])
+
+    async def _c():
+        r = await engine.responder("voz", "call-1", "sou a Ana", agente=assistants.A2, telefone="912345678")
+        antes = list(ordem)
+        await engine.esperar_diferidos()
+        return r, antes
+
+    r, antes = asyncio.run(_c())
+    assert r == "Obrigada, Ana. Um consultor entra em contacto."
+    assert antes == ["modelo"], "a resposta sai antes de qualquer ferramenta ou gravação"
+    assert ordem == ["modelo", "tool:guardar_dados_cliente", "gravar"], "o registo antes da gravação do turno"
+    assert motor["gravado"][0][2][-1] == r
+
+
+def test_sem_frase_escrita_volta_ao_caminho_normal(monkeypatch, motor):
+    texto = {"stop_reason": "end_turn", "usage": {}, "content": [{"type": "text", "text": "Registado, até breve."}]}
+    ordem = _preparar(monkeypatch, motor, [_resposta_com_tool(""), texto])
+    assert _turno("voz", "call-1", "sou a Ana", agente=assistants.A2, telefone="912345678") == "Registado, até breve."
+    assert ordem[:3] == ["modelo", "tool:guardar_dados_cliente", "modelo"], "ferramenta antes da 2.ª chamada, como antes"
+
+
+def test_pedir_visita_nunca_e_adiada_porque_pode_recusar(monkeypatch, motor):
+    texto = {"stop_reason": "end_turn", "usage": {}, "content": [{"type": "text", "text": "Não consegui registar."}]}
+    ordem = _preparar(monkeypatch, motor, [_resposta_com_tool("Vou registar a visita.", "pedir_visita"), texto])
+    assert _turno("voz", "call-1", "quero visitar", agente=assistants.A1, telefone="912345678") == "Não consegui registar."
+    assert ordem[:3] == ["modelo", "tool:pedir_visita", "modelo"]
+
+
+def test_o_turno_seguinte_espera_pelo_fim_do_anterior(monkeypatch, motor):
+    ordem = _preparar(monkeypatch, motor, [_resposta_com_tool("Anotado."), {
+        "stop_reason": "end_turn", "usage": {}, "content": [{"type": "text", "text": "Diga."}]}])
+
+    async def _c():
+        await engine.responder("voz", "call-1", "um", agente=assistants.A2, telefone="912345678")
+        await engine.responder("voz", "call-1", "dois", agente=assistants.A2, telefone="912345678")
+        await engine.esperar_diferidos()
+
+    asyncio.run(_c())
+    assert ordem.index("gravar") < len(ordem) - 1 and ordem[:3] == ["modelo", "tool:guardar_dados_cliente", "gravar"]
+    assert ordem[3] == "modelo", "o 2.º turno só começa depois de o 1.º gravar"
+
+
+def test_ferramenta_que_falha_nao_prende_a_conversa(monkeypatch, motor):
+    _preparar(monkeypatch, motor, [_resposta_com_tool("Anotado."), {
+        "stop_reason": "end_turn", "usage": {}, "content": [{"type": "text", "text": "Diga."}]}])
+
+    async def _rebenta(*a, **k):
+        raise RuntimeError("base em baixo")
+
+    monkeypatch.setattr(engine, "execute_tool", _rebenta)
+
+    async def _c():
+        await engine.responder("voz", "call-1", "um", agente=assistants.A2, telefone="912345678")
+        await engine.esperar_diferidos()
+        return await asyncio.wait_for(
+            engine.responder("voz", "call-1", "dois", agente=assistants.A2, telefone="912345678"), 5)
+
+    assert asyncio.run(_c()) == "Diga."
+
+
+def test_outros_canais_continuam_a_executar_as_ferramentas_antes_de_responder(monkeypatch, motor):
+    texto = {"stop_reason": "end_turn", "usage": {}, "content": [{"type": "text", "text": "Feito."}]}
+    ordem = _preparar(monkeypatch, motor, [_resposta_com_tool("Anotado."), texto])
+    r = asyncio.run(engine.responder("whatsapp", "351912345678", "olá", agente=assistants.A2))
+    assert r == "Feito." and ordem == ["modelo", "tool:guardar_dados_cliente", "modelo", "gravar"]
 
 
 # ── a ponte da voz ────────────────────────────────────────────────────────
