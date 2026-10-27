@@ -83,7 +83,10 @@ async def telnyx_webhook(request: Request):
 
     elif event_type == "call.hangup":
         session = session_mgr.remove_session(call_control_id)
+        if settings.voz_como_canal:
+            from app.agents.broker import engine
+            engine.descartar_cache_voz(call_control_id)
         if session:
-            await save_call(session)
+            await save_call(session, via_motor=settings.voz_como_canal)
 
     return {"result": "ok"}

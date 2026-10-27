@@ -356,7 +356,7 @@ ASSISTENTES: dict[str, dict] = {
 # "tool_use", o código (engine.py) trata isso como resposta normal e o
 # tool_use fica cortado a meio, perdido em silêncio. Achado ao vivo 25/09
 # (Carla Pato: candidatura toda recolhida, tool nunca chamada).
-MAX_TOKENS = {"whatsapp": 1024, "web": 1024, "site": 768}
+MAX_TOKENS = {"whatsapp": 1024, "web": 1024, "site": 768, "voz": 200}
 
 MENSAGEM_INATIVO = (
     "De momento não estou disponível. Um consultor entrará em contacto consigo."

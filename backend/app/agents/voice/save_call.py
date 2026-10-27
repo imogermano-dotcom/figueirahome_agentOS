@@ -61,6 +61,7 @@ def _supabase_insert_chamada(supabase, session: CallSession, cliente_id: str | N
     supabase.table("agente_chamadas").insert(
         {
             "cliente_id": cliente_id,
+            "call_control_id": session.call_control_id,  # no canal `voz` é também o `participante` da conversa
             "numero_origem": session.numero_origem,
             "duracao": max(duracao, 0),
             "transcricao": session.transcricao_acumulada,
@@ -92,7 +93,9 @@ def telefone_da_chamada(dito: str | None, numero_origem: str | None) -> str | No
     return dito if n and len(n) == 9 and n != normalizar_telefone(numero_origem) else (numero_origem or None)
 
 
-async def save_call(session: CallSession) -> None:
+async def save_call(session: CallSession, via_motor: bool = False) -> None:
+    """`via_motor`: a conversa correu no motor dos assistentes, cujas ferramentas já criaram a lead e a tarefa durante a
+    chamada: aqui fica só o registo da chamada (e o cliente, que o dedup nunca duplica), sem uma 2.ª lead por extração."""
     if not session.transcricao_acumulada.strip():
         logger.info("Chamada %s sem transcrição — skip save.", session.call_control_id)
         return
@@ -121,7 +124,7 @@ async def save_call(session: CallSession) -> None:
 
     def _save():
         _supabase_insert_chamada(supabase, session, cliente_id, dados)
-        if cliente_id and dados.get("tipo_interesse"):
+        if cliente_id and dados.get("tipo_interesse") and not via_motor:
             _supabase_insert_lead(supabase, cliente_id, dados)
 
     await loop.run_in_executor(None, _save)

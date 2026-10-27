@@ -19,7 +19,7 @@ from app.agents.broker import engine  # noqa: E402
 def test_mesma_conversa_fica_serializada(monkeypatch):
     ordem = []
 
-    async def _fake(canal, participante, mensagem, agente=None):
+    async def _fake(canal, participante, mensagem, agente=None, telefone_voz=None):
         ordem.append(f"start:{mensagem}")
         await asyncio.sleep(0.05)
         ordem.append(f"end:{mensagem}")
@@ -42,7 +42,7 @@ def test_mesma_conversa_fica_serializada(monkeypatch):
 def test_participantes_diferentes_nao_se_bloqueiam(monkeypatch):
     ordem = []
 
-    async def _fake(canal, participante, mensagem, agente=None):
+    async def _fake(canal, participante, mensagem, agente=None, telefone_voz=None):
         ordem.append(f"start:{participante}")
         await asyncio.sleep(0.05)
         ordem.append(f"end:{participante}")

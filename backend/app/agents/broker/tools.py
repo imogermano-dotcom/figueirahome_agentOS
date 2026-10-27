@@ -257,8 +257,15 @@ TOOL_DEFINITIONS = [
 _POR_NOME = {t["name"]: t for t in TOOL_DEFINITIONS}
 
 
-def tools_para(nomes: list[str]) -> list[dict]:
-    """Subconjunto de definições para um assistente."""
+# A voz só regista: pesquisa e fichas de imóvel devolvem texto longo, links e referências que não se leem ao telefone
+# (fase 2 do plano), e as `consultar_*` do broker nunca saem do painel. Lista de permitidas, não de proibidas.
+_TOOLS_DE_VOZ = ("guardar_dados_cliente", "pedir_visita", "escalar_para_humano", "encerrar_lead")
+
+
+def tools_para(nomes: list[str], canal: str | None = None) -> list[dict]:
+    """Subconjunto de definições para um assistente, estreitado pelo canal (só a voz estreita)."""
+    if canal == "voz":
+        nomes = [n for n in nomes if n in _TOOLS_DE_VOZ]
     return [_POR_NOME[n] for n in nomes if n in _POR_NOME]
 
 

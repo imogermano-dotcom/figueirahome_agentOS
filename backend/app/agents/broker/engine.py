@@ -49,6 +49,7 @@ from app.agents.broker.guards import (
 )
 from app.agents.broker.router import route
 from app.agents.broker.tools import execute_tool, tools_para
+from app.agents.voice.claude_agent import FIM_CHAMADA, SAUDACAO, instrucao_telefone
 from app.config import settings
 from app.db.supabase_client import get_supabase
 
@@ -162,6 +163,36 @@ _INSTRUCAO_TELEFONE_WHATSAPP = (
 )
 
 
+# Canal `voz` (`voz-como-canal-plano.md`): a instrução vive aqui, no motor, e não no prompt de cada assistente.
+# A pessoa ouve, não lê: sem ecrã não há links, listas, referências lidas dígito a dígito nem pesquisa de imóveis (fase 2).
+_INSTRUCAO_VOZ = (
+    "\n\nEstás numa chamada telefónica: a pessoa ouve-te, não te lê. A chamada começou com a saudação «{saudacao}», "
+    "já dita antes da primeira resposta tua: nunca voltes a cumprimentar, a apresentar-te como assistente virtual nem a "
+    "avisar da transcrição. Responde numa só frase curta (no máximo 25 palavras) e faz uma pergunta de cada vez. "
+    "Nunca uses markdown, listas, símbolos, emojis, links nem endereços de internet: se as instruções mandarem dar um link, "
+    "diz que o responsável o envia por mensagem. Não tens ferramentas de pesquisa de imóveis nesta chamada: nunca digas "
+    "que vais pesquisar nem inventes resultados; recolhe os dados e diz que um consultor entrará em contacto, sem prometer "
+    "prazos nem horas («hoje», «amanhã de manhã»). "
+    "O nome ouve-se mal ao telefone: repete-o para confirmar e, se a pessoa corrigir, usa sempre a versão nova. "
+    "Se uma resposta for incoerente ou impercetível, não a trates como dado: pede de novo, com calma. "
+    "A despedida final é a tua última frase da chamada: termina-a com a palavra {fim}, que nunca é falada. "
+    "Usa-a uma só vez, e só nessa frase."
+)
+
+
+def _instrucao_voz(telefone: str | None) -> str:
+    return _INSTRUCAO_VOZ.format(saudacao=SAUDACAO, fim=FIM_CHAMADA) + instrucao_telefone(telefone)
+
+
+# Por chamada (`participante` = call_control_id): o perfil e a configuração não mudam durante a conversa, e cada
+# leitura custa ~80–150 ms ao telefone (F0 do plano). Limpa-se no fim da chamada (`descartar_cache_voz`).
+_cache_voz: dict[str, dict] = {}
+
+
+def descartar_cache_voz(participante: str) -> None:
+    _cache_voz.pop(participante, None)
+
+
 def _perfil_cliente(telefone: str) -> str:
     """Contexto do cliente já conhecido, para o prompt. Só faz sentido com telefone.
 
@@ -226,13 +257,15 @@ def _data_de_hoje() -> str:
 
 def _montar_system_prompt(
     spec: dict, perfil: str, extra: str, canal: str,
-    escalados: list[str] = (), ja_usadas: list[str] = (),
+    escalados: list[str] = (), ja_usadas: list[str] = (), telefone: str | None = None,
 ) -> str:
     system_prompt = spec["prompt"] + perfil + extra + f"\n\n{_data_de_hoje()}"
     if canal == "site":
         system_prompt += _INSTRUCAO_IDENTIDADE_SITE
     elif canal == "whatsapp":
         system_prompt += _INSTRUCAO_TELEFONE_WHATSAPP
+    elif canal == "voz":
+        system_prompt += _instrucao_voz(telefone)
     return system_prompt + _nota_de_estado(escalados, ja_usadas)
 
 
@@ -382,7 +415,7 @@ async def _registar_interacao(dados: dict) -> None:
 
 
 def _garantir_apresentacao(
-    resposta: str, agente: str, thread_nova: bool, mensagens: list[dict]
+    resposta: str, agente: str, thread_nova: bool, mensagens: list[dict], canal: str = "whatsapp",
 ) -> str:
     """A A1 identifica-se no primeiro turno, e isso não fica ao critério do modelo.
 
@@ -399,8 +432,8 @@ def _garantir_apresentacao(
 
     Só a A1: a A2 não tem nome atribuído.
     """
-    if agente != A1 or not thread_nova or resposta == _ERRO:
-        return resposta
+    if agente != A1 or not thread_nova or resposta == _ERRO or canal == "voz":
+        return resposta  # na voz a saudação da chamada já disse que é uma assistente virtual
 
     nome = NOME_A1.lower()
     if nome in resposta.lower():
@@ -441,15 +474,17 @@ async def responder(
     participante: str,
     mensagem: str,
     agente: str | None = None,
+    telefone: str | None = None,
 ) -> str:
     """Responde a uma mensagem e persiste a conversa.
 
     `agente=None` deixa o router decidir (e a decisão fica colada à thread).
+    `telefone` só para a voz: o `participante` é o id da chamada e o número de quem liga vem à parte.
     Serializado por (canal, participante) — ver `_lock_conversa`.
     """
     lock = await _lock_conversa(canal, participante)
     async with lock:
-        return await _responder_sem_lock(canal, participante, mensagem, agente)
+        return await _responder_sem_lock(canal, participante, mensagem, agente, telefone)
 
 
 async def _responder_sem_lock(
@@ -457,6 +492,7 @@ async def _responder_sem_lock(
     participante: str,
     mensagem: str,
     agente: str | None = None,
+    telefone_voz: str | None = None,
 ) -> str:
     conversa_id, mensagens, agente_atual = await load_conversation(canal, participante)
 
@@ -482,19 +518,33 @@ async def _responder_sem_lock(
         agente = route(mensagem, None)
     spec = ASSISTENTES[agente]
 
-    extra, ativo = await load_config(agente)
+    if canal == "voz":
+        cfg = _cache_voz.setdefault(participante, {}).setdefault("cfg", {})
+        if agente not in cfg:
+            cfg[agente] = await load_config(agente)
+        extra, ativo = cfg[agente]
+    else:
+        extra, ativo = await load_config(agente)
     if not ativo:
         logger.info("Assistente %s inactivo — sem chamada à API.", agente)
         return MENSAGEM_INATIVO
 
-    telefone = normalizar_telefone(participante) if canal == "whatsapp" else None
+    telefone = normalizar_telefone(telefone_voz if canal == "voz" else participante) if canal in ("whatsapp", "voz") else None
     perfil = ""
     lead = None
     thread_nova = not mensagens
     if telefone:
-        perfil, template, lead = await _contexto_inicial(
-            telefone, thread_nova=thread_nova, agente=agente
-        )
+        if canal == "voz":
+            guardado = _cache_voz.setdefault(participante, {}).setdefault("ctx", {})
+            if agente not in guardado:
+                # thread_nova=False: sem template (é de WhatsApp) nem nota de apresentação, a saudação da chamada já a fez
+                guardado[agente] = await _contexto_inicial(telefone, thread_nova=False, agente=agente)
+            perfil, template, lead = guardado[agente]
+            template = None  # nunca na voz, mesmo que a leitura o devolva
+        else:
+            perfil, template, lead = await _contexto_inicial(
+                telefone, thread_nova=thread_nova, agente=agente
+            )
         if template:
             # Antes da mensagem do utilizador: o template foi o que veio primeiro.
             mensagens.append(template)
@@ -502,7 +552,7 @@ async def _responder_sem_lock(
     escalados, ja_usadas = await asyncio.gather(
         motivos_escalados(conversa_id), tools_ja_usadas(conversa_id),
     )
-    system_prompt = _montar_system_prompt(spec, perfil, extra, canal, escalados, ja_usadas)
+    system_prompt = _montar_system_prompt(spec, perfil, extra, canal, escalados, ja_usadas, telefone)
     contexto = {
         "canal": canal,
         "telefone": telefone,
@@ -529,7 +579,7 @@ async def _responder_sem_lock(
         {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
     ]
 
-    forcar = spec.get("force")
+    forcar = None if canal == "voz" else spec.get("force")  # a tool forçada (pesquisa) não existe na voz
     # Sem este forcing o Claude ignorava as tools e prometia callbacks de
     # consultor — comportamento observado em produção (CLAUDE.md).
     forcar_agora = bool(forcar and forcar[1].search(mensagem))
@@ -567,7 +617,7 @@ async def _responder_sem_lock(
                 "max_tokens": MAX_TOKENS.get(canal, 512),
                 "temperature": _TEMPERATURE,
                 "system": system_payload,
-                "tools": tools_para(spec["tools"]),
+                "tools": tools_para(spec["tools"], canal),
                 "messages": claude_messages,
             }
             if tool_a_forcar and iteracao == 0:
@@ -652,7 +702,7 @@ async def _responder_sem_lock(
     resposta = _sem_erro_apos_registo(resposta, tools_usadas, ja_usadas, escalados)
 
     # Antes de gravar: o que fica no histórico tem de ser o que a pessoa recebeu.
-    resposta = _garantir_apresentacao(resposta, agente, thread_nova, mensagens)
+    resposta = _garantir_apresentacao(resposta, agente, thread_nova, mensagens, canal)
 
     now = datetime.now(timezone.utc).isoformat()
     mensagens.append({"role": "assistant", "content": resposta, "timestamp": now})

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     # Barge-in: se a pessoa fala por cima da assistente, o TTS pára. Desligado por omissão até se testar à parte.
     voz_barge_in: bool = False
     voz_tts: str = "Polly.Ines-Neural"  # voz do `speak` da Telnyx, ex. Azure.pt-PT-RaquelNeural
+    # A voz usa o motor dos assistentes (canal `voz`) em vez do agente à parte (`voz-como-canal-plano.md`). Falso = agente antigo.
+    voz_como_canal: bool = False
 
     # Supabase — projecto único (o de Auth, `fykbo...`, foi eliminado a
     # 13/09 e integrado neste — ver docs/fases/migracao-supabase-chaves-novas-plano.md).

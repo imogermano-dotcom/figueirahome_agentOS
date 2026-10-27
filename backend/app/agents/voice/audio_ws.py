@@ -7,7 +7,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.agents.voice import session as session_mgr
 from app.agents.voice import telnyx_api
-from app.agents.voice.claude_agent import get_response
+from app.agents.voice.claude_agent import FIM_CHAMADA, get_response, limpar_para_voz
 from app.agents.voice.stt import transcribe
 from app.agents.voice.vad import DetetorDeFrase
 from app.config import settings
@@ -17,6 +17,7 @@ router = APIRouter()
 
 _STT_RETRY_MSG = "Desculpe, não percebi. Pode repetir, por favor?"
 _STT_LINHA_MA = "A linha parece estar má. Se preferir, um consultor liga-lhe para este número. Pode repetir, por favor?"
+_ERRO_DO_MOTOR = "Ocorreu um erro. Tenta novamente."  # `engine._ERRO`: dito em voz alta, é melhor pedir para repetir
 _FALHAS_ATE_LINHA_MA = 3  # à 3.ª falha seguida muda a mensagem, para não repetir a mesma frase
 _BARGE_IN_MS = 400  # fala contínua por cima da assistente para a cortar (um estalido não a corta)
 
@@ -59,6 +60,20 @@ async def audio_websocket(websocket: WebSocket, call_control_id: str):
         logger.exception("Erro no WebSocket da chamada %s", call_control_id)
 
 
+async def resposta_do_motor(session, texto: str) -> str:
+    """A resposta do motor dos assistentes (canal `voz`), limpa para o TTS. O `FIM_CHAMADA` é tirado antes da limpeza
+    (o `_` é um símbolo que ela apaga) e desliga a chamada quando a fala acabar, como no agente antigo."""
+    from app.agents.broker import engine  # import tardio: o motor importa este módulo (`claude_agent`)
+
+    bruto = await engine.responder("voz", session.call_control_id, texto, telefone=session.numero_origem)
+    if FIM_CHAMADA in bruto:
+        session.terminar = True
+        bruto = bruto.replace(FIM_CHAMADA, "")
+    if bruto.strip() == _ERRO_DO_MOTOR:
+        bruto = ""
+    return limpar_para_voz(bruto) or "Desculpe, não percebi bem. Pode repetir, por favor?"
+
+
 async def _process_turn(session, call_control_id: str, audio_bytes: bytes) -> None:
     """Uma frase completa (o detetor já esperou pelo silêncio). Texto vazio = fala que o STT não percebeu."""
     t0 = time.monotonic()
@@ -81,7 +96,10 @@ async def _process_turn(session, call_control_id: str, audio_bytes: bytes) -> No
     session.transcricao_acumulada += f"\nCliente: {text}"
 
     t1 = time.monotonic()
-    response_text = await get_response(session, text)
+    if settings.voz_como_canal:
+        response_text = await resposta_do_motor(session, text)
+    else:
+        response_text = await get_response(session, text)
     session.transcricao_acumulada += f"\nAgente: {response_text}"
     logger.info("[%s] Claude (%.1fs): %r", call_control_id[-6:], time.monotonic() - t1, response_text)
 

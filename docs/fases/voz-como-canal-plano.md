@@ -1,6 +1,6 @@
 # Voz como canal do motor: plano (pedido #25)
 
-> Estado 26/10/2026: **só plano, nada implementado.** Pedido #25 do Miguel (03/10): «avançar com o agente de voz, para todos os agentes (Inês, Maria, Bárbara e Matilde)».
+> Estado 26/10/2026: **F0 medida e F1 implementada, por commitar e por ligar** (interruptor `VOZ_COMO_CANAL` desligado; 736 testes; ensaio contra o modelo: 12 guiões, 4 assistentes × interesse/engano/sem interesse, sem links nem símbolos, ferramentas certas, sem prazos prometidos depois do ajuste). Pedido #25 do Miguel (03/10): «avançar com o agente de voz, para todos os agentes (Inês, Maria, Bárbara e Matilde)».
 > Base: `voz-telnyx-resumo.md` (a ligação Telnyx funciona de ponta a ponta desde 19/10, 13 chamadas de teste em `agente_chamadas`).
 
 ## Problema
