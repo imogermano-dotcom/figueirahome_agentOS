@@ -41,6 +41,8 @@ class DetetorDeFrase:
     def __init__(self) -> None:
         self._historico: deque[float] = deque(maxlen=_JANELA_BLOCOS)
         self.limiar = float(LIMIAR_RMS)
+        self.fala_ignorada_ms = 0.0  # fala ouvida enquanto a assistente falava (barge-in desligado): diagnóstico
+        self.curta_ms = 0.0  # fala da última frase descartada por curta: diagnóstico
         self.reset()
 
     def reset(self) -> None:
@@ -72,7 +74,10 @@ class DetetorDeFrase:
         """Enquanto a assistente fala: mede o ruído e guarda os últimos 200 ms, mas nunca abre frase. Antes
         descartava-se tudo e o início da resposta, dito quando a assistente acaba, perdia-se (18/10: o nome
         dito logo a seguir à pergunta chegou como texto vazio)."""
-        self._atualiza_limiar(_rms(bloco))
+        rms = _rms(bloco)
+        self._atualiza_limiar(rms)
+        if rms >= self.limiar:
+            self.fala_ignorada_ms += len(bloco) / _BYTES_POR_MS
         if self._a_falar:  # frase a meio quando a assistente começou a falar: descarta
             self.reset()
         self._guarda_pre_roll(bloco)
@@ -101,6 +106,7 @@ class DetetorDeFrase:
 
         if self._silencio_ms >= FIM_DE_FRASE_MS or len(self._frase) >= MAX_FRASE_MS * _BYTES_POR_MS:
             frase = None
+            self.curta_ms = 0.0 if self._fala_ms >= MIN_FALA_MS else self._fala_ms
             if self._fala_ms >= MIN_FALA_MS:
                 excesso = int(max(0.0, self._silencio_ms - _CAUDA_MS) * _BYTES_POR_MS)
                 frase = bytes(self._frase[: len(self._frase) - excesso])

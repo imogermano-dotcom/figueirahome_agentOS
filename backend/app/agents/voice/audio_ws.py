@@ -47,6 +47,14 @@ async def audio_websocket(websocket: WebSocket, call_control_id: str):
                     continue
 
                 frase = detetor.feed(bloco)
+                if detetor.curta_ms:
+                    logger.info("[%s] fala de %.0f ms descartada por curta (limiar %.0f)", call_control_id[-6:],
+                                detetor.curta_ms, detetor.limiar)
+                    detetor.curta_ms = 0.0
+                if detetor.fala_ignorada_ms:
+                    logger.info("[%s] %.0f ms de fala ignorada enquanto a assistente falava", call_control_id[-6:],
+                                detetor.fala_ignorada_ms)
+                    detetor.fala_ignorada_ms = 0.0
                 if session.is_speaking and detetor.fala_ms >= _BARGE_IN_MS:
                     # Só chega aqui com o barge-in ligado. O áudio é a faixa de entrada: o TTS dela não volta.
                     logger.info("[%s] barge-in: a pessoa falou por cima, TTS cortado", call_control_id[-6:])
