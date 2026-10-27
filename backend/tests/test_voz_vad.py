@@ -296,3 +296,27 @@ def test_estalido_por_cima_da_assistente_nao_a_corta(monkeypatch):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_silencio_pergunta_duas_vezes_e_desliga(monkeypatch):
+    import asyncio
+    ditas = []
+
+    async def speak(_cid, texto):
+        ditas.append(texto)
+
+    monkeypatch.setattr(audio_ws.telnyx_api, "speak", speak)
+    s = session_mgr.CallSession(call_control_id="x", numero_origem="912345678")
+    agora = audio_ws.time.monotonic()
+
+    async def corre():
+        s.silencio_desde = agora  # ainda cedo: nada
+        await audio_ws._verificar_silencio(s, "x")
+        for _ in range(3):
+            s.silencio_desde = agora - audio_ws._SILENCIO_S - 1
+            s.is_speaking = False
+            await audio_ws._verificar_silencio(s, "x")
+
+    asyncio.run(corre())
+    assert ditas == [audio_ws._ESTA_LA, audio_ws._ESTA_LA, audio_ws._ADEUS_SILENCIO]
+    assert s.terminar

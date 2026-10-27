@@ -13,6 +13,8 @@ class CallSession:
     system_prompt: str = ""
     is_speaking: bool = False
     stt_fail_count: int = 0
+    silencio_desde: float | None = None  # `monotonic` do fim da última fala da assistente, enquanto ninguém responde
+    avisos_silencio: int = 0
     terminar: bool = False  # despedida dita: desligar quando o `speak` acabar
 
 

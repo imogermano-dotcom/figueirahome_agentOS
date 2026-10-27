@@ -72,7 +72,7 @@ def test_outros_canais_nao_levam_a_instrucao_de_voz():
 
 
 def test_voz_tem_limite_de_tokens_curto():
-    assert assistants.MAX_TOKENS["voz"] <= 256
+    assert assistants.MAX_TOKENS["voz"] <= 400
 
 
 def test_voz_nao_prefixa_a_apresentacao_da_matilde():

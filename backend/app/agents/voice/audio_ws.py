@@ -19,6 +19,10 @@ _STT_RETRY_MSG = "Desculpe, não percebi. Pode repetir, por favor?"
 _STT_LINHA_MA = "A linha parece estar má. Se preferir, um consultor liga-lhe para este número. Pode repetir, por favor?"
 _ERRO_DO_MOTOR = "Ocorreu um erro. Tenta novamente."  # `engine._ERRO`: dito em voz alta, é melhor pedir para repetir
 _FALHAS_ATE_LINHA_MA = 3  # à 3.ª falha seguida muda a mensagem, para não repetir a mesma frase
+_SILENCIO_S = 8  # ninguém fala depois de a assistente acabar: pergunta se está lá
+_AVISOS_ATE_DESLIGAR = 2
+_ESTA_LA = "Está aí? Se preferir, um consultor liga-lhe depois para este número."
+_ADEUS_SILENCIO = "Não consigo ouvi-lo. Um consultor volta a ligar-lhe. Obrigada e até breve."
 _BARGE_IN_MS = 400  # fala contínua por cima da assistente para a cortar (um estalido não a corta)
 
 
@@ -50,6 +54,8 @@ async def audio_websocket(websocket: WebSocket, call_control_id: str):
                     await telnyx_api.parar_fala(call_control_id)
                 if frase and not session.is_speaking:
                     await _process_turn(session, call_control_id, frase)
+                elif not session.is_speaking and detetor.fala_ms == 0:
+                    await _verificar_silencio(session, call_control_id)
 
             elif event == "stop":
                 break
@@ -58,6 +64,21 @@ async def audio_websocket(websocket: WebSocket, call_control_id: str):
         pass
     except Exception:
         logger.exception("Erro no WebSocket da chamada %s", call_control_id)
+
+
+async def _verificar_silencio(session, call_control_id: str) -> None:
+    """18:21 de 27/10: a pessoa respondeu e o detetor não apanhou (ou calou-se), e a chamada ficou muda até ela
+    desligar. Passados `_SILENCIO_S` sem fala, pergunta; à 2.ª vez sem resposta despede-se e desliga."""
+    if session.silencio_desde is None or time.monotonic() - session.silencio_desde < _SILENCIO_S:
+        return
+    session.silencio_desde = None
+    session.avisos_silencio += 1
+    session.is_speaking = True
+    if session.avisos_silencio > _AVISOS_ATE_DESLIGAR:
+        session.terminar = True
+        await telnyx_api.speak(call_control_id, _ADEUS_SILENCIO)
+    else:
+        await telnyx_api.speak(call_control_id, _ESTA_LA)
 
 
 async def resposta_do_motor(session, texto: str) -> str:
@@ -76,6 +97,7 @@ async def resposta_do_motor(session, texto: str) -> str:
 
 async def _process_turn(session, call_control_id: str, audio_bytes: bytes) -> None:
     """Uma frase completa (o detetor já esperou pelo silêncio). Texto vazio = fala que o STT não percebeu."""
+    session.silencio_desde = None
     t0 = time.monotonic()
     text = await transcribe(audio_bytes)
     logger.info("[%s] frase de %.1fs → STT (%.1fs): %r", call_control_id[-6:], len(audio_bytes) / 8000,
@@ -93,6 +115,7 @@ async def _process_turn(session, call_control_id: str, audio_bytes: bytes) -> No
         return
 
     session.stt_fail_count = 0
+    session.avisos_silencio = 0
     session.transcricao_acumulada += f"\nCliente: {text}"
 
     t1 = time.monotonic()
