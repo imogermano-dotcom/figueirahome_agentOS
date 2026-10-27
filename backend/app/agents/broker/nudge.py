@@ -19,6 +19,7 @@ from app.agents.broker.assistants import A1, A3, A4
 from app.agents.broker.channels.whatsapp import meta_api
 from app.agents.broker.conversation import save_conversation
 from app.db.supabase_client import get_supabase
+from app.leads_para_ego import dentro_do_horario
 from app.models.lead import ESTADOS_FECHADOS
 
 logger = logging.getLogger(__name__)
@@ -240,7 +241,17 @@ async def enviar_nudges(agente: str) -> dict:
     return resumo
 
 
+def _agora() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 async def enviar_todos_nudges() -> dict:
+    """O cron corre de hora a hora, mas só se escreve das 9h às 20h de Lisboa (a mesma janela da criação de leads no eGO).
+    Visto a 26–27/10: lembretes às 00:12 e às 04:12. O que fica por enviar sai às 9h12; a janela de 20 h da conversa chega
+    (a conversa mais tarde, das 20h, espera ~13 h)."""
+    if not dentro_do_horario(_agora()):
+        logger.info("Nudge fora do horário (9h–20h, Lisboa): nada enviado nesta volta.")
+        return {"fora_do_horario": True}
     resultados = {}
     for agente in _AGENTES:
         resultados[agente] = await enviar_nudges(agente)

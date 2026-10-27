@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from app.agents.broker import nudge
@@ -112,6 +113,7 @@ def _montar(monkeypatch, conversas, leads_por_participante, tarefas=None, tarefa
         return conversa_id
 
     monkeypatch.setattr(nudge, "save_conversation", _fake_save)
+    monkeypatch.setattr(nudge, "_agora", lambda: datetime(2026, 10, 27, 12, 0, tzinfo=timezone.utc))  # dentro do horário
     return estado
 
 
@@ -217,6 +219,30 @@ def test_enviar_todos_nudges_agrega_os_3(monkeypatch):
     assert set(resumo.keys()) == {nudge.A1, nudge.A3, nudge.A4}
     for parcial in resumo.values():
         assert set(parcial.keys()) == {"candidatos", "enviados", "erros"}
+
+
+def _as(monkeypatch, *quando):
+    monkeypatch.setattr(nudge, "_agora", lambda: datetime(*quando, tzinfo=timezone.utc))
+
+
+def test_de_noite_nao_se_envia_nada(monkeypatch):
+    """26–27/10: lembretes às 00:12 e às 04:12. Fora das 9h–20h (Lisboa) nem se consulta a base."""
+    estado = _montar(monkeypatch, [_conversa("c1", "351900000003")], {})
+    for hora in (0, 4, 8):  # inverno: Lisboa = UTC
+        _as(monkeypatch, 2026, 11, 3, hora, 12)
+        assert asyncio.run(nudge.enviar_todos_nudges()) == {"fora_do_horario": True}
+    _as(monkeypatch, 2026, 11, 3, 20, 12)
+    assert asyncio.run(nudge.enviar_todos_nudges()) == {"fora_do_horario": True}
+    assert estado.get("enviados") is None
+
+
+def test_de_dia_envia_e_o_verao_conta_a_hora_de_lisboa(monkeypatch):
+    estado = _montar(monkeypatch, [_conversa("c1", "351900000003")], {})
+    _as(monkeypatch, 2026, 7, 7, 7, 59)  # 08:59 em Lisboa, ainda fechado
+    assert asyncio.run(nudge.enviar_todos_nudges()) == {"fora_do_horario": True}
+    _as(monkeypatch, 2026, 7, 7, 8, 12)  # 09:12
+    assert nudge.A1 in asyncio.run(nudge.enviar_todos_nudges())
+    assert estado.get("enviados")
 
 
 def test_conversa_escalada_nao_recebe_nudge_mesmo_sem_marca_de_despedida(monkeypatch):
