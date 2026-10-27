@@ -83,3 +83,11 @@ não marca; `ego_lead_em` impede a segunda; interruptor desligado ignora. OBS co
 2. **Janela das 9h–20h** também aqui, como as outras leads.
 3. **Retroativo:** só daqui em diante. Os casos de 22–25/10 (uma escalada por negociação de preço e uma lead qualificada de arrendamento) ficam com as tarefas que já existem.
 4. **Fase 2** (acrescentar o resumo a uma lead que o cron das 2 h já criou): só depois de ver a fase 1 a funcionar. Isto retira o passo 4 («retroativo») da lista acima.
+
+## 27/10: quem responde e a conversa pára (pedido #47)
+
+Revisão de 26–27/10: 5 de 14 leads de compra responderam à Matilde e ficaram fora do eGO, porque nenhuma deu o sinal que marca o interesse (visita, escalada, qualificada) e o cron das 2 h só vê quem **não** respondeu.
+`leads_para_ego._candidatas_paradas` (interruptor `LEAD_RESPONDEU_EGO`, vazio = desligado): compradores Meta com `respondeu_em`, sem lead no eGO, sem `contacto_humano_em` nem `nao_contactar_em`, entrados nos últimos 14 dias e depois de `LEAD_COMPRA_EGO_DESDE`,
+cuja conversa de WhatsApp não tem mensagens (nem o lembrete) há 4 h. Fica de fora quem na última mensagem se despediu, agradeceu ou recusou (`e_fecho_da_pessoa`, `e_recusa`). O OBS diz que respondeu mas a conversa parou e leva o que a pessoa escreveu (últimas 3, cortadas).
+O sinal de interesse real ganha se existir. Mesma janela (9h–20h Lisboa), mesma deduplicação contra o eGO, e nunca sem consultora. Testes em `test_lead_parada.py`.
+Ao ligar, a 1.ª volta cria de uma vez as que já estão nesta situação (6 a 27/10 12:20 UTC): avisar a consultora.

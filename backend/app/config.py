@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     lead_compra_ego_desde: str = ""
     # Pedido #17: quem responde à Matilde com interesse real também vira lead no eGO. Vazio = desligado (nada se marca).
     lead_interesse_ego: str = ""
+    # Compradores Meta que responderam à Matilde e deixaram a conversa parada: criar a lead no eGO (vazio = desligado).
+    lead_respondeu_ego: str = ""
 
     # Scraper de relatório eGO (jmarques_todas_as_colunas) — app Fly.io
     # separada e dedicada, Playwright não cabe na RAM da app principal.

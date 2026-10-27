@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app.agents.broker.guards import normalizar_telefone
+from app.agents.broker.guards import e_fecho_da_pessoa, e_recusa, normalizar_telefone, variantes_telefone
 from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.integrations import ego_api, egorealestate
@@ -29,10 +29,12 @@ _SUBORIGEM_FACEBOOK_CAMPANHA = 34798477
 _TIPO_PEDIDO_DE_INFORMACAO = 4
 _MASTER_VENDA = 2
 _MAX_RESUMO_OBS = 600  # do resumo da conversa que vai no OBS da lead
+IDADE_MAX_PARADA_DIAS = 14  # só se olha para as que entraram há menos tempo (cada uma custa uma consulta por volta)
+JANELA_PARADA_HORAS = 4  # conversa sem mensagens (nem o lembrete) há este tempo: a pessoa já não vai responder
 
 _COLUNAS = ("id,nome,telefone,telemovel,email,meta_lead_id,imovel_ref,ad_name,meta_form_name,criado_em,"
             "meta_created_at,template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em,"
-            "interesse_real_em,interesse_real_motivo,interesse_real_resumo")
+            "interesse_real_em,interesse_real_motivo,interesse_real_resumo,nao_contactar_em")
 
 
 def dentro_do_horario(agora: datetime) -> bool:
@@ -69,6 +71,12 @@ def observacao_da_lead(linha: dict, com_imovel: bool, recusou: bool = False, ja_
                   if linha.get("interesse_real_motivo") else "respondeu à Matilde com interesse real.")
         obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads", quando,
                f"Resumo: {resumo}" if resumo else "", "Contactar por telefone ou WhatsApp."]
+        obs = [o for o in obs if o]
+    elif "conversa_parada_resumo" in linha:  # respondeu à Matilde, mas a conversa parou sem sinal de interesse
+        resumo = linha["conversa_parada_resumo"]
+        obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads",
+               "respondeu à Matilde mas a conversa parou sem pedido de visita.",
+               f"Disse: {resumo}" if resumo else "", "Contactar por telefone ou WhatsApp."]
         obs = [o for o in obs if o]
     else:
         obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads",
@@ -193,6 +201,53 @@ def _candidatas_interesse() -> list[dict]:
     return [l for l in resp.data or [] if not l.get("ego_lead_em")]
 
 
+def _conversa_do(telefone: str) -> tuple[datetime | None, list[str]]:
+    """Última atividade da conversa de WhatsApp deste número e o que a pessoa escreveu nela."""
+    resp = (
+        get_supabase().table("agente_conversas").select("atualizado_em,mensagens")
+        .eq("canal", "whatsapp").in_("participante", variantes_telefone(telefone))
+        .order("atualizado_em", desc=True).limit(1).execute()
+    )
+    if not resp.data:
+        return None, []
+    linha = resp.data[0]
+    textos = [m["content"] for m in linha.get("mensagens") or [] if m.get("role") == "user" and isinstance(m.get("content"), str)]
+    return _dt(linha.get("atualizado_em")), textos
+
+
+def resumo_da_conversa(textos: list[str]) -> str:
+    """As últimas 3 coisas que a pessoa escreveu, cada uma cortada. Sem a conversa inteira (vai para o OBS do eGO)."""
+    return " | ".join(" ".join(t.split())[:160] for t in textos[-3:] if t.strip())[:_MAX_RESUMO_OBS]
+
+
+def _candidatas_paradas(agora: datetime) -> list[dict]:
+    """Compradores Meta que **responderam** à Matilde sem nunca dar sinal de interesse (nem recusar) e deixaram a conversa
+    parada há `JANELA_PARADA_HORAS`. Sem isto ficavam para sempre fora do eGO (26–27/10: 5 de 14 leads). Desligado sem o segredo."""
+    if not settings.lead_respondeu_ego:
+        return []
+    resp = (
+        get_supabase().table("contactos").select(_COLUNAS)
+        .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
+        .not_.is_("respondeu_em", "null").is_("ego_lead_em", "null").is_("contacto_humano_em", "null").is_("nao_contactar_em", "null")
+        .gte("meta_created_at", settings.lead_compra_ego_desde)
+        .gte("meta_created_at", (agora - timedelta(days=IDADE_MAX_PARADA_DIAS)).isoformat())
+        .order("meta_created_at").limit(200).execute()
+    )
+    paradas = []
+    for l in resp.data or []:
+        if l.get("ego_lead_em") or l.get("contacto_humano_em") or l.get("nao_contactar_em") or not l.get("respondeu_em"):
+            continue
+        tel = normalizar_telefone(l.get("telefone") or l.get("telemovel"))
+        if not tel:
+            continue
+        ultima, textos = _conversa_do(tel)
+        if textos and (e_fecho_da_pessoa(textos[-1]) or e_recusa(textos[-1])):
+            continue  # a última coisa que disse foi «obrigado», «até breve» ou «não me interessa»: despediu-se
+        if ultima and ultima <= agora - timedelta(hours=JANELA_PARADA_HORAS):
+            paradas.append(l | {"conversa_parada_resumo": resumo_da_conversa(textos)})
+    return paradas[:LIMITE_POR_VOLTA]
+
+
 def processar(agora: datetime | None = None) -> dict:
     """Uma volta do cron. Falha da API deixa a lead por marcar (a próxima volta repete)."""
     if not settings.lead_compra_ego_desde:
@@ -204,6 +259,8 @@ def processar(agora: datetime | None = None) -> dict:
     candidatas = _candidatas(agora)
     vistas = {l["id"] for l in candidatas}
     candidatas += [l for l in _candidatas_interesse() if l["id"] not in vistas]
+    vistas = {l["id"] for l in candidatas}
+    candidatas += [l for l in _candidatas_paradas(agora) if l["id"] not in vistas]
     if not candidatas:
         return contagem
     try:
