@@ -56,6 +56,12 @@ def test_prompt_de_voz_tem_a_instrucao_de_canal_e_a_saudacao():
     assert "Este contacto vem do WhatsApp" not in p
 
 
+def test_prompt_de_voz_proibe_frases_de_espera_e_novo_cumprimento():
+    """Chamada de 27/10: «Fico a registar o orçamento, João, um momento» e a pessoa desligou à espera; e «Olá João» logo a seguir à saudação."""
+    p = _prompt("voz", "912345678")
+    assert "um momento" in p and "bastar-se a si própria" in p and "sem «olá»" in p
+
+
 def test_prompt_de_voz_sem_numero_pede_o_numero_inteiro():
     assert "nove dígitos" in _prompt("voz", None) and "mesmo número" not in _prompt("voz", None)
 
