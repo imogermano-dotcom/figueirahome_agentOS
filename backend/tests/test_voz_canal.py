@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.agents.broker import assistants, engine, tools  # noqa: E402
 from app.agents.voice import audio_ws  # noqa: E402
-from app.agents.voice.claude_agent import FIM_CHAMADA, SAUDACAO  # noqa: E402
+from app.agents.voice.claude_agent import FIM_CHAMADA, _CORPO_SAUDACAO  # noqa: E402
 from app.agents.voice.session import CallSession  # noqa: E402
 
 REGISTO = {"guardar_dados_cliente", "pedir_visita", "escalar_para_humano", "encerrar_lead"}
@@ -51,7 +51,7 @@ def _prompt(canal, telefone=None):
 
 def test_prompt_de_voz_tem_a_instrucao_de_canal_e_a_saudacao():
     p = _prompt("voz", "912345678")
-    assert SAUDACAO in p and FIM_CHAMADA in p and "Estás numa chamada telefónica" in p
+    assert _CORPO_SAUDACAO in p and FIM_CHAMADA in p and "Estás numa chamada telefónica" in p
     assert "mesmo número" in p, "telefone conhecido: pergunta só se o consultor pode ligar para esse número"
     assert "Este contacto vem do WhatsApp" not in p
 

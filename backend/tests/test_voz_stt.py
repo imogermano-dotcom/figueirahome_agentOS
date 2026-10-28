@@ -287,13 +287,14 @@ def test_atender_diz_a_saudacao_nova(monkeypatch):
 
     monkeypatch.setattr(webhook.telnyx_api, "stream_start", _stream)
     monkeypatch.setattr(webhook.telnyx_api, "speak", _speak)
+    monkeypatch.setattr(webhook, "saudacao", lambda: "Boa tarde! corpo")
     session_mgr.create_session("c-saud", "+351912345678")
     app = FastAPI()
     app.include_router(webhook.router)
     corpo = {"data": {"event_type": "call.answered", "payload": {"call_control_id": "c-saud"}}}
     TestClient(app).post("/webhook/telnyx", json=corpo)
     session_mgr.remove_session("c-saud")
-    assert ditas == [webhook.SAUDACAO]
+    assert ditas == ["Boa tarde! corpo"]
 
 
 def test_saudacao_marca_is_speaking_antes_de_falar(monkeypatch):
@@ -320,3 +321,13 @@ def test_saudacao_marca_is_speaking_antes_de_falar(monkeypatch):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_saudacao_por_hora_de_lisboa():
+    from datetime import datetime
+    from app.agents.voice.claude_agent import _CORPO_SAUDACAO, saudacao
+    esperado = {5: "Boa noite", 6: "Bom dia", 11: "Bom dia", 12: "Boa tarde", 19: "Boa tarde", 20: "Boa noite", 23: "Boa noite"}
+    for hora, periodo in esperado.items():
+        s = saudacao(datetime(2026, 10, 28, hora, 30))
+        assert s == f"{periodo}! {_CORPO_SAUDACAO}", (hora, s)
+    assert "assistente virtual" in s and "transcrita" in s  # continua a dizer que é uma IA

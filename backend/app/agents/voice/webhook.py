@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.agents.voice import session as session_mgr
 from app.agents.voice import telnyx_api
-from app.agents.voice.claude_agent import SAUDACAO
+from app.agents.voice.claude_agent import SAUDACAO, saudacao  # noqa: F401  (SAUDACAO: os testes e o agente antigo)
 from app.agents.voice.save_call import save_call
 from app.config import settings
 
@@ -72,7 +72,7 @@ async def telnyx_webhook(request: Request):
         session = session_mgr.get_session(call_control_id)
         if session:
             session.is_speaking = True  # até ao `call.speak.ended`
-        await telnyx_api.speak(call_control_id, SAUDACAO)
+        await telnyx_api.speak(call_control_id, saudacao())
 
     elif event_type == "call.speak.ended":
         session = session_mgr.get_session(call_control_id)

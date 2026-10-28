@@ -49,7 +49,7 @@ from app.agents.broker.guards import (
 )
 from app.agents.broker.router import route
 from app.agents.broker.tools import execute_tool, tools_para
-from app.agents.voice.claude_agent import FIM_CHAMADA, SAUDACAO, instrucao_telefone
+from app.agents.voice.claude_agent import FIM_CHAMADA, _CORPO_SAUDACAO, instrucao_telefone, periodo_do_dia
 from app.config import settings
 from app.db.supabase_client import get_supabase
 
@@ -168,9 +168,14 @@ _INSTRUCAO_TELEFONE_WHATSAPP = (
 # Canal `voz` (`voz-como-canal-plano.md`): a instrução vive aqui, no motor, e não no prompt de cada assistente.
 # A pessoa ouve, não lê: sem ecrã não há links, listas, referências lidas dígito a dígito nem pesquisa de imóveis (fase 2).
 _INSTRUCAO_VOZ = (
-    "\n\nEstás numa chamada telefónica: a pessoa ouve-te, não te lê. A chamada começou com a saudação «{saudacao}», "
-    "já dita antes da primeira resposta tua: nunca voltes a cumprimentar, a apresentar-te como assistente virtual nem a "
-    "avisar da transcrição. Responde numa só frase curta (no máximo 25 palavras) e faz uma pergunta de cada vez. "
+    "\n\nEstás numa chamada telefónica: a pessoa ouve-te, não te lê. A chamada começou com um «bom dia», «boa tarde» ou "
+    "«boa noite» e «{saudacao}», já dito antes da primeira resposta tua: nunca voltes a cumprimentar, a apresentar-te como "
+    "assistente virtual nem a avisar da transcrição. "
+    "Fala como uma pessoa simpática ao telefone: responde em uma ou duas frases curtas (no máximo 25 palavras no total) e faz "
+    "uma pergunta de cada vez. Por vezes (não em todas as respostas) começas por uma reação breve e natural ao que ouviste, como «Ótimo.», «Percebo.», "
+    "«Claro.» ou «Boa escolha.», variando sempre; noutras entras direto na pergunta. Usa a linguagem do dia a dia e evita fórmulas de balcão como "
+    "«fico a registar», «fico a aguardar» ou «apresentar as opções disponíveis». Não repitas o que a pessoa já confirmou: "
+    "só o que for novo. Fala sempre com a pessoa, na 2.ª pessoa: nunca descrevas o que ela fez nem o que vais fazer («a pessoa despediu-se», «vou guardar»). "
     "Nunca uses markdown, listas, símbolos, emojis, links nem endereços de internet: se as instruções mandarem dar um link, "
     "diz que o responsável o envia por mensagem. Não tens ferramentas de pesquisa de imóveis nesta chamada: nunca digas "
     "que vais pesquisar nem inventes resultados; recolhe os dados e diz que um consultor entrará em contacto, sem prometer "
@@ -181,14 +186,20 @@ _INSTRUCAO_VOZ = (
     "e chama a ferramenta na mesma resposta: assim a pessoa ouve-te já. "
     "A frase tem de bastar-se a si própria: nunca digas «um momento», «já registo» nem «aguarde»; confirma o que ficou "
     "registado e faz a pergunta seguinte, ou despede-te. "
-    "Se já conheces o nome da pessoa, usa-o, mas sem «olá», «bom dia» ou «boa tarde»: a saudação já foi feita. "
-    "A despedida final é a tua última frase da chamada: termina-a com a palavra {fim}, que nunca é falada. "
+    "Se já conheces o nome da pessoa, usa-o de vez em quando (não em todas as frases), mas sem «olá», «bom dia» ou «boa tarde» "
+    "no princípio: a saudação já foi feita. "
+    "A despedida final é a tua última frase da chamada: calorosa e natural, com o agradecimento e um «boa {periodo}» "
+    "(ou «boa noite») conforme a hora; termina-a com a palavra {fim}, que nunca é falada. "
     "Usa-a uma só vez, e só nessa frase."
 )
 
 
+def _periodo_despedida() -> str:
+    return {"dia": "dia", "tarde": "tarde", "noite": "noite"}[periodo_do_dia()]
+
+
 def _instrucao_voz(telefone: str | None) -> str:
-    return _INSTRUCAO_VOZ.format(saudacao=SAUDACAO, fim=FIM_CHAMADA) + instrucao_telefone(telefone)
+    return _INSTRUCAO_VOZ.format(saudacao=_CORPO_SAUDACAO, fim=FIM_CHAMADA, periodo=_periodo_despedida()) + instrucao_telefone(telefone)
 
 
 # Por chamada (`participante` = call_control_id): o perfil e a configuração não mudam durante a conversa, e cada

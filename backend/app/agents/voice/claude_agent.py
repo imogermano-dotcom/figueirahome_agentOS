@@ -1,5 +1,7 @@
 import logging
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from anthropic import AsyncAnthropic
 
@@ -15,11 +17,23 @@ _client = AsyncAnthropic(api_key=settings.anthropic_api_key)
 # Dita pela Telnyx logo ao atender (`webhook.py`) e repetida ao modelo no prompt, para nunca divergirem.
 # «Figueira Home» (duas palavras) como nos templates: o TTS pronuncia melhor. Diz que é uma IA (transparência),
 # avisa da transcrição (guardamos a transcrição e o resumo em `agente_chamadas`) e não é gendrada («ajudar»).
-SAUDACAO = (
-    "Olá! Fala a assistente virtual da Figueira Home. "
+_CORPO_SAUDACAO = (
+    "Fala a assistente virtual da Figueira Home. "
     "Esta chamada é transcrita para o poder atender melhor. "
     "Em que posso ajudar?"
 )
+SAUDACAO = f"Olá! {_CORPO_SAUDACAO}"  # texto de referência (agente antigo e prompt); a que se diz ao atender é `saudacao()`
+
+
+def periodo_do_dia(agora: datetime | None = None) -> str:
+    hora = (agora or datetime.now(ZoneInfo("Europe/Lisbon"))).hour
+    return "dia" if 6 <= hora < 12 else "tarde" if 12 <= hora < 20 else "noite"
+
+
+def saudacao(agora: datetime | None = None) -> str:
+    """Bom dia / boa tarde / boa noite pela hora de Lisboa, seguido do mesmo corpo (diz que é uma IA e que é transcrita)."""
+    periodo = {"dia": "Bom dia", "tarde": "Boa tarde", "noite": "Boa noite"}[periodo_do_dia(agora)]
+    return f"{periodo}! {_CORPO_SAUDACAO}"
 
 FIM_CHAMADA = "FIM_CHAMADA"  # marca da despedida: o webhook desliga quando a fala acaba
 
