@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import time
+from difflib import SequenceMatcher
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -23,6 +24,8 @@ _SILENCIO_S = 8  # ninguém fala depois de a assistente acabar: pergunta se est�
 _AVISOS_ATE_DESLIGAR = 2
 _ESTA_LA = "Está aí? Se preferir, um consultor liga-lhe depois para este número."
 _ADEUS_SILENCIO = "Não consigo ouvi-lo. Um consultor volta a ligar-lhe. Obrigada e até breve."
+_REPETICOES_ATE_DESISTIR = 2  # à 3.ª pergunta quase igual seguida desiste: 28/10 repetiu a mesma pergunta 3 vezes
+_DESISTIR = "Parece que a linha está má e não o consigo ouvir bem. Um consultor liga-lhe para este número. Obrigada e até breve."
 _BARGE_IN_MS = 400  # fala contínua por cima da assistente para a cortar (um estalido não a corta)
 
 
@@ -61,7 +64,7 @@ async def audio_websocket(websocket: WebSocket, call_control_id: str):
                     session.is_speaking = False
                     await telnyx_api.parar_fala(call_control_id)
                 if frase and not session.is_speaking:
-                    await _process_turn(session, call_control_id, frase)
+                    await _process_turn(session, call_control_id, frase, detetor.ultima)
                 elif not session.is_speaking and detetor.fala_ms == 0:
                     await _verificar_silencio(session, call_control_id)
 
@@ -103,13 +106,22 @@ async def resposta_do_motor(session, texto: str) -> str:
     return limpar_para_voz(bruto) or "Desculpe, não percebi bem. Pode repetir, por favor?"
 
 
-async def _process_turn(session, call_control_id: str, audio_bytes: bytes) -> None:
+def _e_repeticao(session, resposta: str) -> bool:
+    """Quase igual à resposta anterior (o modelo só troca o nome ou uma palavra): conta; senão zera."""
+    antes, session.ultima_resposta = session.ultima_resposta, resposta.lower()
+    igual = bool(antes) and SequenceMatcher(None, antes, session.ultima_resposta).ratio() >= 0.8
+    session.repeticoes = session.repeticoes + 1 if igual else 0
+    return session.repeticoes >= _REPETICOES_ATE_DESISTIR
+
+
+async def _process_turn(session, call_control_id: str, audio_bytes: bytes, energia: dict | None = None) -> None:
     """Uma frase completa (o detetor já esperou pelo silêncio). Texto vazio = fala que o STT não percebeu."""
     session.silencio_desde = None
     t0 = time.monotonic()
     text = await transcribe(audio_bytes)
-    logger.info("[%s] frase de %.1fs → STT (%.1fs): %r", call_control_id[-6:], len(audio_bytes) / 8000,
-                time.monotonic() - t0, text)
+    e = energia or {}
+    logger.info("[%s] frase de %.1fs → STT (%.1fs): %r | energia pico %.0f média %.0f limiar %.0f", call_control_id[-6:],
+                len(audio_bytes) / 8000, time.monotonic() - t0, text, e.get("pico", 0), e.get("media", 0), e.get("limiar", 0))
 
     if not text or len(text.strip()) < 2:
         # O detetor só entrega frases com fala: texto vazio é o STT a falhar, não a pessoa calada. Calar-se aqui
@@ -131,6 +143,9 @@ async def _process_turn(session, call_control_id: str, audio_bytes: bytes) -> No
         response_text = await resposta_do_motor(session, text)
     else:
         response_text = await get_response(session, text)
+    if _e_repeticao(session, response_text):
+        response_text = _DESISTIR
+        session.terminar = True
     session.transcricao_acumulada += f"\nAgente: {response_text}"
     logger.info("[%s] Claude (%.1fs): %r", call_control_id[-6:], time.monotonic() - t1, response_text)
 

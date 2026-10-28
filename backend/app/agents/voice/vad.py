@@ -43,6 +43,7 @@ class DetetorDeFrase:
         self.limiar = float(LIMIAR_RMS)
         self.fala_ignorada_ms = 0.0  # fala ouvida enquanto a assistente falava (barge-in desligado): diagnóstico
         self.curta_ms = 0.0  # fala da última frase descartada por curta: diagnóstico
+        self.ultima: dict = {}  # energia da última frase entregue (pico, média, limiar, fala_ms, atraso_ms): diagnóstico
         self.reset()
 
     def reset(self) -> None:
@@ -52,6 +53,8 @@ class DetetorDeFrase:
         self._a_falar = False
         self._fala_ms = 0.0
         self._silencio_ms = 0.0
+        self._rms_fala: list[float] = []
+        self._pico = 0.0
 
     @property
     def fala_ms(self) -> float:
@@ -96,6 +99,8 @@ class DetetorDeFrase:
                 self._pre_roll_bytes = 0
             self._frase.extend(bloco)
             self._fala_ms += ms
+            self._rms_fala.append(rms)
+            self._pico = max(self._pico, rms)
             self._silencio_ms = 0.0
         elif self._a_falar:
             self._frase.extend(bloco)
@@ -110,6 +115,8 @@ class DetetorDeFrase:
             if self._fala_ms >= MIN_FALA_MS:
                 excesso = int(max(0.0, self._silencio_ms - _CAUDA_MS) * _BYTES_POR_MS)
                 frase = bytes(self._frase[: len(self._frase) - excesso])
+                self.ultima = {"pico": self._pico, "media": sum(self._rms_fala) / len(self._rms_fala),
+                               "limiar": self.limiar, "fala_ms": self._fala_ms}
             self.reset()
             return frase
         return None

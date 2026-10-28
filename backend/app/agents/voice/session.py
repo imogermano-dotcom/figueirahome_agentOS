@@ -15,6 +15,8 @@ class CallSession:
     stt_fail_count: int = 0
     silencio_desde: float | None = None  # `monotonic` do fim da última fala da assistente, enquanto ninguém responde
     avisos_silencio: int = 0
+    ultima_resposta: str = ""
+    repeticoes: int = 0  # respostas seguidas quase iguais: a pessoa não está a ser percebida
     terminar: bool = False  # despedida dita: desligar quando o `speak` acabar
 
 

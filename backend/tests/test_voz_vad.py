@@ -320,3 +320,25 @@ def test_silencio_pergunta_duas_vezes_e_desliga(monkeypatch):
     asyncio.run(corre())
     assert ditas == [audio_ws._ESTA_LA, audio_ws._ESTA_LA, audio_ws._ADEUS_SILENCIO]
     assert s.terminar
+
+
+def test_repeticao_seguida_desiste_a_terceira_vez():
+    s = session_mgr.CallSession(call_control_id="x", numero_origem="912345678")
+    p = "Que tipo de imóvel procura — apartamento, moradia, ou está em aberto?"
+    assert not audio_ws._e_repeticao(s, p)
+    assert not audio_ws._e_repeticao(s, "João, " + p.lower())  # só mudou o nome: 1.ª repetição
+    assert audio_ws._e_repeticao(s, p)  # 2.ª seguida: desiste
+    assert not audio_ws._e_repeticao(s, "Qual é o seu orçamento?")  # resposta diferente zera
+    assert s.repeticoes == 0
+
+
+def test_detetor_guarda_a_energia_da_ultima_frase():
+    det = vad.DetetorDeFrase()
+    for _ in range(12):
+        det.feed(_bloco_com_rms(100))
+    frase = None
+    for _ in range(40):
+        frase = det.feed(_bloco_com_rms(3000)) or frase
+    for _ in range(60):
+        frase = det.feed(_bloco_com_rms(100)) or frase
+    assert frase and det.ultima["pico"] >= 2000 and det.ultima["fala_ms"] > 0
