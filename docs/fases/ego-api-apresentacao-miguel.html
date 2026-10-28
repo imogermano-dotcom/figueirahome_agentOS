@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API do eGO: substituir scrapers e Web API</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #1d2433; --muted: #5d6679; --line: #e2e0d8;
+    --ok: #1f7a4d; --ok-bg: #e3f3ea; --mid: #9a6700; --mid-bg: #fbf0d4; --bad: #b3261e; --bad-bg: #fbe4e1;
+    --accent: #1b4f72; --accent-bg: #e4eef6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171d; --card: #1c212b; --ink: #e8eaf0; --muted: #9aa3b5; --line: #2b3240;
+      --ok: #6fd3a0; --ok-bg: #173a2a; --mid: #f1c35c; --mid-bg: #3d3216; --bad: #f2a29b; --bad-bg: #42201d;
+      --accent: #8ec1e6; --accent-bg: #1b2d3b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1020px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 6px; }
+  h2 { font-size: 1.35rem; margin: 40px 0 12px; padding-top: 8px; border-top: 2px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 22px 0 8px; }
+  p { margin: 8px 0; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); margin: 16px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .num { font-size: 2rem; font-weight: 700; line-height: 1.1; }
+  .num.ok { color: var(--ok); } .num.mid { color: var(--mid); } .num.bad { color: var(--bad); }
+  .card small { color: var(--muted); display: block; margin-top: 4px; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: .95rem; }
+  th, td { text-align: left; padding: 10px 12px; vertical-align: top; border-bottom: 1px solid var(--line); }
+  th { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  .tw { overflow-x: auto; }
+  .tag { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: .8rem; font-weight: 600; white-space: nowrap; }
+  .tag.ok { background: var(--ok-bg); color: var(--ok); } .tag.mid { background: var(--mid-bg); color: var(--mid); } .tag.bad { background: var(--bad-bg); color: var(--bad); } .tag.acc { background: var(--accent-bg); color: var(--accent); }
+  ul { margin: 8px 0; padding-left: 22px; } li { margin: 4px 0; }
+  code { background: var(--accent-bg); color: var(--accent); padding: 1px 6px; border-radius: 4px; font-size: .88em; }
+  .callout { border: 1px solid var(--line); background: var(--accent-bg); padding: 12px 16px; border-radius: 10px; margin: 16px 0; }
+  .phase { display: grid; grid-template-columns: 56px 1fr; gap: 0 14px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 10px 0; }
+  .phase .id { font-weight: 700; font-size: 1.1rem; color: var(--accent); }
+  .phase p { margin: 2px 0; } .phase .crit { color: var(--muted); font-size: .92rem; }
+  .cols { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .cols .card h3 { margin-top: 0; }
+  footer { margin-top: 48px; color: var(--muted); font-size: .85rem; }
+  @media print { body { background: #fff; } .card, table, .phase { break-inside: avoid; } h2 { break-after: avoid; } }
+  @media (max-width: 560px) { .phase { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Ler o eGO pela API em vez dos scrapers</h1>
+<p class="sub">O que já dá para substituir, o que fica a meias e como o fazer, em fases. Reunião com o Miguel, 28/10/2026. Análise feita só em leitura: nada foi alterado no eGO nem na base de dados.</p>
+
+<div class="grid">
+  <div class="card"><div class="num ok">6 de 7</div><small>entidades substituíveis pela API (notas, tarefas, visitas, contactos, imóveis, leads); as oportunidades quase</small></div>
+  <div class="card"><div class="num mid">1</div><small>coluna sem fonte na API: o <strong>valor da proposta</strong> (16 oportunidades ativas)</small></div>
+  <div class="card"><div class="num bad">672</div><small>notas por gravar nas corridas de 27 e 28/10, e 51 oportunidades recusadas, por causa do relatório</small></div>
+</div>
+
+<h2>1. Porquê agora</h2>
+<p>Hoje a base de dados é alimentada por um <strong>relatório do eGO descarregado por um browser automático</strong> (o scraper). Falha em silêncio quando o eGO muda alguma coisa:</p>
+<ul>
+  <li><strong>14 e 15/10:</strong> o eGO passou a pedir a escolha de escritório no login; dois dias de sync parados.</li>
+  <li><strong>27 e 28/10:</strong> 14 e 37 oportunidades recusadas por um estado novo («Criada») e 180 e 492 notas por gravar.</li>
+  <li>Os relatórios são enviados por email acima de ~1 000 linhas, e dependem de HTML e do browser.</li>
+</ul>
+<p>A API do eGO devolve os mesmos dados em formato estruturado, com identificadores estáveis e filtros por data. Já a usamos para criar leads, para o estado das propostas, para as oportunidades apagadas e para os imóveis de todos os estados.</p>
+
+<h2>2. O que fica resolvido</h2>
+<div class="tw"><table>
+  <thead><tr><th>Dados</th><th>Estado</th><th>Como a API resolve</th></tr></thead>
+  <tbody>
+  <tr><td><strong>Notas</strong></td><td><span class="tag ok">Resolvido</span></td><td>Uma chamada de 0,7 s traz 2 144 notas de 200 oportunidades, com identificador próprio (acabam as notas duplicadas por texto igual). Mede-se já o buraco de hoje: oportunidades recentes têm notas na API e nenhuma na nossa base.</td></tr>
+  <tr><td><strong>Tarefas</strong></td><td><span class="tag ok">Resolvido</span></td><td>Assunto, descrição, datas, estado, responsável, reagendamento e a oportunidade a que pertencem. Um snapshot completo são ~46 páginas.</td></tr>
+  <tr><td><strong>Visitas</strong></td><td><span class="tag ok">Resolvido</span></td><td>Os 12 campos que guardamos têm correspondente direto (data, interessado, pontos positivos e negativos, observações, anulada…).</td></tr>
+  <tr><td><strong>Contactos</strong></td><td><span class="tag ok">Resolvido</span></td><td>Lista por «alterado desde» (47 alterados desde 26/10), ligados às oportunidades por uma chamada própria. Lemos só nome, telefone, email e datas: a API traz também NIF e IBAN, que não guardamos.</td></tr>
+  <tr><td><strong>Imóveis</strong></td><td><span class="tag ok">Quase feito</span></td><td>Já lemos todos os estados pela API. Falta só deixar de consultar o CRM em HTML para o detalhe.</td></tr>
+  <tr><td><strong>Leads</strong></td><td><span class="tag ok">Já é API</span></td><td>Listar e criar leads já passam pela API.</td></tr>
+  <tr><td><strong>Oportunidades: estado</strong></td><td><span class="tag ok">Resolvido</span></td><td>A API dá a fase (Ativa, Ganha, Perdida) como número fixo: acaba o problema do estado «Criada» de 27 e 28/10.</td></tr>
+  <tr><td>Etapa atual</td><td><span class="tag ok">Resolvido</span></td><td>Vem na variante «relatório» da lista (por ex. «8-Fecho»), igual à nossa base nas 2 comparadas.</td></tr>
+  <tr><td>Data da proposta</td><td><span class="tag ok">Resolvido</span></td><td>Filtro por janela de datas: encontrou as 2 propostas testadas no dia certo.</td></tr>
+  <tr><td>Proposta aceite ou recusada</td><td><span class="tag ok">Resolvido</span></td><td>Filtro «proposta alterada desde» apanha o que o relatório não via (pedido #34).</td></tr>
+  <tr><td>Preço do imóvel, probabilidade, data da escritura, motivo, ligação ao contacto</td><td><span class="tag ok">Resolvido</span></td><td>Campos diretos da API (ou via o imóvel).</td></tr>
+  </tbody>
+</table></div>
+
+<div class="callout">Das colunas das oportunidades, <code>checklists</code>, <code>etapas de CPCV e escrituras</code>, <code>diferença</code>, <code>valor do negócio</code> e <code>equipa</code> estão <strong>vazias em todas as 1 000 oportunidades ativas</strong> da nossa base: não há nada a substituir nelas.</div>
+
+<h2>3. O que fica a meias ou em falta</h2>
+<div class="tw"><table>
+  <thead><tr><th>Dados</th><th>Estado</th><th>Situação</th><th>Opções</th></tr></thead>
+  <tbody>
+  <tr><td><strong>Valor da proposta</strong></td><td><span class="tag bad">Em falta</span></td><td>Não está na oportunidade, nem no imóvel (só o preço pedido). A API não tem endpoint de propostas de venda, só de crédito. Pesa 16 oportunidades ativas.</td><td>(a) manter só esta coluna pelo relatório; (b) pedir ao eGO o endpoint, como as comissões (#41); (c) mostrar só estado e data.</td></tr>
+  <tr><td><strong>Portal de origem</strong></td><td><span class="tag mid">Parcial</span></td><td>Vem nas oportunidades recentes («Idealista PT»); nas antigas («SUPERCASA», «Página Web») a API devolve vazio.</td><td>Não sobrescrever com vazio: as antigas ficam como estão.</td></tr>
+  <tr><td><strong>Proprietário do imóvel</strong></td><td><span class="tag mid">Derivável</span></td><td>Não vem na oportunidade; é a entidade dona do imóvel.</td><td>Ler a entidade do imóvel (chamada própria).</td></tr>
+  <tr><td><strong>Etapa da proposta</strong></td><td><span class="tag mid">Por confirmar</span></td><td>Só 2 oportunidades a usam; provavelmente deriva da etapa.</td><td>Confirmar com o eGO ou deixar vazio.</td></tr>
+  <tr><td><strong>Preferências do cliente</strong></td><td><span class="tag mid">Mais chamadas</span></td><td>Existem, mas uma chamada por oportunidade.</td><td>Só nas alteradas; não pesa.</td></tr>
+  <tr><td><strong>Comissões dos imóveis</strong></td><td><span class="tag mid">Por confirmar</span></td><td>Os campos existem, mas o eGO disse que ainda não os implementou (#41).</td><td>Verificar se vêm preenchidos antes de usar.</td></tr>
+  </tbody>
+</table></div>
+
+<h2>4. E a Web API dos imóveis?</h2>
+<p>Hoje há duas fontes de imóveis: a <strong>Web API pública</strong> (só os publicados, com cerca de 10 minutos de atraso) e a <strong>API do CRM</strong> (todos os estados, 227 campos, identificador de backoffice). A proposta é <strong>ficar só com a API do CRM</strong>.</p>
+<div class="cols">
+  <div class="card"><h3>Ganhamos</h3><ul>
+    <li>Uma só fonte, em vez de duas a reconciliar.</li>
+    <li>Todos os estados (hoje 705 imóveis só existem na API).</li>
+    <li>O identificador certo, que resolve os imóveis «invisíveis» e o detalhe por CRM em HTML.</li>
+    <li>O imóvel traz a lista de portais onde está publicado (<code>portals</code>).</li>
+  </ul></div>
+  <div class="card"><h3>A validar antes de desligar a Web API</h3><ul>
+    <li>Que o campo de portais equivale ao «publicado no site» (hoje decidido por <code>disponivel_na_api</code>).</li>
+    <li>Fotografias e características (<code>FeatureTags</code>: «há na zona» ≠ «o imóvel tem»).</li>
+    <li>Coordenadas só com o indicador de GPS verdadeiro.</li>
+    <li>Imóveis «publicados apesar de indisponíveis».</li>
+  </ul></div>
+</div>
+<p>Plano: correr as duas em paralelo, comparar campo a campo durante uma semana e só então retirar a Web API. A página pública e as landing pages não mudam.</p>
+
+<h2>5. Plano de implementação</h2>
+<p>Fases por risco crescente, <strong>uma de cada vez</strong>. Cada uma corre em paralelo ao scraper atual (sem escrever em produção) e só o substitui quando os números batem.</p>
+
+<div class="phase"><div class="id">A1</div><div><p><strong>Cliente de leitura da API</strong></p><p class="crit">Listas paginadas, lotes de identificadores, repetição em erro. Sem escritas. Testes com respostas simuladas.</p></div></div>
+<div class="phase"><div class="id">A2</div><div><p><strong>Notas</strong> (a que está partida hoje; só acrescenta)</p><p class="crit">Critério: notas da API contêm as da base; as 672 em falta aparecem. Precisa de uma coluna nova (identificador da nota).</p></div></div>
+<div class="phase"><div class="id">A3</div><div><p><strong>Tarefas</strong></p><p class="crit">Critério: pendentes = API ±1 %. Decidir os estados «Cancelado», «Não aplicado» e «Arquivada».</p></div></div>
+<div class="phase"><div class="id">A4</div><div><p><strong>Visitas</strong></p><p class="crit">Critério: API contém as 1 791 da base; explicar a diferença antes de gravar.</p></div></div>
+<div class="phase"><div class="id">A5</div><div><p><strong>Oportunidades</strong> (campos diretos, etapa, datas e estado da proposta)</p><p class="crit">Critério: zero linhas ignoradas; comparação linha a linha com o relatório durante uma semana. O valor da proposta fica à parte (decisão abaixo).</p></div></div>
+<div class="phase"><div class="id">A6</div><div><p><strong>Contactos</strong>, por incremento</p><p class="crit">Critério: identificador e telefone iguais aos do relatório nos alterados. A chave atual da tabela mantém-se (não mexer sem o Miguel).</p></div></div>
+<div class="phase"><div class="id">A7</div><div><p><strong>Imóveis: só a API do CRM</strong> (retira a Web API e o detalhe em HTML)</p><p class="crit">Critério: validações da secção 4; os 10 imóveis invisíveis deixam de falhar. Antes disto, fazer a 1.ª passagem dos 705 imóveis.</p></div></div>
+<div class="phase"><div class="id">A8</div><div><p><strong>Desligar</strong> o browser automático, o relatório e a Web API</p><p class="crit">Só depois de A2 a A7 estáveis durante um mês. Liberta memória no servidor do scraper.</p></div></div>
+
+<h3>O que não muda</h3>
+<ul>
+  <li>O portal do Miguel continua a ler as mesmas tabelas: só se acrescentam colunas novas, vazias por omissão; nada se apaga.</li>
+  <li>Os assistentes continuam a não escrever em oportunidades.</li>
+  <li>Nunca se altera uma entidade no eGO (incidente de 14/10).</li>
+  <li>Dados pessoais (NIF, IBAN, data de nascimento): não se lêem nem guardam.</li>
+</ul>
+
+<h3>Riscos</h3>
+<ul>
+  <li><strong>A mesma conta do eGO.</strong> A API usa o utilizador do CRM. A password, que tinha aparecido numa saída de diagnóstico a 15/10, foi mudada a 28/10 e já está aplicada nas duas apps e testada. Falta só confirmar que nenhuma outra ferramenta (n8n, Make) usa esta conta com a password antiga.</li>
+  <li><strong>Escrita em lote.</strong> Os campos esparsos da API podem apagar dados por engano; mantêm-se as regras de gravação linha a linha de hoje.</li>
+  <li><strong>Limites do eGO</strong> (token de 24 h, proteção de acesso): contidos com cache e um cliente único.</li>
+</ul>
+
+<h2>6. Decisões para a reunião</h2>
+<ol>
+  <li><strong>Começar pelas notas (A2)</strong>? Resolve o que está partido e não substitui nada.</li>
+  <li><strong>Valor da proposta</strong>: manter o relatório só para esta coluna, pedir o endpoint ao eGO ou aceitar vazio?</li>
+  <li><strong>Web API dos imóveis</strong>: de acordo em ficar só com a API do CRM, depois de uma semana de comparação?</li>
+  <li><strong>Tarefas legadas</strong>: limpar as ~3 400 pendentes antigas (listas «Ativas» e «Arquivadas» de há meses) e que fazer aos estados Cancelado, Não aplicado e Arquivada.</li>
+  <li><strong>Imóveis:</strong> autorizar a 1.ª passagem dos 705 imóveis que só existem no eGO (pedido #45).</li>
+</ol>
+
+<footer>Detalhe técnico: <code>docs/fases/ego-api-substituir-scrapers-plano.md</code>. Números medidos a 28/10/2026 contra a agência FIGUEIRAHOME; dados pessoais fora desta página.</footer>
+
+</main>
+</body>
+</html>

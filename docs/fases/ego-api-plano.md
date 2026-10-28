@@ -96,7 +96,7 @@ Achados que mudam decisões:
 3. **As ~4 440 oportunidades sem agência** que a API não vê: manter como estão ou marcar.
 4. **Migration `0049`** (`ego_api_id`, `ego_arquivada`, `ego_backoffice_id`) — corrida por ti no editor SQL, depois de eu explicar.
 5. **F7**: se e quando os assistentes escrevem no eGO.
-6. **Password do eGO**: continua por mudar (apareceu numa saída de diagnóstico a 15/10); a API usa a mesma conta — mudar antes de pôr isto em cron.
+6. **Password do eGO**: mudada e aplicada a 28/10 (ver `ego-api-substituir-scrapers-plano.md`); por confirmar só n8n/Make.
 
 ## Testes
 - `backend/tests/test_egocrm_api.py`: login em dois passos (com seleção de agência), User-Agent enviado, repetição em 401, paginação.
