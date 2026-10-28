@@ -165,3 +165,11 @@ def test_conversa_do_procura_pelas_variantes_do_numero(monkeypatch):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_recusa_a_meio_da_conversa_e_agradecimento_com_emoji_nao_criam_lead(monkeypatch):
+    _ligado(monkeypatch)
+    _conversa(monkeypatch, 5, textos=("Quero ver a casa", "Do momento não tenho", "Muito obrigado pela atenção 🤩"))
+    bd = _BD([_respondeu()])
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
+    assert lp.processar(AGORA)["criadas"] == 0 and bd.updates == []

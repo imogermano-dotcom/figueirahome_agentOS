@@ -51,7 +51,7 @@ def e_despedida(texto: str | None) -> bool:
 
 # A pessoa fecha a conversa ela própria: «Obrigado.», «Ok, obrigada!», «Muito grato». Mensagem curta que é só
 # agradecimento. Curta de propósito: «Obrigado, mas e o preço?» não fecha nada.
-_AGRADECIMENTO = re.compile(r"^(ok[,.! ]*|certo[,.! ]*|muito )?(obrigad[oa]s?|grat[oa]s?|agradeço)\b[\s\w,.!😊🙏👍]{0,25}$", re.I)
+_AGRADECIMENTO = re.compile(r"^(ok[,.! ]*|certo[,.! ]*|muito )?(obrigad[oa]s?|grat[oa]s?|agradeço)\b[^?]{0,25}$", re.I)
 _SAUDACAO_FINAL = re.compile(
     r"^(ok|certo|combinado|está bem|tá bem|até (logo|breve|já|muito breve)|adeus|tchau|chau|chao|igualmente|abraço|"
     r"boa (noite|tarde|semana)|bom (dia|fim de semana)|cuide-se)[\s\W]*$", re.I)

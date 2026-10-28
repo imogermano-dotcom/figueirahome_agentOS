@@ -241,8 +241,8 @@ def _candidatas_paradas(agora: datetime) -> list[dict]:
         if not tel:
             continue
         ultima, textos = _conversa_do(tel)
-        if textos and (e_fecho_da_pessoa(textos[-1]) or e_recusa(textos[-1])):
-            continue  # a última coisa que disse foi «obrigado», «até breve» ou «não me interessa»: despediu-se
+        if textos and (e_fecho_da_pessoa(textos[-1]) or any(e_recusa(t) for t in textos[-3:])):
+            continue  # despediu-se («obrigado 🤩», «até breve») ou recusou numa das últimas 3 mensagens («do momento não tenho»)
         if ultima and ultima <= agora - timedelta(hours=JANELA_PARADA_HORAS):
             paradas.append(l | {"conversa_parada_resumo": resumo_da_conversa(textos)})
     return paradas[:LIMITE_POR_VOLTA]
