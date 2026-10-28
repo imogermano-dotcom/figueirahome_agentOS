@@ -50,7 +50,9 @@ def _dedupe(records: list[dict], chave: list[str]) -> list[dict]:
 # inválido (22P02, 22007, 22008, 22001, 22003). Medido a 17/10/2026: 3 oportunidades criadas pela API
 # vieram com estado «Criada» (a tabela só aceita Ativa/Perdida/Ganha) e o lote inteiro de 32 foi para o lixo,
 # em silêncio, até se apagarem à mão. Falha de rede ou de permissões continua a rebentar.
-_ERROS_DE_LINHA = {"23514", "23502", "22P02", "22007", "22008", "22001", "22003"}
+# 23503 (FK): uma nota/tarefa cuja oportunidade foi ignorada acima não pode levar a tabela toda atrás (27–28/10:
+# 180 e 492 notas por gravar, em silêncio, depois de 14 e 37 oportunidades recusadas pelo check).
+_ERROS_DE_LINHA = {"23503", "23514", "23502", "22P02", "22007", "22008", "22001", "22003"}
 
 
 def _upsert_tabela(supabase, tabela: str, records: list[dict], ignoradas: dict | None = None) -> int:
@@ -79,6 +81,8 @@ def _upsert_tabela(supabase, tabela: str, records: list[dict], ignoradas: dict |
                 if e.code not in _ERROS_DE_LINHA:
                     raise
                 motivo = f"{e.code}: {(e.message or '')[:90]}"
+                if r.get("oportunidade_estado"):  # o texto do erro vem cortado e não diz que valor o check recusou
+                    motivo += f" [estado={r['oportunidade_estado']}]"
                 logger.warning("%s: registo %s ignorado — %s", tabela, r.get(chave[0]), motivo)
                 if ignoradas is not None:
                     ignoradas.setdefault(motivo, []).append(str(r.get(chave[0])))
@@ -365,6 +369,12 @@ def demo() -> None:
         pass
     else:
         raise AssertionError("erro de permissões devia ter rebentado")
+
+    # FK (23503) salta a linha e o estado recusado fica no motivo
+    regs_e = [{"oportunidade_ref": x, "oportunidade_estado": "Criada" if x == "C" else "Ativa"} for x in ("A", "C")]
+    ign = {}
+    assert _upsert_tabela(_Op("C", codigo="23503"), "oportunidades", regs_e, ign) == 1
+    assert list(ign) == ["23503: violates check constraint [estado=Criada]"], ign
 
     print("upsert OK")
 
