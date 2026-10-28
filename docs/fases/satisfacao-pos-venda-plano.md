@@ -12,7 +12,7 @@ estudo de mercado).
 |---|---|
 | Canal | WhatsApp, guião fixo pela assistente (não formulário), respostas estruturadas por tool |
 | Quando | escritura + 7 dias, 10h de Lisboa; rescisão detectada + 2 dias |
-| Aprovação | envio automático; o portal permite cancelar/reagendar/enviar já |
+| Aprovação | **nada sai sem o «Enviar já»** no portal (`aprovado_em`, migração `20261021_05_satisf_envio_por_botao.sql`) |
 | Google | pedido a **todos** os inquéritos de escritura com nota ≥ 7 (não só 9–10: *review gating* viola a política do Google); nota ≤ 6 vai primeiro a humano |
 | Testemunho | só a 9–10; vídeo por **link** (página `/testemunho?t=` do portal), texto na conversa ou na página; autorização de publicação explícita |
 | Nome | Sofia |
@@ -49,13 +49,24 @@ estudo de mercado).
 6. **Cron** `satisfacao-enviar` (`7 * * * *`) — a janela 9h–20h de Lisboa está na RPC.
 7. Testes: `tests/test_satisfacao.py`.
 
+## Alterado no portal depois deste plano (21/10, outra sessão)
+
+- **Envio só por clique** (`aprovado_em`): `fn_satisf_para_enviar` só devolve inquéritos confirmados.
+- **Email primeiro, WhatsApp 2 dias depois** (`20261021_13_satisf_email_whatsapp.sql`, edge function
+  `satisfacao-email`, pg_cron `satisfacao-email` a cada 10 min): com email válido sai primeiro o email
+  (resposta em `/inquerito?t=`); o template da Meta só sai se não houver resposta até `whatsapp_apos`.
+  Sem email → WhatsApp logo. Sem WhatsApp nem email → tarefa «LIGAR».
+- **As assinaturas que este repo usa não mudaram** (`fn_satisf_para_enviar`, `fn_satisf_marcar_envio`, …);
+  `fn_satisf_para_enviar` passou a devolver também `seguimento` (true = WhatsApp de seguimento a um email),
+  que este código ignora — o template é o mesmo.
+
 ## Go-live (utilizador)
 
 1. Criar e aprovar na Meta os templates `satisfacao_comprador`, `satisfacao_vendedor`,
    `satisfacao_rescisao` (pt_PT, sem botões — o webhook ignora mensagens que não são texto) com o
    texto de `satisfacao_config.templates` (visível no portal, aba ⭐ Satisfação).
 2. `flyctl deploy` do backend e do `crons` (registar `satisfacao-enviar`).
-3. No portal: link de avaliação do Google e "Envio automático ligado".
+3. No portal (já feito a 21/10: envio ligado e link do Google): confirmar cada inquérito com «Enviar já».
 
 ## Riscos
 
