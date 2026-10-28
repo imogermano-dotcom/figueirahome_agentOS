@@ -464,6 +464,7 @@ def _garantir_apresentacao(
 # número visto, ao longo da vida do processo. Trivial ao volume actual
 # (milhares de números = poucos MB); só serve enquanto for 1 máquina Fly — com
 # 2+ réplicas precisa de lock a nível de BD (ex.: advisory lock do Postgres).
+_log_voz = logging.getLogger("app.agents.voice.motor")  # a raiz está em WARNING; só o namespace da voz fala em INFO
 _locks: dict[tuple[str, str], asyncio.Lock] = {}
 _locks_guard = asyncio.Lock()
 
@@ -497,7 +498,11 @@ async def responder(
     # Voz: a resposta sai logo e o resto do turno (ferramentas de registo, gravação, lead) corre a seguir, ainda com o
     # bloqueio da conversa — o turno seguinte espera por ele e lê a conversa já gravada. Ao telefone, cada segundo
     # antes da resposta é silêncio (chamada de 27/10: 6,9 s no turno que gravou os dados).
+    t_espera = time.monotonic()
     await lock.acquire()
+    espera = time.monotonic() - t_espera
+    if espera >= 0.05:  # o turno anterior ainda tinha trabalho diferido (chamada de 28/10: 7 a 9 s em frases curtas)
+        _log_voz.info("[%s] turno esperou %.1f s pelo fim do turno anterior", participante[-6:], espera)
     diferido: list = []
     try:
         resposta = await _responder_sem_lock(canal, participante, mensagem, agente, telefone, diferido)
@@ -519,11 +524,15 @@ _diferidos: set = set()
 async def _correr_diferido(lock: asyncio.Lock, passos: list) -> None:
     """O fim do turno de voz, depois de a resposta sair. Um passo que falha não impede os seguintes nem prende o bloqueio."""
     try:
+        tempos = []
         for passo in passos:
+            t0 = time.monotonic()
             try:
                 await passo()
             except Exception:
                 logger.exception("Erro no fim do turno de voz")
+            tempos.append(f"{getattr(passo, '__name__', 'passo')} {time.monotonic() - t0:.1f}s")
+        _log_voz.info("fim do turno diferido: %s", ", ".join(tempos))
     finally:
         lock.release()
 
