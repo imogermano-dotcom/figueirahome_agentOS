@@ -173,3 +173,10 @@ def test_recusa_a_meio_da_conversa_e_agradecimento_com_emoji_nao_criam_lead(monk
     bd = _BD([_respondeu()])
     _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
     assert lp.processar(AGORA)["criadas"] == 0 and bd.updates == []
+
+
+def test_piloto_so_cria_para_os_sufixos_da_lista(monkeypatch):
+    monkeypatch.setattr(settings, "lead_respondeu_ego", "912345678, 000")
+    assert lp._no_piloto("912345678") and lp._no_piloto("351000") and not lp._no_piloto("913333333")
+    monkeypatch.setattr(settings, "lead_respondeu_ego", "1")
+    assert lp._no_piloto("913333333")

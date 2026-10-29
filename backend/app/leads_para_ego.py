@@ -220,6 +220,12 @@ def resumo_da_conversa(textos: list[str]) -> str:
     return " | ".join(" ".join(t.split())[:160] for t in textos[-3:] if t.strip())[:_MAX_RESUMO_OBS]
 
 
+def _no_piloto(tel: str) -> bool:
+    """`LEAD_RESPONDEU_EGO=1` abre a todas; uma lista («123,456») é um piloto: só os números que acabam num destes sufixos."""
+    modo = settings.lead_respondeu_ego.strip()
+    return modo == "1" or any(s.strip() and tel.endswith(s.strip()) for s in modo.split(","))
+
+
 def _candidatas_paradas(agora: datetime) -> list[dict]:
     """Compradores Meta que **responderam** à Matilde sem nunca dar sinal de interesse (nem recusar) e deixaram a conversa
     parada há `JANELA_PARADA_HORAS`. Sem isto ficavam para sempre fora do eGO (26–27/10: 5 de 14 leads). Desligado sem o segredo."""
@@ -238,7 +244,7 @@ def _candidatas_paradas(agora: datetime) -> list[dict]:
         if l.get("ego_lead_em") or l.get("contacto_humano_em") or l.get("nao_contactar_em") or not l.get("respondeu_em"):
             continue
         tel = normalizar_telefone(l.get("telefone") or l.get("telemovel"))
-        if not tel:
+        if not tel or not _no_piloto(tel):
             continue
         ultima, textos = _conversa_do(tel)
         if textos and (e_fecho_da_pessoa(textos[-1]) or any(e_recusa(t) for t in textos[-3:])):
