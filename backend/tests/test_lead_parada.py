@@ -180,3 +180,11 @@ def test_piloto_so_cria_para_os_sufixos_da_lista(monkeypatch):
     assert lp._no_piloto("912345678") and lp._no_piloto("351000") and not lp._no_piloto("913333333")
     monkeypatch.setattr(settings, "lead_respondeu_ego", "1")
     assert lp._no_piloto("913333333")
+
+
+def test_nao_obrigada_e_recusa():
+    """30/10: «Percebi mal | … | Não, obrigada» passava o filtro e ia criar uma lead a quem recusou."""
+    from app.agents.broker import guards
+    for t in ("Não, obrigada", "Nao obrigado.", "não obrigada!"):
+        assert guards.e_recusa(t), t
+    assert not guards.e_recusa("Obrigada, e o preço?") and not guards.e_recusa("Não sei, preciso de ver")

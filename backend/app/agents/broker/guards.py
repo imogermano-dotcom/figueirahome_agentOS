@@ -70,7 +70,7 @@ def e_fecho_da_pessoa(texto: str | None) -> bool:
 # A pessoa diz que não quer: «não estou interessada», «sem interesse», «já não preciso». Curta e sem pergunta, para
 # «Não tenho interesse em arrendar mas quero comprar» continuar a contar como conversa.
 _RECUSA = re.compile(
-    r"\b(n[ãa]o (estou|tenho|quero|me interessa|preciso|pretendo)|j[áa] n[ãa]o (preciso|quero|tenho)|sem interesse|"
+    r"\b(n[ãa]o (estou|tenho|quero|me interessa|preciso|pretendo)|n[ãa]o,? obrigad[oa]s?|j[áa] n[ãa]o (preciso|quero|tenho)|sem interesse|"
     r"deixe de|n[ãa]o (me )?(contacte|incomode|ligue)|j[áa] (encontrei|comprei|arrendei))\b", re.I)
 
 
