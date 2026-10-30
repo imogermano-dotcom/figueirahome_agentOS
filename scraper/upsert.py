@@ -188,6 +188,38 @@ def _ligar_contactos(supabase, pares: dict[str, str]) -> dict:
     return {"ligadas": len(payload), "sem_contacto": len(pares) - len(payload)}
 
 
+# Telefone e email da oportunidade NÃO vão no upsert em lote: uma chave presente só em alguns registos escreve NULL nos
+# outros (`default_to_null` do PostgREST), e o relatório dá texto vazio quando não há. 30/10: 6 010 de 26 123
+# oportunidades sem nenhum dos dois, com 1 071 telefones e 4 627 emails guardados como texto vazio (pedido #4, etapa 2).
+_FORA_DO_LOTE = ("cliente_telefone", "cliente_email")
+
+
+def _completar_dados_do_contacto(supabase, refs: list[str], vindos: dict[str, dict]) -> dict:
+    """Preenche `cliente_telefone`/`cliente_email` SÓ onde estão vazios (NULL ou ''), nunca por cima de um valor:
+    primeiro o que a linha do relatório trouxe, senão o do contacto ligado (`contacto_id`)."""
+    linhas = []
+    for i in range(0, len(refs), _LOTE_LINKS):
+        linhas += supabase.table("oportunidades").select("oportunidade_ref,contacto_id,cliente_telefone,cliente_email")             .in_("oportunidade_ref", refs[i : i + _LOTE_LINKS]).execute().data
+    faltam = [l for l in linhas if not l.get("cliente_telefone") or not l.get("cliente_email")]
+    ids = sorted({l["contacto_id"] for l in faltam if l.get("contacto_id")})
+    contactos: dict = {}
+    for i in range(0, len(ids), _LOTE_LINKS):
+        for c in supabase.table("contactos").select("id,telefone,telemovel,email").in_("id", ids[i : i + _LOTE_LINKS]).execute().data:
+            contactos[c["id"]] = c
+    completadas = 0
+    for l in faltam:
+        c, v = contactos.get(l.get("contacto_id")) or {}, vindos.get(l["oportunidade_ref"], {})
+        novo = {}
+        if not l.get("cliente_telefone") and (tel := v.get("cliente_telefone") or c.get("telemovel") or c.get("telefone")):
+            novo["cliente_telefone"] = tel
+        if not l.get("cliente_email") and (email := v.get("cliente_email") or c.get("email")):
+            novo["cliente_email"] = email
+        if novo:
+            supabase.table("oportunidades").update(novo).eq("oportunidade_ref", l["oportunidade_ref"]).execute()
+            completadas += 1
+    return {"completadas": completadas}
+
+
 def run(supabase, batch: dict) -> dict:
     resumo = {}
     # `contactos` PRIMEIRO: o elo `contacto_id` precisa de o contacto já existir.
@@ -197,10 +229,13 @@ def run(supabase, batch: dict) -> dict:
         logger.exception("Falha no upsert de contactos")
         resumo["contactos"] = f"erro (ver logs) — {len(batch['contactos'])} registos não gravados"
 
+    refs = [r["oportunidade_ref"] for r in batch["oportunidades"] if r.get("oportunidade_ref")]
+    vindos = {r["oportunidade_ref"]: {k: r[k] for k in _FORA_DO_LOTE if r.get(k)} for r in batch["oportunidades"] if r.get("oportunidade_ref")}
+    oportunidades = [{k: v for k, v in r.items() if k not in _FORA_DO_LOTE} for r in batch["oportunidades"]]
     for tabela in ("oportunidades", "notas", "tarefas", "visitas"):
         try:
             ignoradas: dict = {}
-            resumo[tabela] = _upsert_tabela(supabase, tabela, batch[tabela], ignoradas)
+            resumo[tabela] = _upsert_tabela(supabase, tabela, oportunidades if tabela == "oportunidades" else batch[tabela], ignoradas)
             if ignoradas:  # à vista no resumo do sync (agente_sync_log), não só nos logs do Fly
                 resumo[f"{tabela}_ignoradas"] = {m: len(r) for m, r in ignoradas.items()}
         except Exception:
@@ -214,6 +249,12 @@ def run(supabase, batch: dict) -> dict:
     except Exception:
         logger.exception("Falha a ligar oportunidades a contactos (migration 0046 aplicada?)")
         resumo["contacto_id"] = "erro (ver logs)"
+
+    try:
+        resumo["contacto_dados"] = _completar_dados_do_contacto(supabase, refs, vindos)
+    except Exception:
+        logger.exception("Falha a completar telefone/email das oportunidades")
+        resumo["contacto_dados"] = "erro (ver logs)"
 
     try:
         resumo["prefs"] = _bulk_update_prefs(supabase, batch["prefs"])
@@ -301,6 +342,59 @@ def demo() -> None:
     assert {p["oportunidade_ref"] for p in args["pares"]} == {"VEN_1", "VEN_3"}
     assert all(p["contacto_id"] == "id-L1" and p["contacto_match"] == "ego_link" for p in args["pares"])
     assert _ligar_contactos(_S(), {}) == {"ligadas": 0, "sem_contacto": 0} and len(chamadas) == 1, "sem pares não chama a RPC"
+
+    # _completar_dados_do_contacto: só preenche o que está vazio (NULL ou ''), nunca por cima; a linha do relatório
+    # ganha ao contacto; sem nada para dar, não escreve.
+    linhas = [
+        {"oportunidade_ref": "A", "contacto_id": "c1", "cliente_telefone": None, "cliente_email": "a@x.pt"},
+        {"oportunidade_ref": "B", "contacto_id": "c1", "cliente_telefone": "", "cliente_email": ""},
+        {"oportunidade_ref": "C", "contacto_id": "c2", "cliente_telefone": "911", "cliente_email": "c@x.pt"},
+        {"oportunidade_ref": "D", "contacto_id": None, "cliente_telefone": None, "cliente_email": None},
+        {"oportunidade_ref": "E", "contacto_id": "c3", "cliente_telefone": None, "cliente_email": None},
+    ]
+    dados = {"c1": {"id": "c1", "telefone": "912", "telemovel": "913", "email": "c1@x.pt"},
+             "c2": {"id": "c2", "telefone": "914", "telemovel": None, "email": "c2@x.pt"},
+             "c3": {"id": "c3", "telefone": None, "telemovel": None, "email": None}}
+    escritas = []
+
+    class _Q2:
+        def __init__(self, nome):
+            self.nome, self.alvo = nome, None
+
+        def select(self, *_):
+            return self
+
+        def in_(self, _col, valores):
+            self.valores = valores
+            return self
+
+        def update(self, novo):
+            self.novo = novo
+            return self
+
+        def eq(self, _col, valor):
+            self.alvo = valor
+            return self
+
+        def execute(self):
+            if self.alvo is not None:
+                escritas.append((self.alvo, self.novo))
+                return None
+            fonte = linhas if self.nome == "oportunidades" else list(dados.values())
+            chave = "oportunidade_ref" if self.nome == "oportunidades" else "id"
+            return type("R", (), {"data": [x for x in fonte if x[chave] in self.valores]})()
+
+    class _S3:
+        def table(self, nome):
+            return _Q2(nome)
+
+    r = _completar_dados_do_contacto(_S3(), ["A", "B", "C", "D", "E"], {"D": {"cliente_telefone": "915"}})
+    assert r == {"completadas": 3}, r
+    assert dict(escritas) == {
+        "A": {"cliente_telefone": "913"},                          # só o telefone: o email que tinha fica
+        "B": {"cliente_telefone": "913", "cliente_email": "c1@x.pt"},  # '' conta como vazio
+        "D": {"cliente_telefone": "915"},                          # sem contacto: vale o que o relatório trouxe
+    }, escritas
 
     # run(): contactos grava ANTES das outras tabelas, e a RPC falhar não derruba o resto.
     ordem = []
