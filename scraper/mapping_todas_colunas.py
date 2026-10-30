@@ -232,8 +232,11 @@ def map_row(row: dict) -> dict:
         else:
             record["extra"][str(header)] = value
 
-    if record.get("oportunidade_estado") == "Activa":
-        record["oportunidade_estado"] = "Ativa"  # única normalização confirmada na doc §7
+    # «Activa» é grafia; «Criada» é a oportunidade acabada de promover (ainda sem trabalho) e o check da tabela só
+    # aceita Ativa/Ganha/Perdida: recusava 14–37 por dia (e as notas delas, por FK) e a lead promovida nunca
+    # chegava ao espelho (piloto de 29/10: 7 de 7 ausentes). É uma oportunidade em aberto.
+    if record.get("oportunidade_estado") in ("Activa", "Criada"):
+        record["oportunidade_estado"] = "Ativa"
 
     # ego_data_criacao/ego_editado_em já estão em ISO em produção (confirmado
     # no dry-run) — o relatório eGO dá formato PT ("dd/mm/aaaa"); converter
@@ -619,6 +622,10 @@ def demo() -> None:
     assert "contacto_por_oportunidade" not in lote_dois["oportunidades"][0], "não é coluna"
     # Sem contacto a bater com o cliente → sem elo (nunca se adivinha).
     assert group(fora_angariacao)["contacto_por_oportunidade"] == {}
+
+    # «Criada» (oportunidade acabada de promover) e «Activa» entram como Ativa; Ganha/Perdida ficam como vêm.
+    for bruto, certo in (("Criada", "Ativa"), ("Activa", "Ativa"), ("Ganha", "Ganha"), ("Perdida", "Perdida")):
+        assert map_row({"Estado": bruto})["oportunidade_estado"] == certo, (bruto, map_row({"Estado": bruto}))
 
     print("mapping_todas_colunas OK")
 
