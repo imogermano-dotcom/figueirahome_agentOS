@@ -307,7 +307,8 @@ def test_outros_canais_continuam_a_executar_as_ferramentas_antes_de_responder(mo
     texto = {"stop_reason": "end_turn", "usage": {}, "content": [{"type": "text", "text": "Feito."}]}
     ordem = _preparar(monkeypatch, motor, [_resposta_com_tool("Anotado."), texto])
     r = asyncio.run(engine.responder("whatsapp", "351912345678", "olá", agente=assistants.A2))
-    assert r == "Feito." and ordem == ["modelo", "tool:guardar_dados_cliente", "modelo", "gravar"]
+    # conversa nova: a linha grava-se logo (para as ferramentas lhe ligarem as tarefas) e regrava-se no fim
+    assert r == "Feito." and ordem == ["gravar", "modelo", "tool:guardar_dados_cliente", "modelo", "gravar"]
 
 
 # ── a ponte da voz ────────────────────────────────────────────────────────
@@ -372,3 +373,21 @@ def test_interruptor_vem_desligado():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_conversa_nova_de_whatsapp_e_gravada_antes_do_modelo_e_a_de_voz_nao(motor, monkeypatch):
+    """29/10: a tarefa `escalar` do 1.º turno ficou sem `conversa_id` e o nudge incomodou quem já esperava chamada."""
+    ordem = []
+    original = engine.save_conversation
+
+    async def _marca(conversa_id, canal, participante, mensagens, agente):
+        ordem.append((canal, len(motor["payloads"])))  # quantas chamadas ao modelo já houve
+        return await original(conversa_id, canal, participante, mensagens, agente)
+
+    monkeypatch.setattr(engine, "save_conversation", _marca)
+    _turno("whatsapp", "351912345678", "Podem ligar-me?", agente=assistants.A1)
+    assert ordem[0] == ("whatsapp", 0), "a linha da conversa existe antes de qualquer ferramenta"
+    ordem.clear()
+    antes = len(motor["payloads"])
+    _turno("voz", "call-9", "olá", agente=assistants.A2, telefone="912345678")
+    assert ordem[0] == ("voz", antes + 1), "na voz a gravação continua a seguir à resposta"

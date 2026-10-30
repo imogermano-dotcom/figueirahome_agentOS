@@ -632,14 +632,21 @@ async def _responder_sem_lock(
         "telefone": telefone,
         "origem": canal,
         "agente": agente,
-        # None no 1.º turno de uma conversa nova: o id só existe depois do
-        # save_conversation, no fim do turno. A tarefa fica sem conversa mas
-        # com agente — preferível a inverter a ordem de gravação só por isto.
         "conversa_id": conversa_id,
     }
 
     now = datetime.now(timezone.utc).isoformat()
     mensagens.append({"role": "user", "content": mensagem, "timestamp": now})
+
+    if conversa_id is None and canal != "voz":  # na voz não há nudge, e o telefone espera pela 1.ª resposta
+        # Conversa nova: a linha tem de existir antes das ferramentas, senão a tarefa `escalar` do 1.º turno fica sem
+        # `conversa_id` e o nudge não a vê (29–30/10: «podem ligar-me?» como 1.ª resposta e, no dia seguinte, «Ainda
+        # está interessado?»). O fim do turno regrava a mesma linha com a resposta.
+        try:
+            conversa_id = await save_conversation(None, canal, participante, mensagens, agente)
+        except Exception:
+            logger.exception("Erro ao criar conversa %s/%s", canal, participante)
+        contexto["conversa_id"] = conversa_id
     claude_messages = [{"role": m["role"], "content": m["content"]} for m in mensagens]
 
     headers = {
