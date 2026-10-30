@@ -25,12 +25,21 @@ Origem: análise de 29/10 06:00 a 30/10 ~11:00 UTC, cruzada com o registo export
 - **Pergunta ao Miguel:** a especificação v2 manda qualificar antes de dar o preço, ou a Matilde deve dar o preço de imediato e qualificar a seguir? O que prefere para quem chega de um anúncio com o preço já visível?
 - **Proposta:** dar sempre o preço do imóvel do anúncio e passar à qualificação na mesma resposta. Ligado ao alargamento do «interesse real» a pedidos de preço (#17).
 
+### N4 — Saber se alguém falou com a lead antes de parar os follow-ups
+- **Tema:** Agentes / Cascata multicanal · **Urgência:** Média · **Estado:** Pendente · **Com quem está:** Developer (desenho) e Miguel (pergunta)
+- **Situação:** os follow-ups de 24 h e 72 h (n8n) enviam «Ainda está interessado?» a quem não respondeu, mesmo que a lead já esteja no eGO. Em 30/10, as 5 pessoas que receberam o follow-up da Matilde já tinham lead criada. Ter lead no eGO só prova que a consultora a recebeu, não que alguém falou com a pessoa; por isso não se deve parar o follow-up só por isso.
+- **O que falta:** um sinal fiável de que um humano contactou a lead. `contactos.contacto_humano_em` já existe (migration 0047) mas **ninguém o escreve**, está sempre vazio. Os follow-ups também não leem `nao_contactar_em` nem `contacto_humano_em` (hoje não faz mal, mas deixa de proteger numa recusa sem resposta ou num contacto manual).
+- **Proposta:** (1) ver no eGO o que fica registado quando a consultora fala com a pessoa (nota, tarefa, mudança de fase) nas oportunidades já promovidas; (2) o cron das leads do eGO marca `contacto_humano_em` quando houver esse sinal; (3) só então os follow-ups passam a respeitar `contacto_humano_em` e `nao_contactar_em`.
+- **Pergunta ao Miguel:** que sinal as consultoras deixam no eGO quando falam com uma lead? Uma nota, uma tarefa concluída, mudar a fase? E devem os follow-ups da Matilde parar assim que há uma lead criada, ou só quando há contacto humano?
+- **Relacionado:** #19 (`contactado_pelo_agente`); este seria o equivalente do lado humano. Também `limit=5` no follow-up diário da Matilde (travão da 1.ª corrida, a rever).
+
 ## Atualizações a pedidos existentes
 
 ### #17 e #47 — Quem respondeu e parou chega ao eGO (piloto feito)
 - Regra construída (`LEAD_RESPONDEU_EGO`): 4 h depois da última mensagem, sem pedido de visita, escalada, recusa nem consultor, a lead vai para o eGO com «Disse:» e as últimas 3 mensagens. Exclui quem se despediu ou recusou numa das últimas 3 mensagens, e quem agradeceu com emoji.
 - **Piloto de 29/10:** 7 leads de 10 candidatas (duas duvidosas e uma recusa disfarçada ficaram de fora). Foram criadas em 10 e 20 minutos, atribuídas à consultora do imóvel, e promovidas a oportunidade no mesmo dia.
-- **Resposta à pergunta (a) do #47:** na prática, as que respondem passam ao eGO e são tratadas. Fica por decidir se se abre a todas as leads parada (recomendado) e o destino de recrutamento e angariação (pergunta (b)).
+- **Aberto a todas desde 30/10 12:00 (`LEAD_RESPONDEU_EGO=1`):** nessa mesma tarde entraram mais 4 leads de compra (as duas que pareciam duvidosas eram legítimas: uma voltou a pedir para comprar depois de ouvir que não havia arrendamento; outra pediu visita e esbarrou no preço). Verificadas no eGO: atribuídas à consultora do imóvel, com o resumo da conversa no OBS.
+- **Resposta à pergunta (a) do #47:** na prática, as que respondem passam ao eGO e são tratadas. Fica por decidir o destino de recrutamento e angariação (pergunta (b)).
 
 ### #25 — Agente de voz
 - Passa de Pendente para **Em curso**: a voz já atende como canal do motor (+351 233 060 000), com saudação por hora, estilo mais natural, desligar após silêncio e proteção contra repetição. Em ensaio: STT de números («trezentos e cinquenta mil»), latência de 3 a 5 s por turno, barge-in desligado.
@@ -42,4 +51,5 @@ Origem: análise de 29/10 06:00 a 30/10 ~11:00 UTC, cruzada com o registo export
 ## Resultados desta análise que não precisam de pedido
 - Crons de 29 e 30/10: todos correram à hora; 0 falhas de login ou timeout. WhatsApp: 7 templates enviados, todos entregues, 0 falhas.
 - Conversas: 11 turnos da Matilde, 0 erros, latência mediana 5,5 s, cache 91 %.
+- n8n (29 e 30/10): todos os fluxos correram sem erros, exceto «Faturas 2026 — Miguel Gmail», que falha todas as noites às 01:00 há pelo menos 14 dias porque a credencial «Gmail account miguel» precisa de ser reconectada. **Ação do Miguel:** reconectar a credencial no n8n, ou desligar o fluxo se já não o usa.
 - Tarefas: 3 397 pendentes antigas que nenhum sync fecha (conhecido, #8). O contador «fechadas» do sync fica a 0 mas os números batem.
