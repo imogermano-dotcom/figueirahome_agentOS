@@ -34,6 +34,25 @@ Leitura, com cautela:
    nunca chegaram à BD, provavelmente porque ninguém as editou na janela das 48 h depois de a nota ser escrita. É o mesmo defeito de fundo (a nota
    não conta como edição da oportunidade), por isso a API resolve-o e o relatório não.
 
+## Passo 1 feito (31/10): comparação por nota, só leitura
+Chave: `(oportunidade_ref, data da nota, primeiros 50 caracteres do texto sem HTML)`, nas 2 793 ativas.
+
+| | API | BD |
+|---|---|---|
+| Notas | 13 820 | 21 378 |
+| Chaves distintas | 13 600 | 14 389 |
+| Duplicados (mesma chave repetida) | 220 | **6 989** |
+
+- **Os 6 989 duplicados da BD explicam quase toda a diferença de contagem.** A mesma nota entra uma vez por cada lista de origem (`Ativas`, `Arquivadas`,
+  `todas_as_colunas`) porque a chave de upsert inclui o texto e a data crua e não distingue a lista. Com a chave `id` da API isto acaba.
+  **Não se apagam duplicados nesta fase** (apagar notas é decisão à parte, com o Miguel).
+- **Só na API: 673 chaves.** 333 têm texto vazio depois de tirar o HTML (eventos e anexos, `historicTypeId` ≠ 0); as restantes ~340 são notas com texto.
+  Por mês em que a nota foi escrita: jul **264**, ago **199**, set 67, out 138. Ou seja, o buraco não é só o «Criada» (out).
+- **Só na BD: 1 462 chaves**, 1 315 vindas da lista antiga `Ativas`, 364 com origem `portal`. A API não as devolve com este filtro: podem ser notas apagadas
+  no eGO, notas do portal (não são do eGO) ou texto que difere do HTML. **Por explicar; não se mexe.**
+
+Consequência para o passo 2: gravar só as ~340 com texto (as 333 vazias não trazem informação) dispara ~340 chamadas de IA, não 648.
+
 ## Âmbito
 **Passo 1 — comparar a sério (leitura):** por nota, não por contagem. Chave de comparação: `(oportunidade_ref, data da nota, início do texto sem HTML)`.
 Explicar os 1 163 casos de a BD ter mais; confirmar que as 648 em falta são notas reais (não duplicados de formatação). Sem PII no relatório (contagens e referências).
@@ -63,4 +82,4 @@ Explicar os 1 163 casos de a BD ter mais; confirmar que as 648 em falta são not
 ## Risco
 Leitura: baixo. Escrita: INSERT linha a linha, reversível pelo registo em `agente_sync_log`. O risco real é o disparo da IA e os duplicados.
 
-**Estado: plano escrito a 31/10, passo 1 por fazer.**
+**Estado: plano escrito a 31/10; passo 1 feito (resultado acima); passo 2 por decidir.**
