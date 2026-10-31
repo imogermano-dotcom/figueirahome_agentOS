@@ -236,15 +236,20 @@ def um_por_referencia(imoveis: list[dict]) -> dict[str, dict]:
     return por_ref
 
 
-def refs_ativas() -> set[str]:
-    """Referências das oportunidades ATIVAS no eGO (`ListOpportunityByPage` com `leadArchived: 0`, uma página: 2 688 a 26/10).
-    As arquivadas e as apagadas não estão aqui, por isso faltar não prova nada: serve só para escolher candidatas.
-    Levanta se vier menos do que o `totalRows`: marcar apagadas com uma lista parcial seria um desastre."""
+def oportunidades_ativas() -> list[dict]:
+    """Oportunidades ATIVAS no eGO (`ListOpportunityByPage` com `leadArchived: 0`, uma página: 2 688 a 26/10), linhas inteiras da API.
+    Levanta se vier menos do que o `totalRows`: comparar ou marcar com uma lista parcial seria um desastre."""
     d = _pedido("POST", "/lead/Opportunity/ListOpportunityByPage", json={"leadArchived": 0})
     lista = next((v for v in d.values() if isinstance(v, list)), []) if isinstance(d, dict) else d
     if isinstance(d, dict) and d.get("totalRows", len(lista)) > len(lista):
         raise EgoApiErro(f"oportunidades ativas: página incompleta ({len(lista)} de {d['totalRows']})")
-    return {o["name"] for o in lista if o.get("name")}
+    return lista
+
+
+def refs_ativas() -> set[str]:
+    """Referências das oportunidades ativas no eGO. As arquivadas e as apagadas não estão aqui, por isso faltar não prova nada:
+    serve só para escolher candidatas."""
+    return {o["name"] for o in oportunidades_ativas() if o.get("name")}
 
 
 def oportunidade_apagada(opportunity_id: int | str) -> bool:
