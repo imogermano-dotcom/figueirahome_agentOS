@@ -35,6 +35,46 @@ def comparar(api: list[dict], db: dict[str, str | None]) -> dict:
     }
 
 
+def _nome(x) -> str | None:
+    """Texto PT de um campo multilíngua da API (`{'name': {'PT-PT': ..}}`, `nameMls`, ou `name` simples)."""
+    if not isinstance(x, dict):
+        return x or None
+    for k in ("nameMls", "name"):
+        v = x.get(k)
+        if isinstance(v, dict):
+            return v.get("PT-PT") or next(iter(v.values()), None)
+        if v:
+            return v
+    return None
+
+
+def linha_de_oportunidade(o: dict) -> dict:
+    """Colunas de `oportunidades` que a lista da API dá diretamente (plano, «Mapa de campos»). Chaves sem valor ficam de fora
+    (a escrita é linha a linha, mas assim nunca se grava vazio por cima de dado nosso). Sem `contacto_id` (só por RPC) e sem
+    `pref_*`/`xlsx_*`: preenchem-se quando o sync por relatório apanhar a oportunidade numa edição."""
+    criada, editada = (o.get("createDate") or "")[:10], (o.get("alterDate") or "")[:10]
+    r = {
+        "oportunidade_ref": o["name"],
+        "oportunidade_estado": _ESTADO.get(o.get("leadStage")),
+        "tipo_oportunidade": _nome(o.get("masterLeadType")),
+        "tipo_pedido": _nome(o.get("leadType")),
+        "origem": _nome(o.get("leadOrigin")),
+        "sub_origem": _nome(o.get("leadSubOrigin")),
+        "cliente_nome": o.get("title"),
+        "cliente_telefone": o.get("phone"),
+        "cliente_email": o.get("email"),
+        "imovel_ref": o.get("realestateReference"),
+        "responsavel": ", ".join(o.get("assignToSecurityUserNames") or []),
+        "data_criacao_iso": criada,
+        "ego_data_criacao": criada,
+        "ego_editado_em": editada,
+        "url": f"https://admin.egorealestate.com/egocore/Leads/{o['id']}",
+        "origem_lista": "todas_as_colunas",
+        "agencia": "FIGUEIRAHOME",
+    }
+    return {k: v for k, v in r.items() if v not in (None, "")}
+
+
 def _ler_db() -> dict[str, str | None]:
     from app.db.supabase_client import get_supabase
     sb, db, inicio = get_supabase(), {}, 0
@@ -54,5 +94,14 @@ if __name__ == "__main__":
     refs = r.pop("refs_em_falta")
     for k, v in r.items():
         print(f"{k}: {v}")
+    if "--linhas" in sys.argv:  # dry-run das linhas a gravar, sem o nome do cliente
+        db = _ler_db()
+        api = ego_api.oportunidades_ativas()
+        for o in api:
+            if o["name"] in db:
+                continue
+            l = linha_de_oportunidade(o)
+            print(l["oportunidade_ref"], {k: v for k, v in l.items() if k not in ("oportunidade_ref", "cliente_nome", "cliente_telefone", "cliente_email", "url", "agencia", "origem_lista", "ego_data_criacao")},
+                  "tel" if l.get("cliente_telefone") else "-", "email" if l.get("cliente_email") else "-")
     if "--refs" in sys.argv:
         print("refs_em_falta:", ", ".join(refs))
