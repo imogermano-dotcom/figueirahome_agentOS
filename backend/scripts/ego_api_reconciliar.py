@@ -119,6 +119,35 @@ def corrigir_estados(api: list[dict], db: dict[str, str | None]) -> list[str]:
     return feitas
 
 
+def ligar_contactos(api: list[dict], refs: list[str]) -> dict:
+    """Liga `contacto_id` pelo RPC `set_contacto_oportunidades` (que também propaga a notas/tarefas/visitas), só onde o
+    `potencialClientId` da API é o `/person/<id>` de UM único contacto (`contacto_match='ego_link'`). Sem elo único não liga."""
+    import re
+    from app.db.supabase_client import get_supabase
+    sb = get_supabase()
+    por_pessoa: dict[str, set[str]] = {}
+    inicio = 0
+    while True:
+        lote = sb.table("contactos").select("id,ego_link").order("id").range(inicio, inicio + 999).execute().data
+        for c in lote:
+            m = re.search(r"/person/(\d+)", c["ego_link"] or "")
+            if m:
+                por_pessoa.setdefault(m.group(1), set()).add(c["id"])
+        inicio += 1000
+        if len(lote) < 1000:
+            break
+    por_ref = {o["name"]: o for o in api}
+    pares = []
+    for ref in refs:
+        ids = por_pessoa.get(str(por_ref[ref].get("potencialClientId")), set())
+        if len(ids) == 1:
+            pares.append({"oportunidade_ref": ref, "contacto_id": next(iter(ids)), "contacto_match": "ego_link"})
+    res = sb.rpc("set_contacto_oportunidades", {"pares": pares}).execute().data
+    out = {"candidatas": len(refs), "ligadas": len(pares), "rpc": res}
+    sb.table("agente_sync_log").insert({"tipo": "egorealestate_oportunidades_api", "origem": "manual", "resumo": {"contacto_id": out, "refs": [p["oportunidade_ref"] for p in pares]}}).execute()
+    return out
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     from app.integrations import ego_api
@@ -126,6 +155,11 @@ if __name__ == "__main__":
     if "--gravar" in sys.argv:
         res = gravar(api, db)
         print(len(res["inseridas"]), "inseridas;", len(res["erros"]), "erros", res["erros"])
+        sys.exit()
+    if "--ligar" in sys.argv:
+        from app.db.supabase_client import get_supabase
+        log = get_supabase().table("agente_sync_log").select("resumo").eq("tipo", "egorealestate_oportunidades_api").execute().data
+        print(ligar_contactos(api, [r for l in log for r in (l["resumo"].get("inseridas") or [])]))
         sys.exit()
     if "--estados" in sys.argv:
         print(corrigir_estados(api, db))
