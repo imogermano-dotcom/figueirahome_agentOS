@@ -106,6 +106,19 @@ def gravar(api: list[dict], db: dict[str, str | None]) -> dict:
     return r
 
 
+def corrigir_estados(api: list[dict], db: dict[str, str | None]) -> list[str]:
+    """Só `oportunidade_estado`, condicional ao valor antigo (não pisa uma mudança entretanto). Registo em `agente_sync_log`."""
+    from app.db.supabase_client import get_supabase
+    sb, feitas = get_supabase(), []
+    for o in api:
+        ref, novo = o["name"], _ESTADO.get(o.get("leadStage"))
+        if ref in db and novo and db[ref] != novo:
+            sb.table("oportunidades").update({"oportunidade_estado": novo}).eq("oportunidade_ref", ref).eq("oportunidade_estado", db[ref]).execute()
+            feitas.append(f"{ref}: {db[ref]} → {novo}")
+    sb.table("agente_sync_log").insert({"tipo": "egorealestate_oportunidades_api", "origem": "manual", "resumo": {"estado_corrigido": feitas}}).execute()
+    return feitas
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     from app.integrations import ego_api
@@ -113,6 +126,9 @@ if __name__ == "__main__":
     if "--gravar" in sys.argv:
         res = gravar(api, db)
         print(len(res["inseridas"]), "inseridas;", len(res["erros"]), "erros", res["erros"])
+        sys.exit()
+    if "--estados" in sys.argv:
+        print(corrigir_estados(api, db))
         sys.exit()
     r = comparar(api, db)
     refs = r.pop("refs_em_falta")
