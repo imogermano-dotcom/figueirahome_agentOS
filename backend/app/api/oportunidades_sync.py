@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import require_auth, require_sync_access
 from app.config import settings
-from app.integrations import ego_api
+from app.integrations import ego_api, ego_notas
 from app.notificacoes import falha_de_sync
 from app.db.supabase_client import get_supabase
 
@@ -169,10 +169,23 @@ def reconciliar_apagadas(hoje: date | None = None) -> dict:
     return resumo
 
 
+_JANELA_NOTAS_DIAS = 3  # notas escritas nos últimos dias; o histórico anterior recuperou-se à mão a 31/10
+
+
+def reconciliar_notas() -> dict:
+    """Notas novas das oportunidades ativas pela API (fase A2). Com `NOTAS_API_EGO` vazio só conta; ligado, grava (INSERT linha a linha).
+    Os triggers de IA disparam por nota (ver plano): duas notas da mesma oportunidade no mesmo dia podem repetir a extração."""
+    por_gravar = ego_notas.novas((date.today() - timedelta(days=_JANELA_NOTAS_DIAS)).isoformat())
+    if not settings.notas_api_ego:
+        return {"por_gravar": len(por_gravar), "gravadas": 0, "ligado": False}
+    r = ego_notas.gravar(por_gravar, "cron")
+    return {"por_gravar": len(por_gravar), "gravadas": r["inseridas"], "erros": len(r["erros"]), "ligado": True}
+
+
 @router.post("/oportunidades/sync/propostas")
 async def sync_propostas_endpoint(acesso=Depends(require_sync_access)):
     """Passo diário depois do sync das oportunidades: corrige o estado das propostas pela API do eGO e marca as oportunidades
-    apagadas (`apagadas` no resumo). Cada parte corre à parte: a falha de uma não esconde a outra."""
+    apagadas (`apagadas`) e grava as notas novas (`notas`). Cada parte corre à parte: a falha de uma não esconde a outra."""
     origem = "cron" if acesso == "sync-secret" else "manual"
     loop = asyncio.get_event_loop()
     resumo: dict = {}
@@ -187,10 +200,15 @@ async def sync_propostas_endpoint(acesso=Depends(require_sync_access)):
     except Exception as e:
         logger.exception("Falha na reconciliação das oportunidades apagadas")
         falhas.append(f"apagadas: {e!r}")
+    try:
+        resumo["notas"] = await loop.run_in_executor(None, reconciliar_notas)
+    except Exception as e:
+        logger.exception("Falha na reconciliação das notas")
+        falhas.append(f"notas: {e!r}")
     if falhas:
-        await falha_de_sync("egorealestate_propostas", "propostas e oportunidades apagadas", origem, "; ".join(falhas))
-        if len(falhas) == 2:
-            raise HTTPException(status_code=502, detail="Falha a reconciliar as propostas e as oportunidades apagadas.")
+        await falha_de_sync("egorealestate_propostas", "propostas, oportunidades apagadas e notas", origem, "; ".join(falhas))
+        if len(falhas) == 3:
+            raise HTTPException(status_code=502, detail="Falha a reconciliar as propostas, as oportunidades apagadas e as notas.")
         resumo["falhas"] = falhas
     await _log_execucao(resumo, origem, tipo="egorealestate_propostas")
     return resumo

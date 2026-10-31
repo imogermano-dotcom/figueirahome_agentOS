@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     lead_interesse_ego: str = ""
     # Compradores Meta que responderam à Matilde e deixaram a conversa parada: criar a lead no eGO (vazio = desligado).
     lead_respondeu_ego: str = ""
+    # Fase A2: grava as notas novas das oportunidades ativas lidas pela API do eGO (cron das 04:17). Vazio = só conta (dry-run).
+    notas_api_ego: str = ""
 
     # Scraper de relatório eGO (jmarques_todas_as_colunas) — app Fly.io
     # separada e dedicada, Playwright não cabe na RAM da app principal.

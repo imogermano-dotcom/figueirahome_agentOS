@@ -72,8 +72,8 @@
         "app_name": "figueirahome-crons",
         "schedule": "17 4 * * *",
         "region": "ams",
-        "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/oportunidades/sync/propostas -H \\\"X-Sync-Secret: $EGOREALESTATE_SYNC_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 120\"",
-        "command_timeout": 150,
+        "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/oportunidades/sync/propostas -H \\\"X-Sync-Secret: $EGOREALESTATE_SYNC_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 240\"",
+        "command_timeout": 270,
         "enabled": true,
         "config": {
             "metadata": { "fly_process_group": "cron" },

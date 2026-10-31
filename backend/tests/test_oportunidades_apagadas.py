@@ -224,6 +224,7 @@ def _cliente(monkeypatch, propostas=None, apagadas=None, falha_propostas=None, f
 
     monkeypatch.setattr(sync, "reconciliar_propostas", _p)
     monkeypatch.setattr(sync, "reconciliar_apagadas", _a)
+    monkeypatch.setattr(sync, "reconciliar_notas", lambda: {"por_gravar": 0})
     monkeypatch.setattr(sync, "falha_de_sync", _aviso)
     monkeypatch.setattr(sync, "_log_execucao", _log)
     app = FastAPI()
@@ -235,7 +236,7 @@ def _cliente(monkeypatch, propostas=None, apagadas=None, falha_propostas=None, f
 def test_endpoint_corre_as_duas_partes(monkeypatch):
     c, avisos, registos = _cliente(monkeypatch, apagadas={"marcadas": ["VEN_1"]})
     r = c.post("/api/oportunidades/sync/propostas")
-    assert r.status_code == 200 and r.json() == {"na_api": 1, "apagadas": {"marcadas": ["VEN_1"]}} and avisos == [] and len(registos) == 1
+    assert r.status_code == 200 and r.json() == {"na_api": 1, "apagadas": {"marcadas": ["VEN_1"]}, "notas": {"por_gravar": 0}} and avisos == [] and len(registos) == 1
 
 
 def test_falha_das_apagadas_nao_esconde_as_propostas(monkeypatch):
@@ -250,8 +251,16 @@ def test_falha_das_propostas_nao_esconde_as_apagadas(monkeypatch):
     assert r.status_code == 200 and r.json()["apagadas"] == {"marcadas": ["VEN_1"]} and len(avisos) == 1
 
 
-def test_falha_das_duas_devolve_502(monkeypatch):
+def test_falha_das_notas_nao_esconde_o_resto(monkeypatch):
+    c, avisos, _ = _cliente(monkeypatch)
+    monkeypatch.setattr(sync, "reconciliar_notas", lambda: (_ for _ in ()).throw(RuntimeError("503")))
+    r = c.post("/api/oportunidades/sync/propostas")
+    assert r.status_code == 200 and r.json()["na_api"] == 1 and "notas" in r.json()["falhas"][0] and len(avisos) == 1
+
+
+def test_falha_das_tres_devolve_502(monkeypatch):
     c, avisos, _ = _cliente(monkeypatch, falha_propostas=RuntimeError("a"), falha_apagadas=RuntimeError("b"))
+    monkeypatch.setattr(sync, "reconciliar_notas", lambda: (_ for _ in ()).throw(RuntimeError("c")))
     assert c.post("/api/oportunidades/sync/propostas").status_code == 502 and len(avisos) == 1
 
 

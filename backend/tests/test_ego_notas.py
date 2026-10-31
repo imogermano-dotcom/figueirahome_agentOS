@@ -1,4 +1,4 @@
-from scripts.ego_api_notas import chave, linha_de_nota, so_na_api, texto_de
+from app.integrations.ego_notas import chave, linha_de_nota, so_na_api, texto_de
 
 
 def test_texto_de_tira_html_e_entidades():
@@ -16,3 +16,13 @@ def test_so_na_api_ignora_vazias_existentes_e_repetidas():
     r = so_na_api(api, nome, {chave("VEN_1", "2026-10-06", "Nota B")})
     assert [n["ego_id"] for n in r] == [10]
     assert linha_de_nota(r[0])["nota_data_raw"] == "05/10/2026"
+
+
+def test_so_na_api_ignora_o_que_ja_tem_id_e_o_que_e_antigo():
+    nome = {1: "VEN_1"}
+    api = [
+        {"id": 10, "objectId": 1, "createDate": "2026-10-30T10:00:00", "description": "Nota A"},  # id já na BD
+        {"id": 11, "objectId": 1, "createDate": "2026-09-01T10:00:00", "description": "Nota B"},  # antes da janela
+        {"id": 12, "objectId": 1, "createDate": "2026-10-31T10:00:00", "description": "Nota C"},
+    ]
+    assert [n["ego_id"] for n in so_na_api(api, nome, set(), {10}, "2026-10-29")] == [12]
