@@ -82,4 +82,19 @@ Explicar os 1 163 casos de a BD ter mais; confirmar que as 648 em falta são not
 ## Risco
 Leitura: baixo. Escrita: INSERT linha a linha, reversível pelo registo em `agente_sync_log`. O risco real é o disparo da IA e os duplicados.
 
-**Estado: plano escrito a 31/10; passo 1 feito (resultado acima); passo 2 por decidir.**
+## Passo 2 feito (31/10, ~14:00 UTC)
+Gravadas **341 notas em 163 oportunidades** (jul 206, out 124, set 2, ago 4, 2019–2023: 5), 0 erros (`scripts/ego_api_notas.py --gravar`, registo em `agente_sync_log`
+tipo `egorealestate_notas_api`, `nota_ego_id` preenchido; `propagar_contacto_id` ligou 205 notas, 136 ficaram sem contacto porque a oportunidade não o tem).
+Repetir o dry-run dá 0 por gravar. Migration `0055` aplicada (coluna + `uq_notas_ego_id`).
+
+**Triggers de IA (lidos a 31/10):** `tgr_classify_lead` e `tgr_extract_prefs` são `AFTER INSERT ... FOR EACH ROW` (exceto `nota_tipo` «Criação de oportunidade»;
+o 2.º também salta «Tarefa concluída», «Clique em Newsletter», «Visita Página Web», «Sistema») e cada linha faz um `net.http_post` com a `oportunidade_ref`.
+**Corrida no debounce do `extract-preferences`:** só olha para `pref_ai_processado_em`, carimbado no FIM da execução; N notas da mesma oportunidade → N execuções
+do Sonnet em paralelo, a apagar e reescrever `oportunidade_preferencias` umas contra as outras. Por isso a gravação fez-se com os dois triggers suspensos
+(`disable trigger`, pelo utilizador) e depois **uma** chamada por oportunidade (`{"oportunidade_ref", "force": true}`), em sequência: 163 chamadas, 0 falhas,
+163 carimbadas, 133 com preferências. O modo `batch` não serve para isto: escolhe primeiro as nunca processadas.
+
+## Passo 3 por fazer: rotina diária
+Ver desenho proposto em conversa (31/10); decisão sobre a corrida do debounce por tomar.
+
+**Estado: passos 1 e 2 feitos a 31/10; passo 3 por desenhar.**
