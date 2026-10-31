@@ -56,7 +56,8 @@ def linha_de_oportunidade(o: dict) -> dict:
     r = {
         "oportunidade_ref": o["name"],
         "oportunidade_estado": _ESTADO.get(o.get("leadStage")),
-        "tipo_oportunidade": _nome(o.get("masterLeadType")),
+        # o enum da BD só tem «Angariação» (o relatório normaliza «Angariação III (em Comercialização)» e afins)
+        "tipo_oportunidade": (_nome(o.get("masterLeadType")) or "").replace("Angariação III (em Comercialização)", "Angariação"),
         "tipo_pedido": _nome(o.get("leadType")),
         "origem": _nome(o.get("leadOrigin")),
         "sub_origem": _nome(o.get("leadSubOrigin")),
@@ -87,10 +88,33 @@ def _ler_db() -> dict[str, str | None]:
             return db
 
 
+def gravar(api: list[dict], db: dict[str, str | None]) -> dict:
+    """INSERT linha a linha das que faltam no Supabase (nunca upsert: não pisa o que o sync por relatório gravar entretanto).
+    Regista o resumo em `agente_sync_log` para se poder desfazer. Não corrige estados divergentes (pedido à parte)."""
+    from app.db.supabase_client import get_supabase
+    sb = get_supabase()
+    r = {"inseridas": [], "erros": {}}
+    for o in api:
+        if o["name"] in db:
+            continue
+        try:
+            sb.table("oportunidades").insert(linha_de_oportunidade(o)).execute()
+            r["inseridas"].append(o["name"])
+        except Exception as e:
+            r["erros"][o["name"]] = repr(e)[:200]
+    sb.table("agente_sync_log").insert({"tipo": "egorealestate_oportunidades_api", "origem": "manual", "resumo": r}).execute()
+    return r
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     from app.integrations import ego_api
-    r = comparar(ego_api.oportunidades_ativas(), _ler_db())
+    api, db = ego_api.oportunidades_ativas(), _ler_db()
+    if "--gravar" in sys.argv:
+        res = gravar(api, db)
+        print(len(res["inseridas"]), "inseridas;", len(res["erros"]), "erros", res["erros"])
+        sys.exit()
+    r = comparar(api, db)
     refs = r.pop("refs_em_falta")
     for k, v in r.items():
         print(f"{k}: {v}")
