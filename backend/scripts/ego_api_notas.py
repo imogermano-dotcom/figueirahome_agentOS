@@ -2,6 +2,7 @@
 
     python scripts/ego_api_notas.py                # resumo das notas só na API, com texto
     python scripts/ego_api_notas.py --desde 2026-10-01   # só notas escritas a partir desta data
+    python scripts/ego_api_notas.py --gravar             # ESCREVE em produção (com os gatilhos de IA suspensos, ver plano)
 
 Chave de comparação: (oportunidade_ref, dia da nota, 50 primeiros caracteres do texto sem HTML), a mesma de `docs/fases/ego-api-notas-plano.md`.
 """
@@ -85,9 +86,33 @@ def _chaves_da_bd(refs: set[str]) -> set[tuple]:
             return ks
 
 
+def gravar(novas: list[dict]) -> dict:
+    """INSERT linha a linha (nunca upsert), uma oportunidade de cada vez; copia url/cliente_nome/tipo da oportunidade.
+    Regista o resumo em `agente_sync_log` (desfaz-se por `nota_ego_id`) e propaga `contacto_id` no fim."""
+    from app.db.supabase_client import get_supabase
+    sb = get_supabase()
+    refs = sorted({n["ref"] for n in novas})
+    opp = {}
+    for i in range(0, len(refs), 100):
+        for o in sb.table("oportunidades").select("oportunidade_ref,url,cliente_nome,tipo_oportunidade").in_("oportunidade_ref", refs[i:i + 100]).execute().data:
+            opp[o["oportunidade_ref"]] = {k: v for k, v in o.items() if k != "oportunidade_ref" and v is not None}
+    r = {"inseridas": 0, "ego_ids": [], "erros": {}}
+    for n in sorted(novas, key=lambda x: (x["ref"], x["dia"])):
+        try:
+            sb.table("notas").insert({**opp.get(n["ref"], {}), **linha_de_nota(n)}).execute()
+            r["inseridas"] += 1
+            r["ego_ids"].append(n["ego_id"])
+        except Exception as e:
+            r["erros"][str(n["ego_id"])] = repr(e)[:200]
+    sb.table("agente_sync_log").insert({"tipo": "egorealestate_notas_api", "origem": "manual", "resumo": r}).execute()
+    r["propagado"] = sb.rpc("propagar_contacto_id", {}).execute().data
+    return r
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--desde", default="")
+    ap.add_argument("--gravar", action="store_true")
     a = ap.parse_args()
     from app.integrations import ego_api
     ativas = ego_api.oportunidades_ativas()
@@ -100,6 +125,9 @@ def main() -> None:
     print("texto: máx", max((len(n["texto"]) for n in novas), default=0), "caracteres;", sum(len(n["texto"]) > 1200 for n in novas), "cortadas a 1200")
     for mes in sorted({n["dia"][:7] for n in novas}):
         print(f"  {mes}: {len({n['ref'] for n in novas if n['dia'][:7] == mes})} oportunidades")
+    if a.gravar:
+        r = gravar(novas)
+        print("gravadas:", r["inseridas"], "| erros:", len(r["erros"]), r["erros"], "| propagado:", r["propagado"])
 
 
 if __name__ == "__main__":
