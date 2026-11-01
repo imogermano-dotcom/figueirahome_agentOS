@@ -39,4 +39,9 @@
 Escritas só em `NULL` (RPC existente, usada no backfill de 05/10). `oportunidades` tem `BEFORE UPDATE` que carimba `atualizado_em`: o RPC já é o caminho usado hoje; confirmar que não marca 500 linhas como «atualizadas agora» em coisa que o portal do Miguel lê (decisão tua: religar/desligar como na `0056`).
 Registo em `agente_sync_log` com os pares ligados (reversível por `contacto_match='ego_link'` + data).
 
-**Estado: plano escrito a 01/11. Nada gravado. Próximo passo: H1 em dry-run (só contagem).**
+**Estado: H1, H2 e H3 feitos a 01/11** (trigger `trg_oportunidades_updated` desligado durante a escrita e religado depois, `tgenabled = 'O'`).
+- H1 (ativas) 507 e H2 (arquivadas) 1 369 oportunidades ligadas por `ego_person_id`; o RPC propagou 6 591 notas, 1 129 tarefas, 171 visitas. Sem `contacto_id`: 4 076 → **2 200** (VEN 1 093, CAP 800, LLO 139).
+- H3: **677** telefones (645 do contacto ligado, 32 do proprietário via `GetEntity`). Sem telefone: VEN 2 528 → 1 941, CAP 538 → 505, LLO 297 → 240.
+- Os que restam não têm telefone no eGO (nem no contacto nem no proprietário), ou a pessoa não está em `contactos` (177 ativas + 1 586 arquivadas) ou não há pessoa na API (270, quase todas CAP). 286 têm `contacto_id` diferente do da API: não se tocaram.
+- Código: `ligar_historico`, `preencher_telefones`, `ego_api.oportunidades_arquivadas`, `ego_api.contactos_da_entidade` (repete em 429 e em ligação fechada). Comandos: `ego_api_reconciliar.py --historico [--arquivadas] [--gravar]`, `--telefones [--gravar]`.
+- **Por fazer:** critério (b) após o sync das 03:37 de 02/11; H1 como 4.ª parte do sync das 04:17 (decisão); lista das pessoas sem contacto para o Miguel.
