@@ -236,6 +236,22 @@ def um_por_referencia(imoveis: list[dict]) -> dict[str, dict]:
     return por_ref
 
 
+def oportunidades_arquivadas(por_pagina: int = 500) -> list[dict]:
+    """Oportunidades ARQUIVADAS (`leadArchived: 1`), paginadas: numa só página a resposta vem cortada. 18 974 a 01/11.
+    Levanta se vierem menos linhas do que o `totalRows` (agir sobre dados parciais seria enganador)."""
+    todas: list[dict] = []
+    pagina = 0
+    while True:
+        d = _pedido("POST", "/lead/Opportunity/ListOpportunityByPage", json={"leadArchived": 1, "pageIndex": pagina, "numberOfRecords": por_pagina})
+        todas += d["opportunities"]
+        if len(d["opportunities"]) < por_pagina:
+            break
+        pagina += 1
+    if len(todas) < d["totalRows"]:
+        raise EgoApiErro(f"arquivadas: página incompleta ({len(todas)} de {d['totalRows']})")
+    return todas
+
+
 def oportunidades_ativas() -> list[dict]:
     """Oportunidades ATIVAS no eGO (`ListOpportunityByPage` com `leadArchived: 0`, uma página: 2 688 a 26/10), linhas inteiras da API.
     Levanta se vier menos do que o `totalRows`: comparar ou marcar com uma lista parcial seria um desastre."""

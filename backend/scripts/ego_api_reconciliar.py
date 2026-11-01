@@ -193,7 +193,7 @@ if __name__ == "__main__":
         print(len(res["inseridas"]), "inseridas;", len(res["erros"]), "erros", res["erros"])
         sys.exit()
     if "--historico" in sys.argv:  # dry-run por omissão; --gravar escreve
-        print(ligar_historico(api, "--gravar" in sys.argv))
+        print(ligar_historico(ego_api.oportunidades_arquivadas() if "--arquivadas" in sys.argv else api, "--gravar" in sys.argv))
         sys.exit()
     if "--ligar" in sys.argv:
         from app.db.supabase_client import get_supabase
