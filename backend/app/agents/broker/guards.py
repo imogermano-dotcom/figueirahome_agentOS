@@ -161,15 +161,30 @@ _TIPOS_QUE_PROMOVEM = ("compra", "arrendamento")
 
 
 # --- Interesse real (pedido #17, `docs/fases/lead-interesse-real-ego-plano.md`) ---------------------------------------
-# Motivos de escalada que são compra. Fora: recrutamento, angariação, reclamação, assuntos legais.
-_MOTIVO_COMPRA = re.compile(r"proposta|negoci|visita|oferta|compra", re.I)
+# Escalada de quem é comprador conta sempre como interesse real (pedido #17, 01/11): ficam de fora só os motivos que
+# não são compra. `marcar_interesse_real` só marca contactos Meta de comprador, por isso recrutamento e angariação
+# nunca entram por aqui, mesmo com um motivo que não os nomeie.
 _MOTIVO_FORA = re.compile(r"recrut|angaria|reclama|legal|jur[ií]dic", re.I)
 _MAX_RESUMO = 1500
 
 
 def motivo_de_compra(motivo: str | None) -> bool:
-    motivo = motivo or ""
-    return bool(_MOTIVO_COMPRA.search(motivo)) and not _MOTIVO_FORA.search(motivo)
+    motivo = (motivo or "").strip()
+    return bool(motivo) and not _MOTIVO_FORA.search(motivo)
+
+
+# Pedido do comprador sobre o imóvel (preço, localização, fotos, visita, condições, informação, proposta, «ligue-me»,
+# «tenho interesse»). Apanhado pelo texto da pessoa e não pela `ficha_imovel`: a Matilde chama-a logo no 1.º turno em
+# 73 % das conversas (medido a 01/11), até a um «Sim». Calibrado com as mensagens reais de 20/10 a 01/11.
+_PEDIDO_INFO = re.compile(
+    r"\b(pre[cç]o|valor|quanto|custa|custo|localiza[cç][ãa]o|onde (fica|[eé]|se situa)|morada|fotos?|fotografias?|imagens|v[ií]deo|"
+    r"visita|visitar|ver o im[oó]vel|informa[cç][ãaõo]\w*|saber (mais|tudo)|condi[cç][õo]es|negoci\w*|dispon[ií]vel|condom[ií]nio|"
+    r"propost\w*|interess\w*|ligar|liguem|telefon\w*)\b", re.I)
+
+
+def e_pedido_de_informacao(texto: str | None) -> bool:
+    texto = texto or ""
+    return bool(_PEDIDO_INFO.search(texto)) and not e_recusa(texto) and not e_optout_explicito(texto)
 
 
 def marcar_interesse_real(telefone: str | None, motivo: str, resumo: str | None) -> bool:

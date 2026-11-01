@@ -37,4 +37,8 @@
 ## Risco
 Baixo: `marcar_interesse_real` nunca levanta, só marca e o cron (já testado) cria. O risco real é criar leads a mais para quem só perguntou o preço (D1), mas o cron deduplica contra o eGO e a consultora já recebe estas conversas.
 
-**Estado: plano escrito a 01/11. Por fazer: as tuas decisões D1–D5, código, testes, deploy (com ordem tua).**
+**Estado: código e testes feitos a 01/11 (804 testes passam), por deployar com ordem tua.**
+- D1 decidida: **só B** (regex sobre a mensagem da pessoa, `guards.e_pedido_de_informacao`, chamada em `engine._responder_sem_lock` para o A1 no WhatsApp). A `ficha_imovel` fica de fora: a Matilde chama-a no 1.º turno em 38 de 52 conversas (73 %), até a um «Sim». A regex apanha 31 de 44 conversas reais antes de alargada; as frases perdidas ficaram nos testes.
+- Mudança 1: `motivo_de_compra` passou a «qualquer motivo exceto recrutamento, angariação, reclamação, legal».
+- Mudança 3: `agente_tarefas.responsavel` = `imoveis.angariador` (`tools._angariador_do_imovel`).
+- D4 (lead sem consultora) e D5 (retroativo): mantidas as propostas, sem código. Responsável nas leads Meta: plano à parte.

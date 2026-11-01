@@ -912,6 +912,8 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             "conversa_id": contexto.get("conversa_id"),
             # Agregável: antes o motivo só existia dentro do título.
             "motivo": motivo,
+            # Quem recebe a escalada: a consultora do imóvel (nome tal como o eGO o escreve). Sem imóvel ou sem angariador, nulo.
+            "responsavel": await _run(_angariador_do_imovel, inputs.get("imovel_ref")),
         },
     )
 
@@ -1010,6 +1012,18 @@ def _tarefa_ja_registada(conversa_id: str | None, tipo: str, coluna: str, valor:
     if valor:
         q = q.eq(coluna, valor)
     return bool(q.limit(1).execute().data)
+
+
+def _angariador_do_imovel(ref: str | None) -> str | None:
+    """`imoveis.angariador` do imóvel, para o `responsavel` da tarefa de escalada. Nunca levanta: sem nome, a tarefa fica como estava."""
+    if not ref:
+        return None
+    try:
+        r = get_supabase().table("imoveis").select("angariador").eq("imovel_ref", ref).limit(1).execute().data
+        return (r[0].get("angariador") or None) if r else None
+    except Exception:
+        logger.exception("Falha a ler o angariador de %s", ref)
+        return None
 
 
 def _inserir_tarefa(dados: dict) -> None:

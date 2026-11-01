@@ -21,6 +21,9 @@ from tests.test_leads_para_ego import AGORA, ISO, _BD, _linha, _usa  # noqa: E40
 
 @pytest.mark.parametrize("motivo,compra", [
     ("negociação de preço", True), ("proposta de compra", True), ("pedido de visita", True), ("oferta pelo imóvel", True),
+    # 01/11: qualquer escalada de comprador conta; só ficam de fora os motivos que não são compra
+    ("pedido de informação sobre imóvel", True), ("procura de moradia", True), ("pesquisa de imóvel", True),
+    ("Pedido de chamada telefónica", True), ("Elegibilidade para Garantia Pública e crédito habitação", True),
     ("entrevista de recrutamento", False), ("angariação", False), ("reclamação", False), ("assunto legal", False),
     ("proposta de angariação", False), ("", False), (None, False),
 ])
@@ -334,3 +337,39 @@ def test_recusa_com_lead_meta_anterior_a_ativacao_continua_a_nao_criar(monkeypat
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+@pytest.mark.parametrize("texto,pede", [
+    # mensagens reais de compradores (20/10 a 01/11), anonimizadas
+    ("Que informação pode dar-me", True), ("Sim quero saber tudo sobre o imóvel", True), ("Tenho interesse no imóvel FH2572", True),
+    ("Podem ligar-me?", True), ("Sim se aceitam propostas de valor", True), ("Quanto custa o arrendamento", True),
+    ("Gostava de saber mais informações e se é possível visitar", True), ("Pode fornecer localização e ano do apartamento", True),
+    ("Onde fica o imóvel?", True), ("Tem fotos?", True), ("Está disponível para alugar?", True),
+    ("Sim", False), ("Bom dia", False), ("Obrigado.", False), ("Arrendar", False), ("Preciso de um T2 eu e um amigo", False),
+    ("Não tenho interesse", False), ("Já não preciso, obrigado", False), ("não me contactem mais", False), ("", False), (None, False),
+])
+def test_pedido_de_informacao(texto, pede):
+    assert guards.e_pedido_de_informacao(texto) is pede
+
+
+def test_angariador_do_imovel_para_o_responsavel_da_tarefa(monkeypatch):
+    from app.agents.broker import tools
+
+    class _Q:
+        def __init__(self, dados): self.dados = dados
+        def select(self, *_): return self
+        def eq(self, *_): return self
+        def limit(self, *_): return self
+        def execute(self): return type("R", (), {"data": self.dados})()
+
+    class _SB:
+        def __init__(self, dados): self.dados = dados
+        def table(self, _): return _Q(self.dados)
+
+    monkeypatch.setattr(tools, "get_supabase", lambda: _SB([{"angariador": "Consultora Teste"}]))
+    assert tools._angariador_do_imovel("FH0000") == "Consultora Teste"
+    assert tools._angariador_do_imovel(None) is None  # sem ref nem sequer pergunta à base
+    monkeypatch.setattr(tools, "get_supabase", lambda: _SB([]))
+    assert tools._angariador_do_imovel("FH0000") is None
+    monkeypatch.setattr(tools, "get_supabase", lambda: _SB([{"angariador": ""}]))
+    assert tools._angariador_do_imovel("FH0000") is None

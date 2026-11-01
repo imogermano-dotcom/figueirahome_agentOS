@@ -36,9 +36,11 @@ from app.agents.broker.guards import (
     contacto_meta_aberto,
     e_despedida,
     e_fecho_da_pessoa,
+    e_pedido_de_informacao,
     e_optout_explicito,
     lead_aberta,
     marcar_contacto_respondeu,
+    marcar_interesse_real,
     marcar_nao_contactar,
     marcar_lead_respondeu,
     motivos_escalados,
@@ -590,6 +592,11 @@ async def _responder_sem_lock(
     if agente not in ASSISTENTES:
         logger.warning("Assistente '%s' desconhecido — fallback para o router.", agente)
         agente = route(mensagem, None)
+
+    # Comprador Meta que pede preço, localização, fotos, visita, informação… é interesse real (pedido #17, 01/11): marca-se
+    # em código, a lead sai na volta seguinte do cron. Só marca contactos Meta de comprador; nunca levanta nem atrasa a resposta.
+    if canal == "whatsapp" and agente == A1 and e_pedido_de_informacao(mensagem):
+        await asyncio.get_event_loop().run_in_executor(None, marcar_interesse_real, participante, "pedido de informação do imóvel", mensagem[:300])
     spec = ASSISTENTES[agente]
 
     if canal == "voz":
