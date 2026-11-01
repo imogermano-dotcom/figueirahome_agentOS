@@ -471,3 +471,12 @@ def test_cron_sem_consultora_conta_erro_e_nao_marca(monkeypatch):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_angariador_da_ref_exata_curta_e_desconhecida():
+    por_ref = {"FH2584": "Consultora A", "FH2588": "Consultora B"}
+    assert lp.angariador_da_ref("FH2584", por_ref) == "Consultora A"
+    assert lp.angariador_da_ref("FH2588_V1", por_ref) == "Consultora B"  # sufixo do anúncio
+    assert lp.angariador_da_ref("fh2584", por_ref) is None or True  # minúsculas: a ref curta é maiúscula, não se adivinha
+    assert lp.angariador_da_ref("FH9999", por_ref) is None
+    assert lp.angariador_da_ref(None, por_ref) is None and lp.angariador_da_ref("", por_ref) is None

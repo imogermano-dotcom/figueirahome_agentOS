@@ -254,6 +254,51 @@ def _candidatas_paradas(agora: datetime) -> list[dict]:
     return paradas[:LIMITE_POR_VOLTA]
 
 
+def angariador_da_ref(ref: str | None, por_ref: dict[str, str]) -> str | None:
+    """Angariador do imóvel pela ref exata ou, se vier com sufixo («FH2584_V1»), pela curta («FH2584»)."""
+    if not ref:
+        return None
+    curta = (re.match(r"[A-Za-z]*\d+", ref) or [None])[0]
+    return por_ref.get(ref) or (por_ref.get(curta.upper()) if curta else None)
+
+
+def preencher_responsavel_meta() -> dict:
+    """Rede do pedido #17 (plano `responsavel-leads-meta-plano.md`): o RPC `lead_meta_compra` grava o angariador à entrada; se o imóvel
+    só chegou a `imoveis` depois, aqui preenche-se o que ficou vazio (`leads` sempre, `contactos` só vazios, compradores Meta).
+    Nunca levanta nem sobrescreve."""
+    feitas = {"leads": 0, "contactos": 0}
+    try:
+        sb = get_supabase()
+        vazio = "responsavel.is.null,responsavel.eq."
+        leads = sb.table("leads").select("id,meta_lead_id,imovel_ref").not_.is_("meta_lead_id", "null").not_.is_("imovel_ref", "null").or_(vazio).limit(200).execute().data or []
+        contactos = (sb.table("contactos").select("id,meta_lead_id").not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
+                     .or_(vazio).limit(200).execute().data or [])
+        ref_da_lead = {l["meta_lead_id"]: l["imovel_ref"] for l in leads}
+        falta = [c["meta_lead_id"] for c in contactos if c["meta_lead_id"] not in ref_da_lead]
+        for i in range(0, len(falta), 100):
+            for l in sb.table("leads").select("meta_lead_id,imovel_ref").in_("meta_lead_id", falta[i:i + 100]).execute().data or []:
+                ref_da_lead[l["meta_lead_id"]] = l["imovel_ref"]
+        refs = {r for r in ref_da_lead.values() if r}
+        refs |= {(re.match(r"[A-Za-z]*\d+", r) or [""])[0].upper() for r in refs}
+        por_ref: dict[str, str] = {}
+        lista = sorted(r for r in refs if r)
+        for i in range(0, len(lista), 100):
+            for im in sb.table("imoveis").select("imovel_ref,angariador").in_("imovel_ref", lista[i:i + 100]).execute().data or []:
+                if (im.get("angariador") or "").strip():
+                    por_ref[im["imovel_ref"]] = im["angariador"]
+        for l in leads:
+            if nome := angariador_da_ref(l["imovel_ref"], por_ref):
+                sb.table("leads").update({"responsavel": nome}).eq("id", l["id"]).execute()
+                feitas["leads"] += 1
+        for c in contactos:
+            if nome := angariador_da_ref(ref_da_lead.get(c["meta_lead_id"]), por_ref):
+                sb.table("contactos").update({"responsavel": nome}).eq("id", c["id"]).or_(vazio).execute()
+                feitas["contactos"] += 1
+    except Exception:
+        logger.exception("Falha a preencher o responsável das leads Meta")
+    return feitas
+
+
 def processar(agora: datetime | None = None) -> dict:
     """Uma volta do cron. Falha da API deixa a lead por marcar (a próxima volta repete)."""
     if not settings.lead_compra_ego_desde:
@@ -261,6 +306,7 @@ def processar(agora: datetime | None = None) -> dict:
     agora = agora or datetime.now(timezone.utc)
     if not dentro_do_horario(agora):
         return {"ativo": True, "fora_do_horario": True}
+    preencher_responsavel_meta()
     contagem = {"ativo": True, "criadas": 0, "ja_existiam": 0, "erros": 0}
     candidatas = _candidatas(agora)
     vistas = {l["id"] for l in candidatas}

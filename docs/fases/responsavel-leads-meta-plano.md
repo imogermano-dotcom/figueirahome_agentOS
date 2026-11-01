@@ -46,4 +46,8 @@ Não olha para `imoveis` nem grava `responsavel`. O n8n chama este RPC e não pr
 Baixo. Só preenche campos vazios; o RPC mantém a assinatura e o resto do corpo; a migration é a segunda vez que o RPC é recriado (a `0051` fez o mesmo). Cuidado a copiar o corpo inteiro da `0051` e a conferir a versão em produção antes de a substituir
 (**o repo não é a fonte de verdade única do esquema**: ler a definição viva com `pg_get_functiondef` antes).
 
-**Estado: plano escrito a 01/11; E1 decidida. Por fazer: as tuas decisões E2–E4, ler a função viva, migration `0057`, backfill, rede no cron, testes.**
+**Estado: migration e código escritos a 01/11, por correr/deployar (ordem tua).**
+- E2–E4: aplicadas as propostas (só compra; imóvel em falta fica nulo; rede no cron). A função de produção lida com `pg_get_functiondef` era igual à da `0051`.
+- `supabase/migrations/0057_lead_meta_compra_responsavel.sql`: partes 0 (triggers, só leitura), 1 (função), 2 (backfill `leads`), 3 (backfill `contactos`), 4 (verificação). Corre-se por partes.
+- `leads_para_ego.preencher_responsavel_meta` (chamada em `processar`, depois do portão das 9h–20h) e `angariador_da_ref`; 806 testes passam.
+- Por fazer: correr a `0057`; deploy do `figueirahome-agentos`; lista dos 3 contactos divergentes ao Miguel; verificar uma lead Meta nova com responsável gravado.
