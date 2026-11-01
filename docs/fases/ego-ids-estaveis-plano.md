@@ -45,4 +45,8 @@ numa só página corta a ligação; ver paginação se algum dia for preciso).
 Baixo: só acrescenta colunas nulas e preenche-as de dados que a linha já tem. O único cuidado é o `BEFORE UPDATE` de `oportunidades` e o índice único (se houvesse
 repetidos, a criação falharia; medimos 0).
 
-**Estado: plano escrito a 01/11. Por fazer: migration `0056` (explicada antes de correres), código do scraper e da API, testes.**
+**Estado: feito a 01/11.**
+- Migration `0056` corrida à mão: `ego_lead_id` 21 769 e `ego_person_id` 12 742, índices únicos criados, trigger de `oportunidades` religado.
+- Código: `mapping_todas_colunas` (`_id_do_url`, `ego_lead_id`/`ego_person_id` em `classify`, auto-testes) e `ego_api_reconciliar.linha_de_oportunidade` (`ego_lead_id = o["id"]`), com teste. Commits `33ea692`, `8abc822`; scraper deployado.
+- **Por confirmar (leitura) após o sync das 03:37 UTC de 02/11:** oportunidades e contactos criados/editados desde então têm os ids. Se faltar algum, o problema é o formato do `url`/`ego_link`.
+- Em aberto: 16 117 contactos sem `ego_link` (pergunta ao Miguel, 26/10, sem resposta); 4 440 oportunidades sem `url`; 13 contactos com `agente` e origem `scraper` sem `/person/N`. Fase 2 (§4) fora do âmbito.
