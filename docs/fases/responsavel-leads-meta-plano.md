@@ -24,7 +24,7 @@ Não olha para `imoveis` nem grava `responsavel`. O n8n chama este RPC e não pr
 
 ## Desenho
 1. **Migration `0057` — o RPC grava o responsável à entrada.** Mesmo corpo da `0051` mais: `v_resp := (select angariador from imoveis where imovel_ref = p_imovel_ref)`
-   (e, se a ref vier com sufixo, pela ref curta `[A-Za-z]*\d+`), e grava-o em `leads.responsavel` e `contactos.responsavel` (insert e update), **só onde está vazio** (E1).
+   (e, se a ref vier com sufixo, pela ref curta `[A-Za-z]*\d+`), e grava-o em `leads.responsavel` (sempre) e em `contactos.responsavel` (insert e update, **só onde está vazio**, E1).
    Sem imóvel em `imoveis` ou sem angariador: fica nulo (E3).
 2. **Backfill (SQL, corres tu, por partes):** `leads` Meta sem responsável → angariador pelo `imovel_ref` (430); `contactos` Meta de **comprador** sem responsável → angariador pelo
    `contactos.imovel_ref` ou, se vazio, pelo `leads.imovel_ref` do mesmo `meta_lead_id`. Antes: contagem e lista dos 3 contactos que já têm outro responsável (não se tocam).
@@ -33,7 +33,7 @@ Não olha para `imoveis` nem grava `responsavel`. O n8n chama este RPC e não pr
    `preencher_responsavel_meta()` que preenche `responsavel` onde ainda está nulo e o imóvel já existe. Sem tocar no eGO e sem custo (uma leitura de `imoveis`). Alternativa: só a migration + backfill, sem rede.
 
 ## Decisões (tuas)
-- **E1** — nunca sobrescrever um `responsavel` existente (proposta). O Miguel diz «as outras origens ficam com o do eGO» e o contacto que já existia no eGO traz o dele; só se preenche o vazio. Os 3 divergentes ficam numa lista para ele.
+- **E1 — DECIDIDO (01/11): versão fina.** `leads.responsavel` leva sempre o angariador (a tabela está vazia, sem conflito); `contactos.responsavel` só onde está vazio. Os 3 contactos que já têm outro responsável (vindo do eGO) não se tocam e vão numa lista ao Miguel.
 - **E2** — a regra vale para leads de **compra** (recrutamento e angariação não têm imóvel). Confirmar.
 - **E3** — imóvel que ainda não está em `imoveis` ou sem angariador: deixar nulo e deixar a rede (passo 3) preencher depois, ou ir logo ao eGO à entrada (depende do #45 e do `GetEntity`).
 - **E4** — fazer o passo 3 (rede no cron): sim / não.
@@ -46,4 +46,4 @@ Não olha para `imoveis` nem grava `responsavel`. O n8n chama este RPC e não pr
 Baixo. Só preenche campos vazios; o RPC mantém a assinatura e o resto do corpo; a migration é a segunda vez que o RPC é recriado (a `0051` fez o mesmo). Cuidado a copiar o corpo inteiro da `0051` e a conferir a versão em produção antes de a substituir
 (**o repo não é a fonte de verdade única do esquema**: ler a definição viva com `pg_get_functiondef` antes).
 
-**Estado: plano escrito a 01/11. Por fazer: as tuas decisões E1–E4, ler a função viva, migration `0057`, backfill, rede no cron, testes.**
+**Estado: plano escrito a 01/11; E1 decidida. Por fazer: as tuas decisões E2–E4, ler a função viva, migration `0057`, backfill, rede no cron, testes.**
