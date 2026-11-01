@@ -288,6 +288,16 @@ def _numero_pt(valor: str | None) -> str | None:
     return limpo
 
 
+_RE_LEAD = re.compile(r"/[Ll]eads?/(\d+)")  # duas formas de URL: /egocore/Leads/N e /egocore/lead/N
+_RE_PESSOA = re.compile(r"/person/(\d+)")
+
+
+def _id_do_url(url: str | None, padrao: re.Pattern) -> int | None:
+    """Id numérico do eGO que vem no fim do URL (`ego_lead_id`, `ego_person_id`, pedido #27); `None` se não houver."""
+    m = padrao.search(url or "")
+    return int(m.group(1)) if m else None
+
+
 def classify(record: dict) -> dict:
     """Separa 1 registo já mapeado (`map_row`) nos sub-registos que a linha
     do relatório representa: sempre oportunidade + contacto; nota se tiver
@@ -298,6 +308,8 @@ def classify(record: dict) -> dict:
         # já convertido p/ ISO em map_row — reaproveitar em vez de re-parsear.
         oportunidade["data_criacao_iso"] = oportunidade["ego_data_criacao"]
     oportunidade["origem_lista"] = _ORIGEM_LISTA
+    if lead_id := _id_do_url(oportunidade.get("url"), _RE_LEAD):
+        oportunidade["ego_lead_id"] = lead_id
     for campo in _CAMPOS_NUMERICOS:
         if oportunidade.get(campo) is not None:
             oportunidade[campo] = _numero_pt(oportunidade[campo])
@@ -308,6 +320,8 @@ def classify(record: dict) -> dict:
                 oportunidade[campo] = iso
 
     contacto = {k: record.get(k) for k in _KNOWN_CONTACTO if record.get(k) is not None}
+    if pessoa_id := _id_do_url(contacto.get("ego_link"), _RE_PESSOA):
+        contacto["ego_person_id"] = pessoa_id
     if contacto.get("telemovel"):
         # `telefone` e `telemovel` são duas colunas para o mesmo número —
         # gravar as duas evita que quem só leia uma (achado 28/09,
@@ -626,6 +640,14 @@ def demo() -> None:
     # «Criada» (oportunidade acabada de promover) e «Activa» entram como Ativa; Ganha/Perdida ficam como vêm.
     for bruto, certo in (("Criada", "Ativa"), ("Activa", "Ativa"), ("Ganha", "Ganha"), ("Perdida", "Perdida")):
         assert map_row({"Estado": bruto})["oportunidade_estado"] == certo, (bruto, map_row({"Estado": bruto}))
+
+    # Pedido #27: ids estáveis do eGO tirados do URL, nas duas formas de /Leads/.
+    assert _id_do_url("https://admin.egorealestate.com/egocore/Leads/60648001", _RE_LEAD) == 60648001
+    assert _id_do_url("https://admin.egorealestate.com/egocore/lead/53099016", _RE_LEAD) == 53099016
+    assert _id_do_url("https://admin.egorealestate.com/egocore/person/123", _RE_PESSOA) == 123
+    assert _id_do_url(None, _RE_LEAD) is None and _id_do_url("sem id", _RE_PESSOA) is None
+    c = classify({"url": "https://x/egocore/lead/7", "ego_link": "https://x/egocore/person/9", "nome": "A"})
+    assert c["oportunidade"]["ego_lead_id"] == 7 and c["contacto"]["ego_person_id"] == 9, c
 
     print("mapping_todas_colunas OK")
 

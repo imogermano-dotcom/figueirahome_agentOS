@@ -27,5 +27,5 @@ def test_linha_de_oportunidade_so_leva_o_que_a_api_da():
          "assignToSecurityUserNames": ["A", "B"]}
     l = linha_de_oportunidade(o)
     assert l["oportunidade_estado"] == "Ativa" and l["tipo_oportunidade"] == "Venda" and l["origem"] == "Outros"
-    assert l["responsavel"] == "A, B" and l["data_criacao_iso"] == "2026-10-21" and l["url"].endswith("/Leads/7")
+    assert l["responsavel"] == "A, B" and l["data_criacao_iso"] == "2026-10-21" and l["url"].endswith("/Leads/7") and l["ego_lead_id"] == 7
     assert "cliente_telefone" not in l and "cliente_email" not in l and "contacto_id" not in l

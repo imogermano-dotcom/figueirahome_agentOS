@@ -70,6 +70,7 @@ def linha_de_oportunidade(o: dict) -> dict:
         "ego_data_criacao": criada,
         "ego_editado_em": editada,
         "url": f"https://admin.egorealestate.com/egocore/Leads/{o['id']}",
+        "ego_lead_id": o["id"],
         "origem_lista": "todas_as_colunas",
         "agencia": "FIGUEIRAHOME",
     }
