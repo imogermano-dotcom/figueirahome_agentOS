@@ -149,6 +149,41 @@ def ligar_contactos(api: list[dict], refs: list[str]) -> dict:
     return out
 
 
+def pares_do_historico(api: list[dict], bd: dict[int, dict], por_pessoa: dict[int, str]) -> list[dict]:
+    """Pedido #4, etapa 2. Liga `contacto_id` só onde está vazio: a pessoa da oportunidade (`ownerId` na Angariação,
+    `potencialClientId` nas outras) é o `ego_person_id` de um contacto. Nunca muda um `contacto_id` existente."""
+    pares = []
+    for o in api:
+        b = bd.get(o["id"])
+        if not b or b["contacto_id"]:
+            continue
+        a, c = o.get("potencialClientId"), o.get("ownerId")
+        pessoa = (c or a) if o["name"].startswith("CAP") else (a or c)
+        if pessoa in por_pessoa:
+            pares.append({"oportunidade_ref": o["name"], "contacto_id": por_pessoa[pessoa], "contacto_match": "ego_link"})
+    return pares
+
+
+def ligar_historico(api: list[dict], gravar: bool = False) -> dict:
+    from app.db.supabase_client import get_supabase
+    sb, por_pessoa, bd = get_supabase(), {}, {}
+    for tabela, cols, destino, chave in (("contactos", "id,ego_person_id", por_pessoa, "ego_person_id"), ("oportunidades", "ego_lead_id,contacto_id", bd, "ego_lead_id")):
+        i = 0
+        while True:
+            lote = sb.table(tabela).select(cols).not_.is_(chave, "null").order(chave).range(i, i + 999).execute().data
+            for x in lote:
+                destino[x[chave]] = x["id"] if tabela == "contactos" else x
+            i += 1000
+            if len(lote) < 1000:
+                break
+    pares = pares_do_historico(api, bd, por_pessoa)
+    out = {"candidatas": len(pares), "gravado": False}
+    if gravar and pares:
+        out["rpc"], out["gravado"] = sb.rpc("set_contacto_oportunidades", {"pares": pares}).execute().data, True
+        sb.table("agente_sync_log").insert({"tipo": "egorealestate_oportunidades_api", "origem": "manual", "resumo": {"contacto_id_historico": len(pares), "refs": [p["oportunidade_ref"] for p in pares]}}).execute()
+    return out
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     from app.integrations import ego_api
@@ -156,6 +191,9 @@ if __name__ == "__main__":
     if "--gravar" in sys.argv:
         res = gravar(api, db)
         print(len(res["inseridas"]), "inseridas;", len(res["erros"]), "erros", res["erros"])
+        sys.exit()
+    if "--historico" in sys.argv:  # dry-run por omissão; --gravar escreve
+        print(ligar_historico(api, "--gravar" in sys.argv))
         sys.exit()
     if "--ligar" in sys.argv:
         from app.db.supabase_client import get_supabase
