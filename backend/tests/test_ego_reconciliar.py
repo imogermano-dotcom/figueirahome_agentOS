@@ -43,3 +43,16 @@ def test_pares_do_historico_so_liga_vazios_e_escolhe_a_pessoa_pelo_tipo():
     bd = {i: {"contacto_id": "x" if i == 3 else None} for i in range(1, 6)}
     r = pares_do_historico(api, bd, {10: "cV", 20: "cC"})
     assert [(p["oportunidade_ref"], p["contacto_id"]) for p in r] == [("VEN_1", "cV"), ("CAP_2", "cC")]
+
+
+def test_telefones_a_preencher_contacto_antes_do_proprietario_e_nunca_por_cima():
+    from scripts.ego_api_reconciliar import telefones_a_preencher
+    v = [
+        {"oportunidade_ref": "VEN_1", "contacto_id": "c1", "cliente_telefone": None},
+        {"oportunidade_ref": "CAP_2", "contacto_id": "c1", "cliente_telefone": ""},    # contacto ganha ao proprietário
+        {"oportunidade_ref": "CAP_3", "contacto_id": None, "cliente_telefone": None},  # proprietário
+        {"oportunidade_ref": "VEN_4", "contacto_id": "c1", "cliente_telefone": "911"},  # já tem
+        {"oportunidade_ref": "VEN_5", "contacto_id": "c9", "cliente_telefone": None},  # contacto sem telefone
+    ]
+    r = telefones_a_preencher(v, {"c1": "912"}, {7: "913"}, {"CAP_2": 7, "CAP_3": 7})
+    assert r == {"VEN_1": ("912", "contacto"), "CAP_2": ("912", "contacto"), "CAP_3": ("913", "proprietario")}

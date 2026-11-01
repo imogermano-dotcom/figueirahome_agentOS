@@ -184,10 +184,63 @@ def ligar_historico(api: list[dict], gravar: bool = False) -> dict:
     return out
 
 
+def telefones_a_preencher(vazias: list[dict], tel_contacto: dict[str, str], tel_dono: dict[int, str], dono_de: dict[str, int]) -> dict[str, tuple[str, str]]:
+    """Pedido #4, etapa 2 (H3). Telefone das oportunidades SEM `cliente_telefone`: do contacto ligado, ou (Angariação) do proprietário.
+    Devolve {ref: (telefone, fonte)}. Nunca devolve uma oportunidade que já tem telefone."""
+    r = {}
+    for o in vazias:
+        ref = o["oportunidade_ref"]
+        if (o.get("cliente_telefone") or "").strip():
+            continue
+        if t := tel_contacto.get(o.get("contacto_id") or ""):
+            r[ref] = (t, "contacto")
+        elif t := tel_dono.get(dono_de.get(ref) or 0):
+            r[ref] = (t, "proprietario")
+    return r
+
+
+def preencher_telefones(gravar: bool = False) -> dict:
+    from app.db.supabase_client import get_supabase
+    sb, vazias, i = get_supabase(), [], 0
+    while True:
+        l = sb.table("oportunidades").select("oportunidade_ref,ego_lead_id,contacto_id,cliente_telefone").order("oportunidade_ref").range(i, i + 999).execute().data
+        vazias += [x for x in l if not (x["cliente_telefone"] or "").strip()]
+        i += 1000
+        if len(l) < 1000:
+            break
+    ids, tel_contacto = sorted({x["contacto_id"] for x in vazias if x["contacto_id"]}), {}
+    for j in range(0, len(ids), 100):
+        for c in sb.table("contactos").select("id,telefone,telemovel").in_("id", ids[j:j + 100]).execute().data:
+            if t := (c["telemovel"] or c["telefone"] or "").strip():
+                tel_contacto[c["id"]] = t
+    # proprietário só para as Angariações que o contacto não resolve
+    ainda = [x for x in vazias if x["oportunidade_ref"].startswith("CAP") and x["contacto_id"] not in tel_contacto]
+    from app.integrations import ego_api
+    api = {o["id"]: o for o in ego_api.oportunidades_ativas() + ego_api.oportunidades_arquivadas()}
+    dono_de = {x["oportunidade_ref"]: api[x["ego_lead_id"]].get("ownerId") for x in ainda if x["ego_lead_id"] in api}
+    tel_dono = {}
+    for ow in sorted({v for v in dono_de.values() if v}):
+        if t := next((c["contact"] for c in ego_api.contactos_da_entidade(ow) if c.get("personalContactTypeId") == 2 and c.get("contact")), None):
+            tel_dono[ow] = t
+    novos = telefones_a_preencher(vazias, tel_contacto, tel_dono, dono_de)
+    out = {"candidatas": len(novos), "do_contacto": sum(1 for _, f in novos.values() if f == "contacto"),
+           "do_proprietario": sum(1 for _, f in novos.values() if f == "proprietario"), "gravado": False}
+    if gravar and novos:
+        feitas = 0
+        for ref, (t, _) in novos.items():  # só onde continua vazio (nunca por cima)
+            feitas += len(sb.table("oportunidades").update({"cliente_telefone": t}).eq("oportunidade_ref", ref).or_("cliente_telefone.is.null,cliente_telefone.eq.").execute().data)
+        out["gravadas"], out["gravado"] = feitas, True
+        sb.table("agente_sync_log").insert({"tipo": "egorealestate_oportunidades_api", "origem": "manual", "resumo": {"telefones_historico": out, "refs": list(novos)}}).execute()
+    return out
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     from app.integrations import ego_api
     api, db = ego_api.oportunidades_ativas(), _ler_db()
+    if "--telefones" in sys.argv:  # dry-run por omissão; --gravar escreve
+        print(preencher_telefones("--gravar" in sys.argv))
+        sys.exit()
     if "--historico" in sys.argv:  # dry-run por omissão; --gravar escreve
         print(ligar_historico(ego_api.oportunidades_arquivadas() if "--arquivadas" in sys.argv else api, "--gravar" in sys.argv))
         sys.exit()

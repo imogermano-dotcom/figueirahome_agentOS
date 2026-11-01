@@ -236,6 +236,19 @@ def um_por_referencia(imoveis: list[dict]) -> dict[str, dict]:
     return por_ref
 
 
+def contactos_da_entidade(entity_id: int, tentativas: int = 6) -> list[dict]:
+    """`personalContacts` de uma pessoa (`GetEntity`). Dá HTTP 429 ao fim de umas dezenas de pedidos (`retry_after_seconds` 60):
+    espera e repete. `personalContactTypeId` 2 = telefone (pedido #4)."""
+    for i in range(tentativas):
+        try:
+            return (_pedido("GET", "/entity/Entity/GetEntity", params={"entityId": entity_id}) or {}).get("personalContacts") or []
+        except EgoApiErro as e:
+            if "429" not in str(e) or i == tentativas - 1:
+                raise
+            time.sleep(60)
+    return []
+
+
 def oportunidades_arquivadas(por_pagina: int = 500) -> list[dict]:
     """Oportunidades ARQUIVADAS (`leadArchived: 1`), paginadas: numa só página a resposta vem cortada. 18 974 a 01/11.
     Levanta se vierem menos linhas do que o `totalRows` (agir sobre dados parciais seria enganador)."""
