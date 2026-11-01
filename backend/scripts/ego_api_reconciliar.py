@@ -188,12 +188,12 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     from app.integrations import ego_api
     api, db = ego_api.oportunidades_ativas(), _ler_db()
+    if "--historico" in sys.argv:  # dry-run por omissão; --gravar escreve
+        print(ligar_historico(ego_api.oportunidades_arquivadas() if "--arquivadas" in sys.argv else api, "--gravar" in sys.argv))
+        sys.exit()
     if "--gravar" in sys.argv:
         res = gravar(api, db)
         print(len(res["inseridas"]), "inseridas;", len(res["erros"]), "erros", res["erros"])
-        sys.exit()
-    if "--historico" in sys.argv:  # dry-run por omissão; --gravar escreve
-        print(ligar_historico(ego_api.oportunidades_arquivadas() if "--arquivadas" in sys.argv else api, "--gravar" in sys.argv))
         sys.exit()
     if "--ligar" in sys.argv:
         from app.db.supabase_client import get_supabase
