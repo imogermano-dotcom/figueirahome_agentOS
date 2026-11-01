@@ -242,10 +242,10 @@ def contactos_da_entidade(entity_id: int, tentativas: int = 6) -> list[dict]:
     for i in range(tentativas):
         try:
             return (_pedido("GET", "/entity/Entity/GetEntity", params={"entityId": entity_id}) or {}).get("personalContacts") or []
-        except EgoApiErro as e:
-            if "429" not in str(e) or i == tentativas - 1:
+        except (EgoApiErro, httpx.TransportError) as e:  # 429 (espera 60 s) ou ligação fechada pelo eGO (espera 5 s)
+            if i == tentativas - 1 or (isinstance(e, EgoApiErro) and "429" not in str(e)):
                 raise
-            time.sleep(60)
+            time.sleep(60 if isinstance(e, EgoApiErro) else 5)
     return []
 
 
