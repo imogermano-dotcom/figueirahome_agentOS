@@ -182,9 +182,16 @@ _PEDIDO_INFO = re.compile(
     r"propost\w*|interess\w*|ligar|liguem|telefon\w*)\b", re.I)
 
 
+_NEGACAO = re.compile(r"\b(n[ãa]o|nunca|sem|deixei)\b", re.I)
+
+
 def e_pedido_de_informacao(texto: str | None) -> bool:
     texto = texto or ""
-    return bool(_PEDIDO_INFO.search(texto)) and not e_recusa(texto) and not e_optout_explicito(texto)
+    termos = [m.group(0).lower() for m in _PEDIDO_INFO.finditer(texto)]
+    if not termos or e_recusa(texto) or e_optout_explicito(texto):
+        return False
+    # «Já não tou interessado» (01/11: criou uma lead a quem disse que não): só «interess…» + negação não é pedido.
+    return not (_NEGACAO.search(texto) and all(t.startswith("interess") for t in termos))
 
 
 def marcar_interesse_real(telefone: str | None, motivo: str, resumo: str | None) -> bool:

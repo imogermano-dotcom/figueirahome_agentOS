@@ -347,6 +347,8 @@ if __name__ == "__main__":
     ("Onde fica o imóvel?", True), ("Tem fotos?", True), ("Está disponível para alugar?", True),
     ("Sim", False), ("Bom dia", False), ("Obrigado.", False), ("Arrendar", False), ("Preciso de um T2 eu e um amigo", False),
     ("Não tenho interesse", False), ("Já não preciso, obrigado", False), ("não me contactem mais", False), ("", False), (None, False),
+    ("Já não tou interessado obrigado", False), ("Sem interesse, obrigado", False), ("Não estou interessada", False),
+    ("Não sei o preço, pode dizer?", True),  # negação com pedido real continua a contar
 ])
 def test_pedido_de_informacao(texto, pede):
     assert guards.e_pedido_de_informacao(texto) is pede
