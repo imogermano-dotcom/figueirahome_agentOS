@@ -271,13 +271,16 @@ def preencher_responsavel_meta() -> dict:
         sb = get_supabase()
         vazio = "responsavel.is.null,responsavel.eq."
         leads = sb.table("leads").select("id,meta_lead_id,imovel_ref").not_.is_("meta_lead_id", "null").not_.is_("imovel_ref", "null").or_(vazio).limit(200).execute().data or []
-        contactos = (sb.table("contactos").select("id,meta_lead_id").not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
+        contactos = (sb.table("contactos").select("id,meta_lead_id,imovel_ref").not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
                      .or_(vazio).limit(200).execute().data or [])
         ref_da_lead = {l["meta_lead_id"]: l["imovel_ref"] for l in leads}
         falta = [c["meta_lead_id"] for c in contactos if c["meta_lead_id"] not in ref_da_lead]
         for i in range(0, len(falta), 100):
             for l in sb.table("leads").select("meta_lead_id,imovel_ref").in_("meta_lead_id", falta[i:i + 100]).execute().data or []:
                 ref_da_lead[l["meta_lead_id"]] = l["imovel_ref"]
+        for c in contactos:  # contacto sem linha em `leads` (formulários, importações): vale o `imovel_ref` dele
+            if not ref_da_lead.get(c["meta_lead_id"]) and c.get("imovel_ref"):
+                ref_da_lead[c["meta_lead_id"]] = c["imovel_ref"]
         refs = {r for r in ref_da_lead.values() if r}
         refs |= {(re.match(r"[A-Za-z]*\d+", r) or [""])[0].upper() for r in refs}
         por_ref: dict[str, str] = {}
