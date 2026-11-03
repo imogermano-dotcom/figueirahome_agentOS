@@ -375,3 +375,45 @@ def test_angariador_do_imovel_para_o_responsavel_da_tarefa(monkeypatch):
     assert tools._angariador_do_imovel("FH0000") is None
     monkeypatch.setattr(tools, "get_supabase", lambda: _SB([{"angariador": ""}]))
     assert tools._angariador_do_imovel("FH0000") is None
+
+
+# ── quem pede arrendamento a partir de um anúncio de venda (03/11): a lead sai, com o aviso ────────────────────────
+
+_ARRENDAR_TEXTOS = ["Boa noite gostaria de saber o valor", "Ok e para arrendamento tem alguma coisa ?", "Figueira da foz ou Buarcos"]
+
+
+def test_deteta_quem_fala_em_arrendar():
+    assert lp.procura_arrendar(_ARRENDAR_TEXTOS)
+    assert not lp.procura_arrendar(["Quanto custa?", "Quero visitar a casa"])
+
+
+def test_observacao_diz_que_quer_arrendar_e_o_que_disse():
+    o = lp.observacao_da_lead(_linha(interesse_real_em=ISO(1), interesse_real_motivo="pedido de informação do imóvel",
+                                     interesse_real_resumo="Boa noite gostaria de saber o valor", procura_arrendar=True,
+                                     conversa_resumo=lp.resumo_da_conversa(_ARRENDAR_TEXTOS)), com_imovel=True)
+    assert lp.AVISO_ARRENDAR in o and "Disse: " in o and "arrendamento tem alguma coisa" in o
+    assert o.index(lp.AVISO_ARRENDAR) < o.index("Contactar por telefone")
+
+
+def test_observacao_sem_arrendar_nao_leva_aviso():
+    o = lp.observacao_da_lead(_linha(interesse_real_em=ISO(1), interesse_real_resumo="Pediu visita."), com_imovel=True)
+    assert "ARRENDAR" not in o
+
+
+def test_cron_cria_a_lead_de_quem_pede_arrendamento_com_o_aviso(monkeypatch):
+    _ligado(monkeypatch)
+    monkeypatch.setattr(lp, "_conversa_do", lambda tel: (AGORA, list(_ARRENDAR_TEXTOS)))
+    bd = _BD([_interessada()])
+    corpos = []
+    _usa(monkeypatch, bd, lambda nome, email, tel, obs, ego_id: corpos.append(obs) or "555")
+    assert lp.processar(AGORA)["criadas"] == 1
+    assert lp.AVISO_ARRENDAR in corpos[0] and "Disse: " in corpos[0]
+
+
+def test_cron_nao_para_se_a_conversa_falhar(monkeypatch):
+    _ligado(monkeypatch)
+    monkeypatch.setattr(lp, "_conversa_do", lambda tel: (_ for _ in ()).throw(RuntimeError("bd em baixo")))
+    bd = _BD([_interessada()])
+    corpos = []
+    _usa(monkeypatch, bd, lambda nome, email, tel, obs, ego_id: corpos.append(obs) or "555")
+    assert lp.processar(AGORA)["criadas"] == 1 and "ARRENDAR" not in corpos[0]

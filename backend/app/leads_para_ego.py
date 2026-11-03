@@ -82,6 +82,10 @@ def observacao_da_lead(linha: dict, com_imovel: bool, recusou: bool = False, ja_
         obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads",
                "recusou o WhatsApp: contactar por telefone, nunca por WhatsApp." if recusou
                else "sem resposta ao WhatsApp da Matilde."]
+    if linha.get("procura_arrendar"):
+        obs.insert(2, AVISO_ARRENDAR)
+        if linha.get("conversa_resumo"):  # interesse real: o resumo só tem as frases que bateram no detetor
+            obs.insert(3, f"Disse: {linha['conversa_resumo']}")
     if ja_conhecido:
         obs.append("Contacto já existente no eGO.")
     if linha.get("imovel_ref") and not com_imovel:
@@ -198,7 +202,7 @@ def _candidatas_interesse() -> list[dict]:
         .not_.is_("interesse_real_em", "null").is_("ego_lead_em", "null")
         .gte("meta_created_at", settings.lead_compra_ego_desde).order("interesse_real_em").limit(LIMITE_POR_VOLTA).execute()
     )
-    return [l for l in resp.data or [] if not l.get("ego_lead_em")]
+    return [_com_conversa(l) for l in resp.data or [] if not l.get("ego_lead_em")]
 
 
 def _conversa_do(telefone: str) -> tuple[datetime | None, list[str]]:
@@ -218,6 +222,28 @@ def _conversa_do(telefone: str) -> tuple[datetime | None, list[str]]:
 def resumo_da_conversa(textos: list[str]) -> str:
     """As últimas 3 coisas que a pessoa escreveu, cada uma cortada. Sem a conversa inteira (vai para o OBS do eGO)."""
     return " | ".join(" ".join(t.split())[:160] for t in textos[-3:] if t.strip())[:_MAX_RESUMO_OBS]
+
+
+# Os anúncios são de venda e muita gente pergunta por arrendamento (4 de 5 conversas a 03/11): o OBS diz-o à consultora.
+_ARRENDAR = re.compile(r"\b(arrend\w*|alug\w*|renda)\b", re.I)
+AVISO_ARRENDAR = "Atenção: falou em ARRENDAR (o imóvel do anúncio está à venda): confirmar se quer comprar ou arrendar."
+
+
+def procura_arrendar(textos: list[str]) -> bool:
+    return any(_ARRENDAR.search(t) for t in textos)
+
+
+def _com_conversa(linha: dict) -> dict:
+    """Se a pessoa falou em arrendar, junta à linha o aviso e o que disse (últimas 3 mensagens). Nunca levanta."""
+    try:
+        tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
+        _, textos = _conversa_do(tel) if tel else (None, [])
+    except Exception:
+        logger.exception("Falha a ler a conversa da lead %s", linha.get("id"))
+        return linha
+    if not procura_arrendar(textos):
+        return linha
+    return linha | {"procura_arrendar": True, "conversa_resumo": resumo_da_conversa(textos)}
 
 
 def _no_piloto(tel: str) -> bool:
@@ -250,7 +276,7 @@ def _candidatas_paradas(agora: datetime) -> list[dict]:
         if textos and (e_fecho_da_pessoa(textos[-1]) or any(e_recusa(t) for t in textos[-3:])):
             continue  # despediu-se («obrigado 🤩», «até breve») ou recusou numa das últimas 3 mensagens («do momento não tenho»)
         if ultima and ultima <= agora - timedelta(hours=JANELA_PARADA_HORAS):
-            paradas.append(l | {"conversa_parada_resumo": resumo_da_conversa(textos)})
+            paradas.append(l | {"conversa_parada_resumo": resumo_da_conversa(textos), "procura_arrendar": procura_arrendar(textos)})
     return paradas[:LIMITE_POR_VOLTA]
 
 
