@@ -238,3 +238,10 @@ Medido contra a API real: com o filtro antigo `missing = 66`, com o novo `0`.
 - **A tarefa «passar ao eGO» fecha-se por código, na marca `ego_lead_em`**, não à mão: é o único sítio onde se sabe que a lead entrou no eGO (cron, recusa, «já existia»). Chave = título, como o dedup de 24 h; limite conhecido: homónimos sem telefone partilham o fecho (então, `contacto_id` em `agente_tarefas`).
 - **Janela de 7 dias no resumo**, porque ninguém fecha as `escalar` (recrutamento tem ~75 de outubro): sem limite repetiam-se para sempre. As mais antigas ficam contadas numa linha, não escondidas.
 
+## Vigia das leads da Meta (03/11)
+
+- **A fonte de verdade das leads é a Meta, por contagem, não por ids.** Não há acesso à página (só à conta de anúncios), e a Marketing API da conta dá as leads por dia. Compara-se com `contactos.meta_created_at` em hora de Lisboa; a 03/11 os 3 dias completos bateram certo (10/15/11) e só 31/10 diferiu em 1 (por explicar). Um heartbeat «sem leads há N horas» ficou de fora: as leads chegam em rajadas e há intervalos normais de 3 h.
+- **Só avisa quando a Meta tem MAIS, em duas verificações seguidas.** Uma lead recém-chegada ainda vem a caminho; o Supabase a mais (recrutamento, formulários do site) não é falta. Não repete o mesmo aviso em 12 h. Limite conhecido: leads de outras campanhas da mesma conta mascaram uma falta de compradores.
+- **`time_range` de anteontem a hoje, nunca `date_preset=last_3d`:** o `last_3d` da Meta exclui o dia corrente, que é o dia em que uma falha está a acontecer.
+- **O fluxo não reinjeta leads sozinho:** reprocessar pelo webhook cria contacto, envia template e pode repetir email/criação no eGO no ramo da recusa. Reinjeção manual até haver ids.
+

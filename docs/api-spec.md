@@ -91,6 +91,12 @@ semeada devolve `ja_existia: true` sem tocar na conversa.
 O **Make escreve em `leads` directamente pelo PostgREST** — não há endpoint de
 ingestão.
 
+### Vigia das leads da Meta (implementado 2026-11-03 — `api/leads_vigia.py`, `vigia_leads.py`)
+
+```
+POST /api/leads/meta/reconciliar   (n8n, X-N8N-Secret) body {"dias": {"AAAA-MM-DD": n}} (1–7 dias) → {meta, supabase, diferencas, confirmadas, avisou}; ?dry=1 compara sem registar nem avisar
+```
+
 ### Tarefas dos agentes por tratar (implementado 2026-11-03 — `api/tarefas_resumo.py`)
 
 ```

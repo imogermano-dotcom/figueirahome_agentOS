@@ -1,6 +1,6 @@
 # Vigia das leads da Meta — plano (03/11/2026)
 
-> Estado: **plano, nada implementado.** Pedido do utilizador depois do incidente de 02–03/11.
+> Estado: **Fase 1 implementada e ativa a 03/11** (`b924f1b`; fluxo n8n `v03lokXyOY0r7JWO`), mas **por contagens da conta de anúncios** (sem acesso à página, não há ids): ver `docs/decisoes.md`. Fase 2 (opt-in sem template e comprador sem lead no eGO) por fazer. 1.º aviso real por ver.
 
 ## Incidente que motiva isto
 

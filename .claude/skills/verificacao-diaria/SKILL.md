@@ -49,6 +49,7 @@ Passos:
 - `falhou` com `whatsapp_erro_codigo` 131026: número sem WhatsApp, não é erro nosso.
 - `eGO` muito abaixo de `n`: ver se são leads fora das 9h–20h (a rede `meta-leads-rede` cria-as depois) ou sem consultora (nunca se cria sem responsável).
 - `sem_resp` > 0: lead sem consultora, não aparece no eGO.
+- **Vigia das leads da Meta:** o fluxo n8n «Vigia leads Meta» (`v03lokXyOY0r7JWO`) tem de ter corrido há menos de 45 min e estar ativo. Em `agente_sync_log`, `vigia_leads_meta` (cada verificação) e `vigia_leads_alerta` (avisos enviados). Se a Meta tem mais leads do que o Supabase num dia (`diferencas`), ver o Make (cenário ligado?) e as execuções do webhook; **um cenário do Make desligado não deixa rasto no n8n**.
 - Cruzar com o n8n: leads a entrar e execuções do webhook devem bater.
 
 ## Passo 3 — Conversas dos agentes
