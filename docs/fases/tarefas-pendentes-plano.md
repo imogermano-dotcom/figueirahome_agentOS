@@ -1,6 +1,6 @@
 # Tarefas dos agentes que ninguém vê — plano (03/11/2026)
 
-> Estado: **plano, nada implementado.** Pedido do utilizador depois da verificação diária de 03/11.
+> Estado: **implementado e em produção a 03/11** (Parte A `73011cc`, Parte B `be16e23`, cron ligado `381d814`; decisões 1–3 = valores propostos, destinatário só o Miguel). Limpeza do histórico (A.4) aplicada: 6 tarefas fechadas. 1.º envio do resumo a 04/11, por ver.
 
 ## Problema
 

@@ -91,6 +91,12 @@ semeada devolve `ja_existia: true` sem tocar na conversa.
 O **Make escreve em `leads` directamente pelo PostgREST** — não há endpoint de
 ingestão.
 
+### Tarefas dos agentes por tratar (implementado 2026-11-03 — `api/tarefas_resumo.py`)
+
+```
+POST /api/tarefas/pendentes/resumo   (cron, X-Automacao-Secret) escalar/visita/lead_ego pendentes entre 12 h e 7 dias → email aos notificacoes_para; ?dry=1 devolve o texto sem enviar
+```
+
 ### Dashboard
 ```
 GET  /api/dashboard
