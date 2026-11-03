@@ -136,6 +136,23 @@
         }
     },
     {
+        "name": "resumo-tarefas-pendentes",
+        "app_name": "figueirahome-crons",
+        "schedule": "7 9 * * *",
+        "region": "ams",
+        "command": "sh -c \"curl -sf -X POST https://figueirahome-agentos.fly.dev/api/tarefas/pendentes/resumo -H \\\"X-Automacao-Secret: $AUTOMACAO_SECRET\\\" -w '\\ntempo total: %{time_total}s\\n' --max-time 60\"",
+        "command_timeout": 90,
+        "enabled": false,
+        "config": {
+            "metadata": { "fly_process_group": "cron" },
+            "auto_destroy": true,
+            "disable_machine_autostart": true,
+            "guest": { "cpu_kind": "shared", "cpus": 1, "memory_mb": 256 },
+            "image": "docker-hub-mirror.fly.io/curlimages/curl:latest",
+            "restart": { "max_retries": 1, "policy": "no" }
+        }
+    },
+    {
         "name": "leads-compra-para-ego",
         "app_name": "figueirahome-crons",
         "schedule": "*/10 * * * *",
