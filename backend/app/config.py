@@ -67,6 +67,11 @@ class Settings(BaseSettings):
     # disparar syncs do eGO, e rodar um não obriga a rodar o outro.
     automacao_secret: str = ""
     n8n_secret: str = ""  # header X-N8N-Secret: só abre os endpoints que o n8n chama (`require_n8n_access`)
+    # só para scripts locais (`scripts/n8n_execucoes.py`): o .env aceita-os, a app não os usa
+    n8n_url: str = ""
+    n8n_api_key: str = ""
+    n8n_basic_user: str = ""
+    n8n_basic_pass: str = ""
 
     # UptimeRobot — chave read-only, só getMonitors. O nosso próprio cron de
     # uptime foi desactivado 23/09 (redundante, o utilizador já tinha isto).
