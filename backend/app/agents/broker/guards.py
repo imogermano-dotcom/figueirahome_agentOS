@@ -326,6 +326,8 @@ def _promover_lead(
         return
     supabase.table("agente_tarefas").insert({
         "titulo": titulo,
+        "tipo": "lead_ego",  # o cron `leads-compra-para-ego` fecha-a quando a lead entra no eGO
+        "agente": agente,
         "descricao": (
             f"{'Lead da Meta' if lead.get('origem') == 'meta' else 'Lead'} "
             "qualificada pelo assistente "

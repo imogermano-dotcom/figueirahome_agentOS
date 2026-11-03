@@ -63,6 +63,7 @@ class _BD:
 
     def __init__(self, contactos, oportunidade=False):
         self.contactos, self.oportunidade, self.updates, self._t, self._upd = contactos, oportunidade, [], None, None
+        self.tarefas_fechadas = []  # títulos pedidos ao `in_` do update em `agente_tarefas`
 
     def table(self, nome):
         self._t, self._upd = nome, None
@@ -77,8 +78,13 @@ class _BD:
         self._upd = valores
         return self
 
+    def in_(self, _, valores):
+        if self._t == "agente_tarefas":
+            self.tarefas_fechadas.append((self._upd, list(valores)))
+        return self
+
     def eq(self, _, valor):
-        if self._upd is not None:
+        if self._upd is not None and self._t != "agente_tarefas":
             self.updates.append((valor, self._upd))
         return self
 
@@ -123,6 +129,31 @@ def test_cria_e_marca(monkeypatch):
     r = lp.processar(AGORA)
     assert (r["criadas"], r["erros"]) == (1, 0)
     assert bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat(), "ego_lead_id": 555})]
+
+
+def test_cria_e_fecha_a_tarefa_passar_ao_eGO(monkeypatch):
+    bd = _BD([_linha()])
+    _usa(monkeypatch, bd, lambda *a: "555")
+    lp.processar(AGORA)
+    (valores, titulos), = bd.tarefas_fechadas
+    assert valores["estado"] == "concluida"
+    prefixo = f"{lp._TAREFA_QUALIFICADA} — "
+    assert {prefixo + "Teste", prefixo + "t@example.com", prefixo + "912345678", prefixo + "351912345678"} <= set(titulos)
+
+
+def test_lead_ja_na_caixa_tambem_fecha_a_tarefa(monkeypatch):
+    bd = _BD([_linha()])
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"), leads=[{"phone": "+351912345678"}])
+    lp.processar(AGORA)
+    assert len(bd.tarefas_fechadas) == 1
+
+
+def test_falha_a_fechar_a_tarefa_nao_desfaz_a_marca(monkeypatch):
+    bd = _BD([_linha()])
+    _usa(monkeypatch, bd, lambda *a: "555")
+    bd.in_ = lambda *a: (_ for _ in ()).throw(RuntimeError("bd em baixo"))
+    r = lp.processar(AGORA)
+    assert (r["criadas"], r["erros"]) == (1, 0) and len(bd.updates) == 1
 
 
 def test_pessoa_com_oportunidade_ativa_nao_cria_mas_marca(monkeypatch):

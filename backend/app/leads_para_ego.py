@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app.agents.broker.guards import e_fecho_da_pessoa, e_recusa, normalizar_telefone, variantes_telefone
+from app.agents.broker.guards import _TAREFA_QUALIFICADA, e_fecho_da_pessoa, e_recusa, normalizar_telefone, variantes_telefone
 from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.integrations import ego_api, egorealestate
@@ -302,6 +302,31 @@ def preencher_responsavel_meta() -> dict:
     return feitas
 
 
+def titulos_da_tarefa(linha: dict) -> list[str]:
+    """Títulos que `guards._promover_lead` pode ter dado à tarefa «passar ao eGO» desta pessoa (nome, telefone ou email)."""
+    quem = {linha.get("nome"), linha.get("email")}
+    for campo in ("telefone", "telemovel"):
+        tel = normalizar_telefone(linha.get(campo))
+        quem |= {linha.get(campo), *(variantes_telefone(tel) if tel else ())}
+    return [f"{_TAREFA_QUALIFICADA} — {q}" for q in quem if q]
+
+
+def fechar_tarefas_da_lead(linha: dict) -> None:
+    """A lead já está no eGO: a tarefa «passar ao eGO» (`tipo='lead_ego'`) deixa de fazer sentido. Nunca levanta.
+
+    Chave = título. ponytail: duas pessoas com o mesmo nome e sem telefone partilham o fecho; se acontecer,
+    `contacto_id` em `agente_tarefas`."""
+    titulos = titulos_da_tarefa(linha)
+    if not titulos:
+        return
+    try:
+        (get_supabase().table("agente_tarefas")
+         .update({"estado": "concluida", "atualizado_em": datetime.now(timezone.utc).isoformat()})
+         .eq("tipo", "lead_ego").eq("estado", "pendente").in_("titulo", titulos).execute())
+    except Exception:
+        logger.exception("Falha a fechar a tarefa da lead %s", linha.get("id"))
+
+
 def processar(agora: datetime | None = None) -> dict:
     """Uma volta do cron. Falha da API deixa a lead por marcar (a próxima volta repete)."""
     if not settings.lead_compra_ego_desde:
@@ -339,6 +364,7 @@ def processar(agora: datetime | None = None) -> dict:
                     marca["ego_lead_id"] = ident
                 contagem["criadas"] += 1
             get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
+            fechar_tarefas_da_lead(linha)
         except SemConsultora as e:
             logger.warning("Lead %s não criada: %s", linha["id"], e)
             contagem["erros"] += 1
@@ -433,5 +459,6 @@ def recusou_whatsapp(meta_lead_id: str, imovel_ref: str | None = None) -> dict |
     if linha.get("imovel_ref"):
         marca["imovel_ref"] = linha["imovel_ref"]  # fica para os follow-ups e para quem ler o contacto
     get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
+    fechar_tarefas_da_lead(linha)
     return {"resultado": resultado, "criada": resultado == "criada", "verificado_no_ego": verificado,
             "responsavel": responsavel, "email_responsavel": _email_do_responsavel(responsavel)}
