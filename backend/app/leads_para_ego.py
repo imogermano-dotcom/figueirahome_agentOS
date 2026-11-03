@@ -29,6 +29,8 @@ _SUBORIGEM_FACEBOOK_CAMPANHA = 34798477
 _TIPO_PEDIDO_DE_INFORMACAO = 4
 _MASTER_VENDA = 2
 _MAX_RESUMO_OBS = 600  # do resumo da conversa que vai no OBS da lead
+_MAX_RESPOSTAS_OBS = 900  # do bloco «Respostas da pessoa» (as mais recentes; o pedido inicial fica sempre)
+_PERGUNTA_OBS, _RESPOSTA_OBS = 140, 200  # por pergunta da Matilde e por resposta da pessoa
 IDADE_MAX_PARADA_DIAS = 14  # só se olha para as que entraram há menos tempo (cada uma custa uma consulta por volta)
 JANELA_PARADA_HORAS = 4  # conversa sem mensagens (nem o lembrete) há este tempo: a pessoa já não vai responder
 
@@ -84,8 +86,8 @@ def observacao_da_lead(linha: dict, com_imovel: bool, recusou: bool = False, ja_
                else "sem resposta ao WhatsApp da Matilde."]
     if linha.get("procura_arrendar"):
         obs.insert(2, AVISO_ARRENDAR)
-        if linha.get("conversa_resumo"):  # interesse real: o resumo só tem as frases que bateram no detetor
-            obs.insert(3, f"Disse: {linha['conversa_resumo']}")
+    if linha.get("respostas_da_pessoa"):
+        obs.append(f"Respostas da pessoa: {linha['respostas_da_pessoa']}")
     if ja_conhecido:
         obs.append("Contacto já existente no eGO.")
     if linha.get("imovel_ref") and not com_imovel:
@@ -202,7 +204,7 @@ def _candidatas_interesse() -> list[dict]:
         .not_.is_("interesse_real_em", "null").is_("ego_lead_em", "null")
         .gte("meta_created_at", settings.lead_compra_ego_desde).order("interesse_real_em").limit(LIMITE_POR_VOLTA).execute()
     )
-    return [_com_conversa(l) for l in resp.data or [] if not l.get("ego_lead_em")]
+    return [l for l in resp.data or [] if not l.get("ego_lead_em")]
 
 
 def _conversa_do(telefone: str) -> tuple[datetime | None, list[str]]:
@@ -233,17 +235,87 @@ def procura_arrendar(textos: list[str]) -> bool:
     return any(_ARRENDAR.search(t) for t in textos)
 
 
+def _mensagens_do(telefone: str) -> list[dict]:
+    """Mensagens (as duas partes) da conversa de WhatsApp deste número."""
+    resp = (
+        get_supabase().table("agente_conversas").select("mensagens")
+        .eq("canal", "whatsapp").in_("participante", variantes_telefone(telefone))
+        .order("atualizado_em", desc=True).limit(1).execute()
+    )
+    return (resp.data[0].get("mensagens") if resp.data else None) or []
+
+
+_FRASE_PERGUNTA = re.compile(r"[^.!?\n]*\?")
+
+
+def _perguntas(texto: str) -> str:
+    """As perguntas (até 2) de uma mensagem da Matilde, sem markdown. Vazio se não perguntou nada."""
+    perguntas = [" ".join(re.sub(r"[*_~]", "", f).split()) for f in _FRASE_PERGUNTA.findall(texto)]
+    texto = " ".join(p for p in perguntas if p)
+    if len(texto) > _PERGUNTA_OBS:  # fica com o fim (a pergunta em si), sem começar a meio de uma palavra
+        texto = "…" + texto[-_PERGUNTA_OBS:].split(" ", 1)[-1]
+    return texto
+
+
+# Só cortesia («obrigada pela sua atenção, Deus te abençoe», «feliz noite», «ok»): não diz nada à consultora.
+_CORTESIA = frozenset("""obrigado obrigada obrigados obrigadas muito muita muitissimo muitíssimo tambem também tabem agradecido
+agradecida agradeço pela pelo sua seu atenção atencao aten deus te abençoe bencao bênção bom boa dia noite tarde feliz fim de
+semana ate até logo breve ok certo""".split())
+
+
+def _so_cortesia(texto: str) -> bool:
+    return all(p in _CORTESIA for p in re.findall(r"\w+", texto.lower()))
+
+
+def respostas_da_pessoa(mensagens: list[dict]) -> str:
+    """O que a pessoa respondeu, em pares «pergunta da Matilde → resposta», para a consultora saber o que já foi apurado
+    (orçamento, zona, tipologia…) sem ler a conversa. A 1.ª fala vai como «Pediu»; o que diz sem lhe terem perguntado,
+    como «Disse»; agradecimentos e despedidas ficam de fora. Cabe em `_MAX_RESPOSTAS_OBS`: se não couber, caem as mais antigas.
+    Vazio se a pessoa nunca escreveu. Sem IA: texto dela cortado, nada inventado."""
+    itens: list[str] = []
+    anterior = ""  # texto da última mensagem da Matilde
+    for m in mensagens:
+        texto = m.get("content")
+        if m.get("role") not in ("user", "assistant") or not isinstance(texto, str) or not texto.strip():
+            continue
+        if m["role"] == "assistant":
+            anterior = texto
+            continue
+        resposta = " ".join(texto.split())[:_RESPOSTA_OBS]
+        if e_fecho_da_pessoa(texto) or (itens and _so_cortesia(texto)):
+            continue
+        if not itens:
+            itens.append(f"Pediu: {resposta}")
+        elif pergunta := _perguntas(anterior):
+            itens.append(f"{pergunta} → {resposta}")
+        else:
+            itens.append(f"Disse: {resposta}")
+    if not itens:
+        return ""
+    primeiro, resto = itens[0], itens[1:]
+    total = len(primeiro) + 5
+    guardados: list[str] = []
+    for item in reversed(resto):
+        if total + len(item) + 3 > _MAX_RESPOSTAS_OBS:
+            break
+        guardados.insert(0, item)
+        total += len(item) + 3
+    return " | ".join([primeiro] + (["…"] if len(guardados) < len(resto) else []) + guardados)
+
+
 def _com_conversa(linha: dict) -> dict:
-    """Se a pessoa falou em arrendar, junta à linha o aviso e o que disse (últimas 3 mensagens). Nunca levanta."""
+    """Quem respondeu à Matilde: junta à linha o que respondeu às perguntas dela (vai no OBS do eGO) e o aviso de que
+    falou em arrendar. Nunca levanta: sem a conversa, a lead cria-se na mesma."""
+    if not (linha.get("respondeu_em") or linha.get("interesse_real_em")):
+        return linha
     try:
         tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
-        _, textos = _conversa_do(tel) if tel else (None, [])
+        mensagens = _mensagens_do(tel) if tel else []
     except Exception:
         logger.exception("Falha a ler a conversa da lead %s", linha.get("id"))
         return linha
-    if not procura_arrendar(textos):
-        return linha
-    return linha | {"procura_arrendar": True, "conversa_resumo": resumo_da_conversa(textos)}
+    textos = [m["content"] for m in mensagens if m.get("role") == "user" and isinstance(m.get("content"), str)]
+    return linha | {"procura_arrendar": procura_arrendar(textos), "respostas_da_pessoa": respostas_da_pessoa(mensagens)}
 
 
 def _no_piloto(tel: str) -> bool:
@@ -276,7 +348,7 @@ def _candidatas_paradas(agora: datetime) -> list[dict]:
         if textos and (e_fecho_da_pessoa(textos[-1]) or any(e_recusa(t) for t in textos[-3:])):
             continue  # despediu-se («obrigado 🤩», «até breve») ou recusou numa das últimas 3 mensagens («do momento não tenho»)
         if ultima and ultima <= agora - timedelta(hours=JANELA_PARADA_HORAS):
-            paradas.append(l | {"conversa_parada_resumo": resumo_da_conversa(textos), "procura_arrendar": procura_arrendar(textos)})
+            paradas.append(l | {"conversa_parada_resumo": resumo_da_conversa(textos)})
     return paradas[:LIMITE_POR_VOLTA]
 
 
@@ -369,6 +441,7 @@ def processar(agora: datetime | None = None) -> dict:
     candidatas += [l for l in _candidatas_paradas(agora) if l["id"] not in vistas]
     if not candidatas:
         return contagem
+    candidatas = [_com_conversa(l) for l in candidatas]
     try:
         leads = ego_api.leads_abertas()  # sem saber o que lá está, criar podia duplicar: nesta volta não se cria
     except Exception:

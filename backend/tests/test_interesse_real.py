@@ -387,11 +387,45 @@ def test_deteta_quem_fala_em_arrendar():
     assert not lp.procura_arrendar(["Quanto custa?", "Quero visitar a casa"])
 
 
-def test_observacao_diz_que_quer_arrendar_e_o_que_disse():
+_CONVERSA = [
+    {"role": "assistant", "content": "Olá! Sou a Matilde. Posso ajudar com alguma informação?"},
+    {"role": "user", "content": "Estou interessada em arrendar um t1"},
+    {"role": "assistant", "content": "O FH0001 é para *venda*. Tem preferência por alguma zona? E qual o valor de renda que tem em mente?"},
+    {"role": "user", "content": "Procuro no Porto, Matosinhos ou Gaia. A renda o mínimo possível"},
+    {"role": "assistant", "content": [{"type": "tool_use"}]},
+    {"role": "assistant", "content": "Posso registar o seu interesse."},
+    {"role": "user", "content": "Sei que está difícil mas tenho fé"},
+    {"role": "assistant", "content": "Fica registado!"},
+    {"role": "user", "content": "Obrigada pela sua atenção"},
+]
+
+
+def test_respostas_em_pares_pergunta_resposta():
+    r = lp.respostas_da_pessoa(_CONVERSA)
+    assert r.startswith("Pediu: Estou interessada em arrendar um t1 | ")
+    assert "Tem preferência por alguma zona? E qual o valor de renda que tem em mente? → Procuro no Porto" in r
+    assert "Disse: Sei que está difícil mas tenho fé" in r  # sem pergunta antes
+    assert "Obrigada pela sua atenção" not in r  # agradecimento fora
+    assert "Fica registado" not in r and "tool_use" not in r  # nada do que a Matilde afirma
+
+
+def test_respostas_cabem_no_limite_e_guardam_o_pedido():
+    msgs = [{"role": "assistant", "content": "Olá?"}, {"role": "user", "content": "quero arrendar"}]
+    for i in range(30):
+        msgs += [{"role": "assistant", "content": f"Pergunta {i}?"}, {"role": "user", "content": f"resposta {i} " + "x" * 80}]
+    r = lp.respostas_da_pessoa(msgs)
+    assert len(r) <= 900 and r.startswith("Pediu: quero arrendar | … | ") and "resposta 29" in r and "resposta 0 " not in r
+
+
+def test_respostas_vazias_se_a_pessoa_nunca_escreveu():
+    assert lp.respostas_da_pessoa([{"role": "assistant", "content": "Olá! Sou a Matilde."}]) == ""
+
+
+def test_observacao_diz_que_quer_arrendar_e_leva_as_respostas():
     o = lp.observacao_da_lead(_linha(interesse_real_em=ISO(1), interesse_real_motivo="pedido de informação do imóvel",
-                                     interesse_real_resumo="Boa noite gostaria de saber o valor", procura_arrendar=True,
-                                     conversa_resumo=lp.resumo_da_conversa(_ARRENDAR_TEXTOS)), com_imovel=True)
-    assert lp.AVISO_ARRENDAR in o and "Disse: " in o and "arrendamento tem alguma coisa" in o
+                                     interesse_real_resumo="x", procura_arrendar=True,
+                                     respostas_da_pessoa=lp.respostas_da_pessoa(_CONVERSA)), com_imovel=True)
+    assert lp.AVISO_ARRENDAR in o and "Respostas da pessoa: Pediu: Estou interessada em arrendar" in o
     assert o.index(lp.AVISO_ARRENDAR) < o.index("Contactar por telefone")
 
 
@@ -400,20 +434,39 @@ def test_observacao_sem_arrendar_nao_leva_aviso():
     assert "ARRENDAR" not in o
 
 
-def test_cron_cria_a_lead_de_quem_pede_arrendamento_com_o_aviso(monkeypatch):
+def test_cron_cria_a_lead_de_quem_pede_arrendamento_com_o_aviso_e_a_conversa(monkeypatch):
     _ligado(monkeypatch)
-    monkeypatch.setattr(lp, "_conversa_do", lambda tel: (AGORA, list(_ARRENDAR_TEXTOS)))
+    monkeypatch.setattr(lp, "_mensagens_do", lambda tel: list(_CONVERSA))
     bd = _BD([_interessada()])
     corpos = []
     _usa(monkeypatch, bd, lambda nome, email, tel, obs, ego_id: corpos.append(obs) or "555")
     assert lp.processar(AGORA)["criadas"] == 1
-    assert lp.AVISO_ARRENDAR in corpos[0] and "Disse: " in corpos[0]
+    assert lp.AVISO_ARRENDAR in corpos[0] and "Respostas da pessoa: Pediu: Estou interessada em arrendar um t1" in corpos[0]
+
+
+def test_cron_leva_a_conversa_mesmo_sem_falar_em_arrendar(monkeypatch):
+    _ligado(monkeypatch)
+    monkeypatch.setattr(lp, "_mensagens_do", lambda tel: [{"role": "user", "content": "Quero visitar a casa"}])
+    bd = _BD([_interessada()])
+    corpos = []
+    _usa(monkeypatch, bd, lambda nome, email, tel, obs, ego_id: corpos.append(obs) or "555")
+    lp.processar(AGORA)
+    assert "Respostas da pessoa: Pediu: Quero visitar a casa" in corpos[0] and "ARRENDAR" not in corpos[0]
 
 
 def test_cron_nao_para_se_a_conversa_falhar(monkeypatch):
     _ligado(monkeypatch)
-    monkeypatch.setattr(lp, "_conversa_do", lambda tel: (_ for _ in ()).throw(RuntimeError("bd em baixo")))
+    monkeypatch.setattr(lp, "_mensagens_do", lambda tel: (_ for _ in ()).throw(RuntimeError("bd em baixo")))
     bd = _BD([_interessada()])
     corpos = []
     _usa(monkeypatch, bd, lambda nome, email, tel, obs, ego_id: corpos.append(obs) or "555")
     assert lp.processar(AGORA)["criadas"] == 1 and "ARRENDAR" not in corpos[0]
+
+
+def test_pergunta_longa_corta_sem_partir_palavras_e_resposta_com_cortesia_fica():
+    longa = "Qual a zona " + "muito " * 30 + "que prefere?"
+    r = lp.respostas_da_pessoa([{"role": "assistant", "content": "Olá?"}, {"role": "user", "content": "quero comprar"},
+                                {"role": "assistant", "content": longa}, {"role": "user", "content": "Sim, prefiro Buarcos. Muito obrigada"},
+                                {"role": "assistant", "content": "Registado."}, {"role": "user", "content": "Feliz noite"}])
+    assert "…" in r and "→ Sim, prefiro Buarcos. Muito obrigada" in r and "Feliz noite" not in r
+    assert not r.split("| …")[1].lstrip().startswith("uito")  # não começa a meio de «muito»
