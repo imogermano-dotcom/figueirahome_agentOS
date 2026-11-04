@@ -44,6 +44,17 @@ def dentro_do_horario(agora: datetime) -> bool:
     return HORA_ABRE <= agora.astimezone(ZoneInfo("Europe/Lisbon")).hour < HORA_FECHA
 
 
+def registar_marcas(via: str, agora: datetime, ids: list, **extra) -> None:
+    """Deixa em `agente_sync_log` a hora (UTC e de Lisboa) a que se marcaram leads: a 04/11 apareceram 8 criações às 07:20 UTC,
+    fora das 9h–20h, e os logs do Fly já não chegavam lá. Nunca levanta."""
+    try:
+        resumo = {"via": via, "agora_utc": agora.isoformat(), "hora_lisboa": agora.astimezone(ZoneInfo("Europe/Lisbon")).isoformat(),
+                  "dentro_do_horario": dentro_do_horario(agora), "contactos": [str(i) for i in ids], **extra}
+        get_supabase().table("agente_sync_log").insert({"tipo": "leads_para_ego", "resumo": resumo, "origem": "cron" if via == "cron" else "n8n"}).execute()
+    except Exception:
+        logger.exception("Falha a registar as marcas de leads_para_ego")
+
+
 def entrou_pela_meta_em(linha: dict) -> str:
     """Dia (AAAA-MM-DD) em que a lead Meta entrou. É `meta_created_at`, não `contactos.criado_em`: quando a pessoa já existia no
     eGO (contacto antigo), a lead Meta reaproveita a linha e o `criado_em` fica na data original, o que a excluía de tudo
@@ -447,6 +458,7 @@ def processar(agora: datetime | None = None) -> dict:
     except Exception:
         logger.exception("Falha a ler as leads do eGO — nenhuma lead criada nesta volta")
         return contagem | {"erros": len(candidatas)}
+    marcadas = []
     for linha in candidatas:
         marca = {"ego_lead_em": agora.isoformat()}
         try:
@@ -463,6 +475,7 @@ def processar(agora: datetime | None = None) -> dict:
                     marca["ego_lead_id"] = ident
                 contagem["criadas"] += 1
             get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
+            marcadas.append(linha["id"])
             fechar_tarefas_da_lead(linha)
         except SemConsultora as e:
             logger.warning("Lead %s não criada: %s", linha["id"], e)
@@ -470,6 +483,8 @@ def processar(agora: datetime | None = None) -> dict:
         except Exception:
             logger.exception("Falha a enviar a lead %s para o eGO", linha["id"])
             contagem["erros"] += 1
+    if marcadas:
+        registar_marcas("cron", agora, marcadas, criadas=contagem["criadas"], ja_existiam=contagem["ja_existiam"])
     return contagem
 
 
@@ -559,5 +574,6 @@ def recusou_whatsapp(meta_lead_id: str, imovel_ref: str | None = None) -> dict |
         marca["imovel_ref"] = linha["imovel_ref"]  # fica para os follow-ups e para quem ler o contacto
     get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
     fechar_tarefas_da_lead(linha)
+    registar_marcas("recusa", agora, [linha["id"]], resultado=resultado)
     return {"resultado": resultado, "criada": resultado == "criada", "verificado_no_ego": verificado,
             "responsavel": responsavel, "email_responsavel": _email_do_responsavel(responsavel)}

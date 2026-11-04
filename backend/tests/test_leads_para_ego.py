@@ -64,6 +64,12 @@ class _BD:
     def __init__(self, contactos, oportunidade=False):
         self.contactos, self.oportunidade, self.updates, self._t, self._upd = contactos, oportunidade, [], None, None
         self.tarefas_fechadas = []  # títulos pedidos ao `in_` do update em `agente_tarefas`
+        self.registos = []  # inserts em `agente_sync_log`
+
+    def insert(self, valores):
+        if self._t == "agente_sync_log":
+            self.registos.append(valores)
+        return self
 
     def table(self, nome):
         self._t, self._upd = nome, None
@@ -262,6 +268,14 @@ def test_recusa_sem_historico_cria_logo_sem_esperar(monkeypatch):
     assert r["resultado"] == "criada" and r["criada"] and r["verificado_no_ego"]
     assert len(enviados) == 1 and "recusou o WhatsApp" in enviados[0][3] and enviados[0][4] == 30640811
     assert bd.updates and "ego_lead_em" in bd.updates[0][1]
+
+
+def test_recusa_deixa_registo_com_a_hora_de_lisboa(monkeypatch):
+    bd, _ = _recusa(monkeypatch)
+    lp.recusou_whatsapp("m1")
+    (reg,) = bd.registos
+    assert reg["tipo"] == "leads_para_ego" and reg["resumo"]["via"] == "recusa" and reg["resumo"]["resultado"] == "criada"
+    assert {"agora_utc", "hora_lisboa", "dentro_do_horario", "contactos"} <= reg["resumo"].keys()
 
 
 def test_recusa_de_pessoa_com_oportunidade_ativa_nao_cria_e_diz_a_quem_avisar(monkeypatch):
