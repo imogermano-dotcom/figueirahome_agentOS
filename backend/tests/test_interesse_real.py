@@ -262,11 +262,12 @@ def test_cron_pessoa_com_oportunidade_ativa_nao_cria(monkeypatch):
     assert lp.processar(AGORA)["ja_existiam"] == 1
 
 
-def test_cron_quem_recusou_nao_e_criado_mesmo_com_interesse(monkeypatch):
+def test_cron_quem_recusou_o_whatsapp_cria_na_mesma_para_o_telefone(monkeypatch):
+    """`nao_contactar_em` é só do WhatsApp: a lead continua válida para contacto por telefone."""
     _ligado(monkeypatch)
     bd = _BD([_interessada(nao_contactar_em=ISO(1))])
-    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
-    assert lp.processar(AGORA)["criadas"] == 0 and bd.updates == []
+    _usa(monkeypatch, bd, lambda *a: "555")
+    assert lp.processar(AGORA)["criadas"] == 1
 
 
 def test_cron_sem_email_fica_por_criar_e_conta_como_erro(monkeypatch):

@@ -67,8 +67,8 @@ def _dt(valor: str | None) -> datetime | None:
 
 
 def elegivel(linha: dict, agora: datetime) -> bool:
-    """Sem resposta e sem consultor, e (número sem WhatsApp, ou template enviado há mais de 2 h). Nunca a quem recusou."""
-    if linha.get("respondeu_em") or linha.get("contacto_humano_em") or linha.get("ego_lead_em") or linha.get("nao_contactar_em"):
+    """Sem resposta e sem consultor, e (número sem WhatsApp, ou template enviado há mais de 2 h). `nao_contactar_em` não conta: é só do WhatsApp, a lead continua válida para o telefone."""
+    if linha.get("respondeu_em") or linha.get("contacto_humano_em") or linha.get("ego_lead_em"):
         return False
     if linha.get("whatsapp_falhou_em"):
         return True  # quem não tem WhatsApp é quem mais precisa de telefonema: sem esperar
@@ -212,10 +212,10 @@ def _candidatas_interesse() -> list[dict]:
     resp = (
         get_supabase().table("contactos").select(_COLUNAS)
         .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
-        .not_.is_("interesse_real_em", "null").is_("ego_lead_em", "null").is_("nao_contactar_em", "null")
+        .not_.is_("interesse_real_em", "null").is_("ego_lead_em", "null")
         .gte("meta_created_at", settings.lead_compra_ego_desde).order("interesse_real_em").limit(LIMITE_POR_VOLTA).execute()
     )
-    return [l for l in resp.data or [] if not l.get("ego_lead_em") and not l.get("nao_contactar_em")]
+    return [l for l in resp.data or [] if not l.get("ego_lead_em")]
 
 
 def _conversa_do(telefone: str) -> tuple[datetime | None, list[str]]:

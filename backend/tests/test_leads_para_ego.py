@@ -124,9 +124,8 @@ def test_fora_do_horario_o_cron_cria_na_mesma(monkeypatch):
     assert r["criadas"] == 1 and bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat(), "ego_lead_id": 555})]
 
 
-def test_quem_recusou_nao_e_elegivel():
-    assert lp.elegivel(_linha(), AGORA) is True
-    assert lp.elegivel(_linha(nao_contactar_em=AGORA.isoformat()), AGORA) is False
+def test_nao_contactar_em_nao_tira_a_elegibilidade():
+    assert lp.elegivel(_linha(nao_contactar_em=AGORA.isoformat()), AGORA) is True  # só do WhatsApp; o telefone fica válido
 
 
 def test_desligado_com_data_vazia(monkeypatch):
