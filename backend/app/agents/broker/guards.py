@@ -40,21 +40,29 @@ _MARCAS_FECHO = (
     "👋", "cuide-se", "boa continuação", "muita força", "boa sorte", "bom resto de dia", "bom fim de semana",
     "até breve", "até logo", "tudo de bom", "boa estadia", "disponha",
 )
+# Cortesias que só fecham a conversa se estiverem NO FIM da mensagem e sem pergunta («Boa noite, Ana! Aqui está a ficha…»
+# abre, não fecha). 05/11: «…e boa noite! 😊», «…estou por aqui. 😊» e «Igualmente! 🌙» não contavam e a pessoa ainda recebeu 3 respostas.
+_MARCAS_FECHO_NO_FIM = ("boa noite", "estou por aqui", "abraço", "igualmente", "de nada", "boas melhoras")
+_FIM = 45  # caracteres finais onde se procuram
 _SO_SIMBOLOS = re.compile(r"^[\W_]*$")  # sem uma única letra ou dígito: emojis, pontuação, espaços
 
 
 def e_despedida(texto: str | None) -> bool:
     """A assistente fechou a conversa (ou respondeu só com um emoji)."""
     texto = (texto or "").strip().lower()
-    return bool(texto) and (any(marca in texto for marca in _MARCAS_FECHO) or bool(_SO_SIMBOLOS.match(texto)))
+    fim = texto[-_FIM:]
+    return bool(texto) and (
+        any(marca in texto for marca in _MARCAS_FECHO) or bool(_SO_SIMBOLOS.match(texto))
+        or ("?" not in fim and any(marca in fim for marca in _MARCAS_FECHO_NO_FIM))
+    )
 
 
 # A pessoa fecha a conversa ela própria: «Obrigado.», «Ok, obrigada!», «Muito grato». Mensagem curta que é só
 # agradecimento. Curta de propósito: «Obrigado, mas e o preço?» não fecha nada.
-_AGRADECIMENTO = re.compile(r"^(ok[,.! ]*|certo[,.! ]*|muito )?(obrigad[oa]s?|grat[oa]s?|agradeço)\b[^?]{0,25}$", re.I)
+_AGRADECIMENTO = re.compile(r"^((ok|certo)[,.! ]*)?(muito |muit[ií]ssim[oa] )?(obrigad[oa]s?|grat[oa]s?|agradeço)\b[^?]{0,25}$", re.I)
 _SAUDACAO_FINAL = re.compile(
-    r"^(ok|certo|combinado|está bem|tá bem|até (logo|breve|já|muito breve)|adeus|tchau|chau|chao|igualmente|abraço|"
-    r"boa (noite|tarde|semana)|bom (dia|fim de semana)|cuide-se)[\s\W]*$", re.I)
+    r"^(ok|certo|combinado|está bem|tá bem|até (logo|breve|já|muito breve)|adeus|tchau|chau|chao|igualmente|(um )?abraço|"
+    r"boa (noite|tarde|semana)|bom (dia|fim de semana|descanso)|feliz (noite|dia|tarde|semana|fim de semana)|cuide-se)[\s\W]*$", re.I)
 
 
 def e_agradecimento(texto: str | None) -> bool:

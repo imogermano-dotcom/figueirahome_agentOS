@@ -23,8 +23,19 @@ def test_despedida_da_assistente_inclui_emoji_sozinho_e_saudacoes():
         assert not guards.e_despedida(nao), nao
 
 
+def test_cortesia_so_fecha_no_fim_e_sem_pergunta():
+    # 05/11: estas despedidas reais não eram reconhecidas e a pessoa recebia mais uma resposta
+    for ok in ("Fica registado! Obrigada a si, Edmeé, e boa noite! 😊", "De nada! Quando estiver melhor, estou por aqui. 😊",
+               "Igualmente! 🌙", "Abraço! 🤗"):
+        assert guards.e_despedida(ok), ok
+    for nao in ("Boa noite, Ana! Aqui está a ficha do imóvel: T2, 73 m², Tavarede, €219.500. Quer a morada?",
+                "Estou por aqui. Quer que pesquise na Figueira?"):
+        assert not guards.e_despedida(nao), nao
+
+
 def test_fecho_da_pessoa_so_quando_nao_pede_nada():
-    for ok in ("😎", "🤚🏻", "Obrigado", "Obrigada!", "Até logo", "Tchau", "Chao", "Ok", "Boa noite", "😹 😹"):
+    for ok in ("😎", "🤚🏻", "Obrigado", "Obrigada!", "Até logo", "Tchau", "Chao", "Ok", "Boa noite", "😹 😹",
+               "Feliz noite", "Um abraço", "Ok Muitíssimo obrigada", "Muito obrigado!", "Bom descanso"):
         assert guards.e_fecho_da_pessoa(ok), ok
     for nao in ("Quero comprar", "Obrigado, mas e o preço?", "Sim", "Qual o piso?", "Já lê disse que me estou a cuidar de mim", "", None):
         assert not guards.e_fecho_da_pessoa(nao), nao
