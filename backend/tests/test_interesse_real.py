@@ -262,20 +262,19 @@ def test_cron_pessoa_com_oportunidade_ativa_nao_cria(monkeypatch):
     assert lp.processar(AGORA)["ja_existiam"] == 1
 
 
+def test_cron_quem_recusou_nao_e_criado_mesmo_com_interesse(monkeypatch):
+    _ligado(monkeypatch)
+    bd = _BD([_interessada(nao_contactar_em=ISO(1))])
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
+    assert lp.processar(AGORA)["criadas"] == 0 and bd.updates == []
+
+
 def test_cron_sem_email_fica_por_criar_e_conta_como_erro(monkeypatch):
     _ligado(monkeypatch)
     bd = _BD([_interessada(email=None)])
     _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
     r = lp.processar(AGORA)
     assert r["erros"] == 1 and bd.updates == []
-
-
-def test_cron_fora_do_horario_espera(monkeypatch):
-    from datetime import datetime, timezone
-    _ligado(monkeypatch)
-    monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
-    monkeypatch.setattr(lp, "get_supabase", lambda: pytest.fail("não devia tocar na BD"))
-    assert lp.processar(datetime(2026, 10, 17, 22, 0, tzinfo=timezone.utc)) == {"ativo": True, "fora_do_horario": True}
 
 
 def test_cron_contacto_que_entra_pelas_duas_vias_cria_uma_so_vez(monkeypatch):

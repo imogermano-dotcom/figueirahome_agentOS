@@ -20,7 +20,7 @@ from app.integrations import ego_api, egorealestate
 logger = logging.getLogger(__name__)
 
 JANELA_HORAS = 2
-HORA_ABRE, HORA_FECHA = 9, 20  # o cron só cria leads das 9h às 20h de Lisboa: uma lead das 23h espera pelas 9h (a consultora só liga de dia)
+HORA_ABRE, HORA_FECHA = 9, 20  # só o nudge o usa: desde 04/11 o cron cria leads a qualquer hora (a rede do portal, que as criava de noite, vai ser desligada)
 LIMITE_POR_VOLTA = 20
 # Convenção do Miguel nas leads da campanha que pôs à mão a 17/10 (ids da agência 6429, não são segredo), usada pelo
 # caminho `api` (InsertLead). A Web API põe sempre origem Internet / «www.figueirahome.com» (como as leads do site).
@@ -40,7 +40,7 @@ _COLUNAS = ("id,nome,telefone,telemovel,email,meta_lead_id,imovel_ref,ad_name,me
 
 
 def dentro_do_horario(agora: datetime) -> bool:
-    """Das 9h às 20h, hora de Lisboa. Não vale para a recusa do WhatsApp, que vai logo (n8n)."""
+    """Das 9h às 20h, hora de Lisboa. Só o nudge o respeita; a criação de leads no eGO já não."""
     return HORA_ABRE <= agora.astimezone(ZoneInfo("Europe/Lisbon")).hour < HORA_FECHA
 
 
@@ -67,8 +67,8 @@ def _dt(valor: str | None) -> datetime | None:
 
 
 def elegivel(linha: dict, agora: datetime) -> bool:
-    """Sem resposta e sem consultor, e (número sem WhatsApp, ou template enviado há mais de 2 h)."""
-    if linha.get("respondeu_em") or linha.get("contacto_humano_em") or linha.get("ego_lead_em"):
+    """Sem resposta e sem consultor, e (número sem WhatsApp, ou template enviado há mais de 2 h). Nunca a quem recusou."""
+    if linha.get("respondeu_em") or linha.get("contacto_humano_em") or linha.get("ego_lead_em") or linha.get("nao_contactar_em"):
         return False
     if linha.get("whatsapp_falhou_em"):
         return True  # quem não tem WhatsApp é quem mais precisa de telefonema: sem esperar
@@ -212,10 +212,10 @@ def _candidatas_interesse() -> list[dict]:
     resp = (
         get_supabase().table("contactos").select(_COLUNAS)
         .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
-        .not_.is_("interesse_real_em", "null").is_("ego_lead_em", "null")
+        .not_.is_("interesse_real_em", "null").is_("ego_lead_em", "null").is_("nao_contactar_em", "null")
         .gte("meta_created_at", settings.lead_compra_ego_desde).order("interesse_real_em").limit(LIMITE_POR_VOLTA).execute()
     )
-    return [l for l in resp.data or [] if not l.get("ego_lead_em")]
+    return [l for l in resp.data or [] if not l.get("ego_lead_em") and not l.get("nao_contactar_em")]
 
 
 def _conversa_do(telefone: str) -> tuple[datetime | None, list[str]]:
@@ -441,8 +441,6 @@ def processar(agora: datetime | None = None) -> dict:
     if not settings.lead_compra_ego_desde:
         return {"ativo": False}
     agora = agora or datetime.now(timezone.utc)
-    if not dentro_do_horario(agora):
-        return {"ativo": True, "fora_do_horario": True}
     preencher_responsavel_meta()
     contagem = {"ativo": True, "criadas": 0, "ja_existiam": 0, "erros": 0}
     candidatas = _candidatas(agora)

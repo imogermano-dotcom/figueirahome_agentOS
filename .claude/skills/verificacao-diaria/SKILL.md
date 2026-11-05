@@ -23,7 +23,7 @@ Todos os comandos Python correm de `backend/` com o Python do projeto (`C:\Users
    | sync-imoveis-manha / tarde | 06:17 / 13:23 | `egorealestate_api` |
    | sync-imoveis-todos | 06:47 | `egorealestate_imoveis_todos` (ligado a 02/11; ver o 1.º ciclo sozinho a 03/11: tempo contra o limite de 300 s) |
    | nudge-matilde | de hora a hora, :12 | `nudge_matilde`, `nudge_ines`, `nudge_barbara` |
-   | leads-compra-para-ego | de 10 em 10 min, só cria 9h–20h Lisboa | (sem registo próprio: ver `ego_lead_em` no passo 2) |
+   | leads-compra-para-ego | de 10 em 10 min, cria a qualquer hora (desde 05/11) | (sem registo próprio: ver `ego_lead_em` no passo 2) |
 
    `resumo-falhas-whatsapp` e `site-uptime` estão `enabled: false` de propósito.
 2. **Falhas:** qualquer `tipo` terminado em `_erro` é falha de cron (também gera email ao diretor). Um sync que devia ter corrido e não aparece é pior: o aviso não apanha um cron que nem arranca.
@@ -47,7 +47,7 @@ Passos:
 **Supabase.** `python scripts/verificacao_diaria.py leads 48`: funil das leads Meta (opt-in → template → entregue; `falhou`, `recusou`, `eGO`, `sem_resp`). Alarmes:
 - `optin_sem_template>1h` > 0: o template não saiu (ver a faturação da WABA antes de culpar o conteúdo: `200 accepted` não é entrega).
 - `falhou` com `whatsapp_erro_codigo` 131026: número sem WhatsApp, não é erro nosso.
-- `eGO` muito abaixo de `n`: ver se são leads fora das 9h–20h (a rede `meta-leads-rede` cria-as depois) ou sem consultora (nunca se cria sem responsável).
+- `eGO` muito abaixo de `n`: ver se são leads sem consultora, sem email ou com `nao_contactar_em` (o cron cria a qualquer hora desde 05/11; a rede `meta-leads-rede` do portal vai ser desligada pelo Miguel); linhas `leads_para_ego` em `agente_sync_log` dizem a hora e a via de cada marca (nunca se cria sem responsável).
 - `sem_resp` > 0: lead sem consultora, não aparece no eGO.
 - **Vigia das leads da Meta:** o fluxo n8n «Vigia leads Meta» (`v03lokXyOY0r7JWO`) tem de ter corrido há menos de 45 min e estar ativo. Em `agente_sync_log`, `vigia_leads_meta` (cada verificação) e `vigia_leads_alerta` (avisos enviados). Se a Meta tem mais leads do que o Supabase num dia (`diferencas`), ver o Make (cenário ligado?) e as execuções do webhook; **um cenário do Make desligado não deixa rasto no n8n**.
 - Cruzar com o n8n: leads a entrar e execuções do webhook devem bater.

@@ -124,15 +124,6 @@ def test_interesse_real_e_conversa_parada_criam_uma_so_vez(monkeypatch):
     assert r["criadas"] == 1 and len(corpos) == 1 and "interesse real (visita)" in corpos[0], "o sinal de interesse ganha"
 
 
-def test_fora_do_horario_espera(monkeypatch):
-    from datetime import datetime, timezone
-
-    _ligado(monkeypatch)
-    monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
-    monkeypatch.setattr(lp, "get_supabase", lambda: pytest.fail("não devia tocar na BD"))
-    assert lp.processar(datetime(2026, 10, 17, 22, 0, tzinfo=timezone.utc)) == {"ativo": True, "fora_do_horario": True}
-
-
 def test_resumo_usa_as_ultimas_3_e_corta():
     assert lp.resumo_da_conversa(["um", "dois", "três", "quatro"]) == "dois | três | quatro"
     assert len(lp.resumo_da_conversa(["x" * 500] * 3)) <= 600
