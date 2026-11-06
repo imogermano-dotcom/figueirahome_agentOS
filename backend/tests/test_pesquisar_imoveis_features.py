@@ -3,6 +3,8 @@ esparsos: jardim=true em só 1/54 publicados) — mas tem de MOSTRAR essa
 informação, para a Matilde não apresentar um imóvel "Usado, sem jardim" como
 se batesse com um pedido de "recente, com espaço exterior"."""
 
+import json
+
 from app.agents.broker import tools
 
 
@@ -69,3 +71,19 @@ def test_zona_com_virgulas_e_parenteses_nao_rebenta_o_or(monkeypatch):
     assert filtros[0].count(",") == 2  # só os separadores do próprio or_()
     tools._consulta_imoveis({"zona": " , () "})
     assert len(filtros) == 1  # zona vazia depois de limpa: sem filtro
+
+
+def test_ficha_traz_nome_e_telefone_do_consultor(monkeypatch):
+    """#56 B: quem pede o contacto do consultor recebe o do angariador do imóvel (consultores_site), não o geral da agência."""
+    class _Sb:
+        def table(self, nome):
+            if nome == "consultores_site":
+                return _FakeQuery([{"nome": "Ana Exemplo", "telefone": "912345678"}])
+            return _FakeQuery([{"imovel_ref": "FH0001", "angariador": "Ana Exemplo", "quartos": 2}])
+
+    monkeypatch.setattr(tools, "get_supabase", lambda: _Sb())
+    ficha = json.loads(tools._ficha_imovel({"imovel_ref": "FH0001"}))
+    assert ficha["consultor"] == "Ana Exemplo" and ficha["consultor_telefone"] == "912345678"
+    monkeypatch.setattr(tools, "get_supabase", lambda: type("S", (), {"table": lambda s, n: _FakeQuery([])})())
+    assert tools._consultor_do_angariador("Sem Ficha") == {"consultor": "Sem Ficha"}  # sem linha: só o nome
+    assert tools._consultor_do_angariador(None) == {}

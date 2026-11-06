@@ -39,7 +39,7 @@ _CAMPOS_FICHA = (
     "imovel_ref,natureza,titulo,quartos,casas_banho,area_util,venda_preco,"
     "arrendamento_preco,morada,concelho,freguesia,zona,conservacao,"
     "certificacao_energetica,descricao,foto_principal,piscina,garagem,jardim,"
-    "terraco,varanda,vista_mar,vista_praia,ar_condicionado,elevador"
+    "terraco,varanda,vista_mar,vista_praia,ar_condicionado,elevador,angariador"
 )
 
 TOOL_DEFINITIONS = [
@@ -452,6 +452,20 @@ def _estado_nao_publicado(ref: str) -> str | None:
     )
 
 
+def _consultor_do_angariador(nome: str | None) -> dict:
+    """Nome e telefone do angariador, de `consultores_site` (o nome é o do eGO). Nunca levanta: sem telefone, só o nome."""
+    nome = (nome or "").strip()
+    if not nome:
+        return {}
+    try:
+        r = (get_supabase().table("consultores_site").select("nome,telefone").eq("activo", True)
+             .ilike("nome", nome).limit(1).execute().data)
+    except Exception:
+        logger.exception("Falha a ler o consultor de %s", nome)
+        r = []
+    return {"consultor": nome, "consultor_telefone": (r[0].get("telefone") or "").strip() or None} if r else {"consultor": nome}
+
+
 def _ficha_imovel(inputs: dict) -> str:
     ref = (inputs.get("imovel_ref") or "").strip()
     morada = (inputs.get("morada") or "").strip()
@@ -506,6 +520,7 @@ def _ficha_imovel(inputs: dict) -> str:
         "caracteristicas": caracteristicas,
         "descricao": (r.get("descricao") or "")[:600] or None,
         "foto_principal": r.get("foto_principal"),
+        **_consultor_do_angariador(r.get("angariador")),
     }
     return json.dumps({k: v for k, v in ficha.items() if v not in (None, [], "")},
                       ensure_ascii=False, default=str)
