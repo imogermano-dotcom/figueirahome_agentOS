@@ -48,3 +48,24 @@ def test_sem_linha_de_features_quando_nao_ha_nenhuma(monkeypatch):
     }])
     assert "Usado" in resultado
     assert "Tem:" not in resultado
+
+
+def test_zona_com_virgulas_e_parenteses_nao_rebenta_o_or(monkeypatch):
+    """31/10: «são Julião, e limites… (Tavarede)» entrava no `or_()` do PostgREST e dava 'failed to parse logic tree'."""
+    filtros = []
+
+    class _Q(_FakeQuery):
+        def or_(self, f):
+            filtros.append(f)
+            return self
+
+    class _Sb:
+        def table(self, _name):
+            return _Q([])
+
+    monkeypatch.setattr(tools, "get_supabase", lambda: _Sb())
+    tools._consulta_imoveis({"zona": "são Julião, e limites com Tavarede (centro)"})
+    assert filtros and not any(c in filtros[0].replace("%,", "").replace(",freguesia", "").replace(",zona", "") for c in "()")
+    assert filtros[0].count(",") == 2  # só os separadores do próprio or_()
+    tools._consulta_imoveis({"zona": " , () "})
+    assert len(filtros) == 1  # zona vazia depois de limpa: sem filtro

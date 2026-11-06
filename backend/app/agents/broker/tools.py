@@ -323,6 +323,9 @@ def _consulta_imoveis(filtros: dict) -> str:
         q = q.ilike("natureza", f"%{natureza}%")
     if quartos is not None:
         q = q.eq("quartos", quartos)
+    # Vírgulas e parênteses são sintaxe do `or_()` do PostgREST: «São Julião, e limites…» dava
+    # «failed to parse logic tree» e a Matilde dizia «problema técnico» (31/10).
+    zona = " ".join(re.sub(r"[,()*%]", " ", zona or "").split())
     if zona:
         # A zona que o cliente diz pode ser concelho, freguesia ou lugar.
         q = q.or_(f"concelho.ilike.%{zona}%,freguesia.ilike.%{zona}%,zona.ilike.%{zona}%")
