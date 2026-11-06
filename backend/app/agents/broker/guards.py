@@ -42,7 +42,8 @@ _MARCAS_FECHO = (
 )
 # Cortesias que só fecham a conversa se estiverem NO FIM da mensagem e sem pergunta («Boa noite, Ana! Aqui está a ficha…»
 # abre, não fecha). 05/11: «…e boa noite! 😊», «…estou por aqui. 😊» e «Igualmente! 🌙» não contavam e a pessoa ainda recebeu 3 respostas.
-_MARCAS_FECHO_NO_FIM = ("boa noite", "estou por aqui", "abraço", "igualmente", "de nada", "boas melhoras")
+_MARCAS_FECHO_NO_FIM = ("boa noite", "estou por aqui", "abraço", "igualmente", "de nada", "boas melhoras",
+                        "à disposição", "quando precisar", "bom dia", "boa tarde", "boa semana")  # 05/11: «Fico à disposição quando precisar. Bom dia!» não fechava e o nudge ainda perguntou «Ainda está interessado?»
 _FIM = 45  # caracteres finais onde se procuram
 _SO_SIMBOLOS = re.compile(r"^[\W_]*$")  # sem uma única letra ou dígito: emojis, pontuação, espaços
 

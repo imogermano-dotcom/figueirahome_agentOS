@@ -26,9 +26,12 @@ def test_despedida_da_assistente_inclui_emoji_sozinho_e_saudacoes():
 def test_cortesia_so_fecha_no_fim_e_sem_pergunta():
     # 05/11: estas despedidas reais não eram reconhecidas e a pessoa recebia mais uma resposta
     for ok in ("Fica registado! Obrigada a si, Edmeé, e boa noite! 😊", "De nada! Quando estiver melhor, estou por aqui. 😊",
-               "Igualmente! 🌙", "Abraço! 🤗"):
+               "Igualmente! 🌙", "Abraço! 🤗", "Claro, Maria! Fico à disposição quando precisar. Bom dia! 😊",
+               "Sem problema! Boa tarde e até breve.", "Fico à disposição para qualquer dúvida. 😊"):
         assert guards.e_despedida(ok), ok
     for nao in ("Boa noite, Ana! Aqui está a ficha do imóvel: T2, 73 m², Tavarede, €219.500. Quer a morada?",
+                "Bom dia, Carlos! Com todo o gosto. Trata-se de um T2 em Tavarede, com 73 m². Quer que lhe envie a morada exata?",
+                "Fico à disposição. Quer que pesquise outras zonas?",
                 "Estou por aqui. Quer que pesquise na Figueira?"):
         assert not guards.e_despedida(nao), nao
 
