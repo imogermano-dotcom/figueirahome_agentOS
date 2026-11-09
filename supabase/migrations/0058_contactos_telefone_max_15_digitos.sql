@@ -8,7 +8,10 @@
 -- ⚠️ SÓ DEPOIS de: (1) o scraper deixar de copiar listas de números para `telefone` (fase F5 do plano) e (2) a limpeza
 -- dos casos existentes (fase F3). Com a restrição ligada antes, o primeiro upsert do scraper de um contacto cujo
 -- `telemovel` tem vários números («00351…, 00351…», 498 fichas hoje) rejeitava o LOTE INTEIRO e o sync parava.
--- O bloco 1 recusa-se a correr enquanto houver linhas fora da regra.
+-- Versão de 09/11: a F3 limpou 84 das 168 (aplicada); sobram 84 que não se adivinham (78 de 16–40 dígitos + 6 com
+-- `telemovel` ocupado). Por isso a restrição entra `NOT VALID`: vale para todo o INSERT/UPDATE, mas não verifica as linhas
+-- antigas. ⚠️ Um UPDATE a QUALQUER coluna de uma dessas 84 linhas vai falhar (o CHECK avalia a linha nova inteira) até
+-- elas serem corrigidas; depois corre-se o bloco 3 (`validate constraint`).
 --
 -- Só `telefone`: `telemovel` guarda a lista de números do eGO tal como vem (de propósito, 498 linhas com vírgulas).
 -- Corre por partes, vendo o resultado de cada uma.
@@ -24,20 +27,19 @@ select t.tgname, t.tgenabled, pg_get_triggerdef(t.oid) as definicao
  where c.relname = 'contactos' and not t.tgisinternal
  order by t.tgname;
 
--- 1. A restrição. Falha de propósito se ainda houver linhas fora da regra.
-do $$
-declare n int;
-begin
-  select count(*) into n from public.contactos
-   where length(regexp_replace(coalesce(telefone, ''), '\D', '', 'g')) > 15 or telefone ~ '[,;/]';
-  if n > 0 then
-    raise exception 'ainda há % contactos com telefone fora da regra: corre a limpeza (F3) e confirma o scraper (F5) primeiro', n;
-  end if;
-end $$;
-
+-- 1. A restrição, NOT VALID: as linhas antigas (as 84 por rever) não são verificadas; tudo o que se escreve daqui em diante é.
 alter table public.contactos
   add constraint contactos_telefone_um_numero
-  check (length(regexp_replace(coalesce(telefone, ''), '\D', '', 'g')) <= 15 and coalesce(telefone, '') !~ '[,;/]');
+  check (length(regexp_replace(coalesce(telefone, ''), '\D', '', 'g')) <= 15 and coalesce(telefone, '') !~ '[,;/]')
+  not valid;
+
+-- 2b. Verificação: quantas linhas ficam fora da regra (esperado 84) e se a restrição existe (convalidated = false).
+select (select count(*) from public.contactos
+         where length(regexp_replace(coalesce(telefone, ''), '\D', '', 'g')) > 15 or telefone ~ '[,;/]') as fora_da_regra,
+       (select convalidated from pg_constraint where conname = 'contactos_telefone_um_numero') as validada;
+
+-- 3. MAIS TARDE, depois de corrigir as 84 (e só então; falha enquanto houver uma): passa a restrição a validada.
+--    alter table public.contactos validate constraint contactos_telefone_um_numero;
 
 -- 2. Reverter (se o sync do scraper ou o pipeline do Miguel começarem a falhar):
 --    alter table public.contactos drop constraint contactos_telefone_um_numero;
