@@ -39,6 +39,15 @@ Meta Lead Ads → Make (escreve em `leads`) → webhook → n8n (envia o templat
 > os seguintes. ⚠️ **Formato do erro confirmado a 20/10 com uma falha real**: `json.error` é só «Bad request - please check your parameters» e a explicação («Parameter value is not valid») vai em `error.description`; a regex antiga (`JSON.stringify($json.error || $json)`) não a apanhava e o contacto caía no "Parar com erro", que parava o lote. Agora o teste é sobre o item inteiro (`JSON.stringify($json)`) e inclui `parameter value is not valid`.
 >
 > **Número com `00351…` (19–20/10).** O scraper do eGO reescreve `contactos.telefone` como `00351933…`, e o nó "Preparar texto e número" só juntava `351` a números de 9 dígitos: o envio falhava e, sem a regex certa, o 72h da Matilde parou 2 dias no mesmo contacto. `telefone_e164` passa a ser só dígitos, sem `00` inicial, com `351` aos 9 dígitos, nos 9 fluxos de envio (os templates de angariação e recrutamento recebem o `telefone_e164` já tratado do fluxo pai). O follow-up 72h da Matilde (`HRSMT5PRZYRZ7Oc1`) está **ativo** e recebeu esta alteração a 18/10 (era o 9.º fluxo de envio; tinha ficado de fora por constar como inativo).
+>
+> **Telefone certo antes do 1.º envio (07/11, pedido #58; `docs/fases/telefone-ficha-antiga-plano.md`).** Fichas antigas trazem
+> dois números colados (18 dígitos) ou uma lista do eGO em `telemovel` («a, b»). No sub-fluxo `4rDc9amm6HpO5F4j` o nó
+> «Validar telefone» escolhe o **primeiro número válido** (parte `telefone` e `telemovel` por `, ; /`; 9 dígitos → `351…`;
+> 10–15 dígitos aceites; repetido duas vezes ou >15 recusado) e o «Número válido?» desvia o que não tem nenhum para
+> «Nº inválido» (marca falha, avisa a consultora e o Miguel, não envia). Nos follow-ups de 24h/72h da Matilde a mesma regra
+> está só no `telefone_e164` do «Preparar texto e número», com **recuo ao comportamento antigo** se nenhum número for válido
+> (o envio falha e a marca `whatsapp_falhou_em` apanha-o). Ramo normal visto com lead real (execução 4510); ramo «inválido»
+> e follow-ups por ver em execução real.
 > ⚠️ Gravar um fluxo no editor com o separador aberto depois de uma edição por API repõe um rascunho por publicar.
 >
 > **Compra que recusa o WhatsApp (18/10, editado ao vivo, `4rDc9amm6HpO5F4j`).** O fluxo de envio da compra era o único sem aviso de
