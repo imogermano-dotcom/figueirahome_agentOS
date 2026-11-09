@@ -326,7 +326,14 @@ def classify(record: dict) -> dict:
         # `telefone` e `telemovel` são duas colunas para o mesmo número —
         # gravar as duas evita que quem só leia uma (achado 28/09,
         # `contacto_meta_aberto`) fique cego a contactos só do scraper.
-        contacto["telefone"] = contacto["telemovel"]
+        # Ficha antiga: vários números no mesmo campo («912…, 00351 913…»);
+        # `telefone` leva o primeiro com 9+ dígitos (pedido #58), `telemovel`
+        # fica como veio. Sem nenhum assim, copia tudo como antes.
+        partes = re.split(r"[,;/]", contacto["telemovel"])
+        contacto["telefone"] = next(
+            (p.strip() for p in partes if len(re.sub(r"\D", "", p)) >= 9),
+            contacto["telemovel"],
+        )
     if contacto.get("ego_atualizado_em"):
         # produção guarda ISO (timestamptz) — confirmado ao vivo — mesma
         # fonte alimenta `criado_em` (doc §3.4, I(458)).
@@ -584,6 +591,13 @@ def demo() -> None:
     classificado = classify(mapeado)
     assert classificado["contacto"]["telefone"] == "00351934418496"
     assert classificado["contacto"]["telemovel"] == "00351934418496"
+
+    # Vários números no campo (pedido #58): `telefone` leva o primeiro válido.
+    varios = classify(map_row({"Nome": "X", "Telefone": "0, 912345678 / 913456789"}))
+    assert varios["contacto"]["telefone"] == "912345678", varios["contacto"]
+    assert varios["contacto"]["telemovel"] == "0, 912345678 / 913456789"
+    curto = classify(map_row({"Nome": "X", "Telefone": "1234"}))
+    assert curto["contacto"]["telefone"] == "1234"
 
     # Angariação: cliente_nome vazio herda imovel_proprietario (achado 26/09).
     ang = [{
