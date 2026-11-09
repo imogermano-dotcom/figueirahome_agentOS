@@ -165,9 +165,21 @@ def _criar_lead(linha: dict, tel: str | None, recusou: bool = False, ja_conhecid
     return int(ident) if ident and str(ident).isdigit() else None
 
 
+def telefone_da_linha(linha: dict) -> str | None:
+    """Primeiro número utilizável de `telefone` e `telemovel` (o eGO guarda listas «a, b»; fichas antigas têm dois
+    números colados ou o mesmo duas vezes, 18 dígitos). Sem nenhum válido recua ao comportamento antigo.
+    ponytail: 10-15 dígitos aceita-se como estrangeiro; só sabe de PT (9 dígitos) e do tamanho E.164."""
+    for campo in ("telefone", "telemovel"):
+        for parte in re.split(r"[,;/]", linha.get(campo) or ""):
+            n = normalizar_telefone(parte)
+            if n and (len(n) == 9 or (10 <= len(n) <= 15 and n[: len(n) // 2] != n[len(n) // 2:])):
+                return n
+    return normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
+
+
 def _ja_nas_leads(linha: dict, leads: list[dict]) -> bool:
     """A pessoa já está na caixa de leads (o Miguel pôs lotes à mão): mesmo telefone ou email."""
-    tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
+    tel = telefone_da_linha(linha)
     email = (linha.get("email") or "").strip().lower()
     return any(
         (tel and normalizar_telefone(l.get("phone")) == tel) or (email and (l.get("email") or "").strip().lower() == email)
@@ -320,7 +332,7 @@ def _com_conversa(linha: dict) -> dict:
     if not (linha.get("respondeu_em") or linha.get("interesse_real_em")):
         return linha
     try:
-        tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
+        tel = telefone_da_linha(linha)
         mensagens = _mensagens_do(tel) if tel else []
     except Exception:
         logger.exception("Falha a ler a conversa da lead %s", linha.get("id"))
@@ -352,7 +364,7 @@ def _candidatas_paradas(agora: datetime) -> list[dict]:
     for l in resp.data or []:
         if l.get("ego_lead_em") or l.get("contacto_humano_em") or l.get("nao_contactar_em") or not l.get("respondeu_em"):
             continue
-        tel = normalizar_telefone(l.get("telefone") or l.get("telemovel"))
+        tel = telefone_da_linha(l)
         if not tel or not _no_piloto(tel):
             continue
         ultima, textos = _conversa_do(tel)
@@ -460,7 +472,7 @@ def processar(agora: datetime | None = None) -> dict:
     for linha in candidatas:
         marca = {"ego_lead_em": agora.isoformat()}
         try:
-            tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
+            tel = telefone_da_linha(linha)
             if _ja_nas_leads(linha, leads) or _ja_tem_oportunidade(tel):
                 contagem["ja_existiam"] += 1
             elif not (linha.get("email") or "").strip():  # a Web API recusa sem email: fica por criar, à vista
@@ -534,7 +546,7 @@ def recusou_whatsapp(meta_lead_id: str, imovel_ref: str | None = None) -> dict |
     if entrou_pela_meta_em(linha) < str(settings.lead_compra_ego_desde)[:10]:
         return {"resultado": "anterior_a_ativacao", "criada": False}
     agora = datetime.now(timezone.utc)
-    tel = normalizar_telefone(linha.get("telefone") or linha.get("telemovel"))
+    tel = telefone_da_linha(linha)
     email = linha.get("email")
     # o RPC da compra não grava `imovel_ref` em `contactos` para quem recusa: vem do n8n, ou do nome do anúncio
     linha["imovel_ref"] = linha.get("imovel_ref") or (imovel_ref or "").strip() or ref_do_anuncio(linha.get("ad_name"))

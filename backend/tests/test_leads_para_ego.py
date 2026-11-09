@@ -530,3 +530,14 @@ def test_angariador_da_ref_exata_curta_e_desconhecida():
     assert lp.angariador_da_ref("fh2584", por_ref) is None or True  # minúsculas: a ref curta é maiúscula, não se adivinha
     assert lp.angariador_da_ref("FH9999", por_ref) is None
     assert lp.angariador_da_ref(None, por_ref) is None and lp.angariador_da_ref("", por_ref) is None
+
+
+def test_telefone_da_linha_escolhe_o_primeiro_numero_valido():
+    f = lp.telefone_da_linha
+    assert f({"telefone": "912345678"}) == "912345678"
+    assert f({"telefone": "00351912345678"}) == "912345678"
+    assert f({"telefone": "912345678912345679", "telemovel": "351934567890"}) == "934567890"  # colados: vale o telemovel
+    assert f({"telefone": "912345678912345678", "telemovel": "00351912345678, 00351934567890"}) == "912345678"  # lista do eGO
+    assert f({"telefone": "", "telemovel": "351912345678"}) == "912345678"
+    assert f({"telefone": "912345678912345678"}) == "912345678912345678"  # nenhum válido: comportamento antigo
+    assert f({}) is None
