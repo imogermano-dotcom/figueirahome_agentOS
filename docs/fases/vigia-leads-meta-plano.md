@@ -66,9 +66,7 @@ Cron `vigia-leads-meta` de 15 em 15 min → `POST /api/leads/meta/vigia` (`X-Aut
 de receber leads (a ligação ao Facebook do Make expirou na mesma altura): 5 leads da Meta de 09–10/11 não entraram no Supabase.
 O nó `Meta Lead Info` do fluxo principal usa a MESMA credencial, por isso um token morto pára as leads à entrada.
 
-**Aviso:** `POST /api/leads/meta/vigia-falhou` (`X-N8N-Secret`, `?dry=1`): email a `notificacoes_para` + `ALERTAS_PARA`, no máx. 1 em 12 h,
-regista `vigia_leads_falha`. No fluxo `v03lokXyOY0r7JWO` os 3 nós têm `onError: continueErrorOutput` e a saída de erro liga ao nó
-«Avisar falha do vigia». **Por provar com uma falha real** (só se testou o 401 do endpoint sem segredo). Limite: n8n parado ou fluxo
-desligado não se detetam.
+**Aviso (revisto no mesmo dia):** `continueErrorOutput` fazia a execução acabar como `success` e escondia a falha; ficou o **Error Workflow** do n8n. Workflow «Alerta de falhas (Error Workflow)» (`RWtN895PmrN8Igai`, `Error Trigger` → `POST /api/n8n/falhou`, `X-N8N-Secret`, `?dry=1`), ligado em «Definições → Error Workflow» ao vigia, ao «Meta leads to supabase» e aos follow-ups 24h/72h da Matilde.
+O backend (`notificacoes.falha_de_workflow`, `6eed923`, v214) manda email a `notificacoes_para` + `ALERTAS_PARA`, **1 por fluxo em 12 h**, e regista `n8n_falha` em `agente_sync_log`. **Provado a 10/11 com «Execute workflow» no «Alerta de falhas» (email recebido, `n8n_falha` registado); ainda sem uma falha espontânea.** Limites: backend em baixo = sem email; n8n parado ou fluxo desligado não se detetam.
 
 **Prevenção:** lembrete aos ~50 dias para reautenticar a ligação do Make; token do n8n de utilizador do sistema (não expira).
