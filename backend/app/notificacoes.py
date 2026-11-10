@@ -216,3 +216,40 @@ def demo() -> None:
 
 if __name__ == "__main__":
     demo()
+
+
+def falha_de_workflow(workflow: str, no: str, erro: str, execucao: str, dry: bool = False) -> dict:
+    """Um fluxo do n8n falhou (o seu «Error Workflow» chama-nos). Email a `notificacoes_para` + `alertas_para`,
+    no máximo UM por fluxo em 12 h (o vigia corre de 30 em 30 min); regista `n8n_falha` em `agente_sync_log`.
+    O token da Meta expirou a 09/11 e o vigia e a entrada das leads ficaram um dia a falhar sem aviso.
+    ponytail: o aviso sai do backend, por isso se o backend estiver em baixo não há email; n8n parado ou fluxo
+    desligado também não se detetam (o Error Workflow só corre se o fluxo arrancar)."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.supabase_client import get_supabase
+
+    workflow, no, execucao = (workflow or "n8n")[:120], (no or "")[:120], (execucao or "")[:40]
+    erro = (erro or "sem detalhe").strip()[:500]
+    sb = get_supabase()
+    desde = (datetime.now(timezone.utc) - timedelta(hours=12)).isoformat()
+    recentes = (sb.table("agente_sync_log").select("resumo").eq("tipo", "n8n_falha")
+                .gte("executado_em", desde).limit(200).execute().data or [])
+    if any((r.get("resumo") or {}).get("workflow") == workflow for r in recentes):
+        return {"avisou": False, "repetido": True}
+    if dry:
+        return {"avisou": False, "dry": True}
+    linhas = [f"O fluxo «{workflow}» (n8n) falhou" + (f" no nó «{no}»" if no else "") + ".", "", f"Erro: {erro}"]
+    if execucao:
+        linhas.append(f"Execução n8n: {execucao}")
+    if "oauth" in erro.lower() or "facebook" in erro.lower() or "190" in erro:
+        linhas += ["", "Parece o token da Meta/Facebook: a credencial «Facebook Figueira Home» (n8n) é partilhada pelo vigia "
+                   "e pelo «Meta leads to supabase», que lê cada lead com ela. Com o token morto, as leads novas podem não "
+                   "estar a entrar. Ver também a ligação ao Facebook no Make."]
+    linhas += ["", "Este aviso não se repete em 12 h para o mesmo fluxo."]
+    notificar(f"n8n: o fluxo «{workflow}» falhou", "\n".join(linhas), para_extra=_alertas_extra())
+    try:
+        sb.table("agente_sync_log").insert({"tipo": "n8n_falha", "origem": "n8n",
+                                            "resumo": {"workflow": workflow, "no": no, "erro": erro, "execucao": execucao}}).execute()
+    except Exception:
+        logger.exception("Falha a registar n8n_falha")
+    return {"avisou": True}

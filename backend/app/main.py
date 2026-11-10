@@ -20,6 +20,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.nudge import router as nudge_router
 from app.api.leads_ego import router as leads_ego_router
 from app.api.leads_vigia import router as leads_vigia_router
+from app.api.n8n_falhas import router as n8n_falhas_router
 from app.api.whatsapp_falhas import router as whatsapp_falhas_router
 from app.api.site_uptime import router as site_uptime_router
 from app.config import settings
@@ -61,6 +62,7 @@ app.include_router(dashboard_router)
 app.include_router(agentes_router)
 app.include_router(leads_ego_router)  # lead de compra sem resposta → eGO — cron, X-Automacao-Secret
 app.include_router(leads_vigia_router)  # reconciliação das leads da Meta com a conta de anúncios — n8n, X-N8N-Secret
+app.include_router(n8n_falhas_router)  # aviso de fluxo n8n falhado (Error Workflow) — X-N8N-Secret
 app.include_router(whatsapp_falhas_router)  # resumo diário de números sem WhatsApp — cron, X-Automacao-Secret
 app.include_router(tarefas_resumo_router)  # resumo diário das tarefas dos agentes por tratar — cron, X-Automacao-Secret
 app.include_router(nudge_router)  # lembrete dentro da janela de 24h — cron, X-Automacao-Secret

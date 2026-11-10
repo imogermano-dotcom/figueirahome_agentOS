@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 LISBOA = ZoneInfo("Europe/Lisbon")
 TIPO_VERIFICACAO = "vigia_leads_meta"
 TIPO_ALERTA = "vigia_leads_alerta"
-TIPO_FALHA = "vigia_leads_falha"
 JANELA_VERIFICACAO_H = 3  # a verificação anterior só conta se for recente (o n8n corre de 30 em 30 min)
 REPETIR_ALERTA_H = 12
 
@@ -69,26 +68,6 @@ def texto_do_alerta(faltam: dict[str, int], meta: dict[str, int], supabase: dict
                "'Meta leads to supabase')? A lead pode ter sido filtrada como teste.",
                "São contagens, não ids: a Meta não diz quais faltam sem acesso à página."]
     return "\n".join(linhas)
-
-
-def avisar_falha(erro: str, dry: bool = False) -> dict:
-    """O próprio vigia falhou (token da Meta expirado, 10/11: ficou cego um dia sem aviso). O n8n chama-nos pela saída de
-    erro do nó. Um email por falha em 12 h (o fluxo corre de 30 em 30 min). Nunca avisa com `dry`.
-    ponytail: só apanha o vigia que corre e falha; n8n parado ou fluxo desligado ficam por detectar."""
-    erro = (erro or "sem detalhe").strip()[:500]
-    if _ultimo(TIPO_FALHA, REPETIR_ALERTA_H):
-        return {"avisou": False, "repetido": True}
-    if dry:
-        return {"avisou": False, "dry": True}
-    notificar("O vigia das leads da Meta falhou", "\n".join((
-        "O fluxo «Vigia leads Meta» (n8n) falhou e deixou de comparar as leads da Meta com o Supabase.", "",
-        f"Erro: {erro}", "",
-        "Causa mais provável: o token da credencial «Facebook Figueira Home» (n8n) expirou. O fluxo «Meta leads to supabase» "
-        "usa a MESMA credencial para ler cada lead: se o token está morto, as leads novas podem não estar a entrar. "
-        "Ver também se o cenário do Make está ligado e com a ligação ao Facebook válida.", "",
-        "Este aviso não se repete em 12 h.")), para_extra=_alertas_extra())
-    _registar(TIPO_FALHA, {"erro": erro})
-    return {"avisou": True}
 
 
 def verificar(meta: dict[str, int], dry: bool = False) -> dict:
