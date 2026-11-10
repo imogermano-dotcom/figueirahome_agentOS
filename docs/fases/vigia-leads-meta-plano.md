@@ -58,3 +58,17 @@ Cron `vigia-leads-meta` de 15 em 15 min → `POST /api/leads/meta/vigia` (`X-Aut
 2. Margem de 15 min e alerta repetido de 2 em 2 h: bem?
 3. Destinatários: `notificacoes_para` + `ALERTAS_PARA` (é falha do sistema, como os syncs) ou só o Miguel?
 4. Reinjeção das leads em falta: manual (proposto) ou automática depois?
+
+## Aviso quando o próprio vigia falha (10/11/2026, `dcc07c6`, deploy v213, fluxo n8n editado ao vivo)
+
+**Incidente:** o token da credencial n8n «Facebook Figueira Home» (colado à mão a 08/09, ~60 dias) deixou de ser aceite a 09/11
+(`OAuthException 190/492`); o vigia falhou de 30 em 30 min durante ~1 dia **sem ninguém saber**, e o webhook do Make também deixou
+de receber leads (a ligação ao Facebook do Make expirou na mesma altura): 5 leads da Meta de 09–10/11 não entraram no Supabase.
+O nó `Meta Lead Info` do fluxo principal usa a MESMA credencial, por isso um token morto pára as leads à entrada.
+
+**Aviso:** `POST /api/leads/meta/vigia-falhou` (`X-N8N-Secret`, `?dry=1`): email a `notificacoes_para` + `ALERTAS_PARA`, no máx. 1 em 12 h,
+regista `vigia_leads_falha`. No fluxo `v03lokXyOY0r7JWO` os 3 nós têm `onError: continueErrorOutput` e a saída de erro liga ao nó
+«Avisar falha do vigia». **Por provar com uma falha real** (só se testou o 401 do endpoint sem segredo). Limite: n8n parado ou fluxo
+desligado não se detetam.
+
+**Prevenção:** lembrete aos ~50 dias para reautenticar a ligação do Make; token do n8n de utilizador do sistema (não expira).
