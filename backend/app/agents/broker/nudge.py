@@ -101,7 +101,9 @@ _AGENTES = {
 
 
 async def _conversas_escaladas(ids: list[str]) -> set[str]:
-    """Conversas cujo caso já foi entregue a um humano (`escalar_para_humano`).
+    """Conversas cujo caso já foi entregue a um humano: `escalar_para_humano` (tarefa `escalar`) ou pedido de visita
+    (`pedir_visita`, tarefa `visita`). Sem a segunda, a Matilde perguntava «Ainda está interessado?» a quem tinha acabado
+    de marcar visita (achado 10/11: a pessoa respondeu «ja esta agendada a visita»).
 
     Sinal gravado em código, não pelo modelo — ao contrário de `_MARCAS_FECHO`,
     que falha com cada despedida nova ("Boa semana! 🌟", achado 05/10: a Inês
@@ -120,7 +122,7 @@ async def _conversas_escaladas(ids: list[str]) -> set[str]:
             .table("agente_tarefas")
             .select("conversa_id")
             .in_("conversa_id", ids)
-            .eq("tipo", "escalar")
+            .in_("tipo", ["escalar", "visita"])
             .execute()
         )
 

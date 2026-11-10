@@ -56,6 +56,8 @@ class _FakeTable:
             self._telefone_pedido = valores[0]
         if self.nome == "agente_tarefas" and campo == "conversa_id":
             self._ids = valores
+        if self.nome == "agente_tarefas" and campo == "tipo":
+            self._tipos = valores
         return self
 
     def update(self, dados):
@@ -70,10 +72,10 @@ class _FakeTable:
         if self.nome == "agente_tarefas":
             if self.estado.get("tarefas_erro"):
                 raise RuntimeError("falha simulada")
-            tipo = getattr(self, "_filtros", {}).get("tipo")
+            tipos = getattr(self, "_tipos", [])
             return SimpleNamespace(data=[
                 t for t in self.estado.get("tarefas", [])
-                if t["conversa_id"] in getattr(self, "_ids", []) and t["tipo"] == tipo
+                if t["conversa_id"] in getattr(self, "_ids", []) and t["tipo"] in tipos
             ])
         if self.nome == "contactos":
             if self.estado.get("contactos_erro"):
@@ -283,9 +285,17 @@ def test_so_a_conversa_escalada_e_poupada(monkeypatch):
 
 def test_tarefa_de_outro_tipo_nao_trava_o_nudge(monkeypatch):
     conversas = [_conversa("c1", "351900000008")]
-    _montar(monkeypatch, conversas, {}, tarefas=[{"conversa_id": "c1", "tipo": "visita"}])
+    _montar(monkeypatch, conversas, {}, tarefas=[{"conversa_id": "c1", "tipo": "lead_ego"}])
 
     assert asyncio.run(nudge.enviar_nudges(nudge.A3))["enviados"] == 1
+
+
+def test_pedido_de_visita_nao_recebe_nudge(monkeypatch):
+    """10/11: a pessoa pediu visita e duas horas depois ouviu «Ainda está interessado?»."""
+    for agente in (nudge.A1, nudge.A3, nudge.A4):
+        conversas = [_conversa("c1", "351900000010")]
+        estado = _montar(monkeypatch, conversas, {}, tarefas=[{"conversa_id": "c1", "tipo": "visita"}])
+        assert asyncio.run(nudge.enviar_nudges(agente))["enviados"] == 0 and "enviados" not in estado
 
 
 def test_falha_a_consultar_escaladas_nao_envia_nada(monkeypatch):
