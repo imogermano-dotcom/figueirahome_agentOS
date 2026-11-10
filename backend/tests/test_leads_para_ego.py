@@ -63,6 +63,7 @@ class _BD:
 
     def __init__(self, contactos, oportunidade=False):
         self.contactos, self.oportunidade, self.updates, self._t, self._upd = contactos, oportunidade, [], None, None
+        self.imovel_da_oportunidade = "FH0001"  # o mesmo de `_linha()`; os testes mudam-no para simular outro imóvel
         self.tarefas_fechadas = []  # títulos pedidos ao `in_` do update em `agente_tarefas`
         self.registos = []  # inserts em `agente_sync_log`
 
@@ -96,7 +97,8 @@ class _BD:
 
     def execute(self):
         if self._t == "oportunidades":
-            return type("R", (), {"data": [{"oportunidade_ref": "x", "responsavel": "Ana Teste"}] if self.oportunidade else []})()
+            ops = [{"oportunidade_ref": "x", "responsavel": "Ana Teste", "imovel_ref": self.imovel_da_oportunidade}] if self.oportunidade else []
+            return type("R", (), {"data": ops})()
         return type("R", (), {"data": self.contactos})()
 
 
@@ -541,3 +543,61 @@ def test_telefone_da_linha_escolhe_o_primeiro_numero_valido():
     assert f({"telefone": "", "telemovel": "351912345678"}) == "912345678"
     assert f({"telefone": "912345678912345678"}) == "912345678912345678"  # nenhum válido: comportamento antigo
     assert f({}) is None
+
+
+def _avisos(monkeypatch):
+    avisos = []
+    monkeypatch.setattr(lp, "notificar", lambda assunto, corpo, **k: avisos.append((assunto, corpo, k)))
+    monkeypatch.setattr(lp, "_email_do_responsavel", lambda nome: "ana@example.com")
+    return avisos
+
+
+def test_oportunidade_ativa_do_mesmo_imovel_avisa_a_consultora_e_nao_cria(monkeypatch):
+    """Pedido #17: antes marcava-se em silêncio e ninguém sabia que a pessoa tinha voltado."""
+    bd = _BD([_linha(interesse_real_em=ISO(1), interesse_real_motivo="pedido de visita")], oportunidade=True)
+    avisos = _avisos(monkeypatch)
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
+    r = lp.processar(AGORA)
+    assert r["ja_existiam"] == 1 and r["avisadas"] == 1 and r["criadas"] == 0
+    assert len(avisos) == 1 and "FH0001" in avisos[0][0] and "pedido de visita" in avisos[0][1]
+    assert avisos[0][2]["para_extra"] == ["ana@example.com"]
+    assert bd.registos[-1]["resumo"]["avisadas"] == 1
+
+
+def test_oportunidade_ativa_de_outro_imovel_cria_a_lead_deste(monkeypatch):
+    """Caso de 09/11: a pessoa tinha oportunidades de outros imóveis e pediu visita ao FH0001; não ficou nada no eGO."""
+    bd = _BD([_linha()], oportunidade=True)
+    bd.imovel_da_oportunidade = "FH9999"
+    avisos = _avisos(monkeypatch)
+    _usa(monkeypatch, bd, lambda *a: "555")
+    r = lp.processar(AGORA)
+    assert (r["criadas"], r["ja_existiam"]) == (1, 0) and avisos == []
+    assert bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat(), "ego_lead_id": 555})]
+
+
+def test_oportunidade_ativa_com_sufixo_de_anuncio_conta_como_o_mesmo_imovel(monkeypatch):
+    bd = _BD([_linha(imovel_ref="FH0001_V3")], oportunidade=True)
+    bd.imovel_da_oportunidade = "FH0001A"
+    _avisos(monkeypatch)
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
+    assert lp.processar(AGORA)["avisadas"] == 1
+
+
+def test_oportunidade_sem_imovel_conhecido_nao_cria_e_avisa(monkeypatch):
+    bd = _BD([_linha()], oportunidade=True)
+    bd.imovel_da_oportunidade = None  # não dá para provar que é de outro imóvel: fica o aviso
+    _avisos(monkeypatch)
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
+    assert lp.processar(AGORA)["avisadas"] == 1
+
+
+def test_lead_ja_na_caixa_grava_o_id_da_lead_do_eGO(monkeypatch):
+    """Pedido #17(d): a marca leva o ego_lead_id sempre que o eGO o dá."""
+    bd = _BD([_linha()])
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"), leads=[{"phone": "+351912345678", "id": 777}])
+    lp.processar(AGORA)
+    assert bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat(), "ego_lead_id": 777})]
+
+
+def test_ref_base():
+    assert [lp._ref_base(x) for x in ("FH2588_V1", "fh2588a", "FH2588", None, "CAS_123")] == ["FH2588", "FH2588", "FH2588", "", "CAS_123"]

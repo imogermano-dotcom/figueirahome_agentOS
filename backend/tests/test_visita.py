@@ -149,3 +149,14 @@ def test_visita_sem_orcamento_nao_avisa(visita):
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_tarefa_de_visita_leva_o_angariador_do_imovel_como_responsavel(visita, monkeypatch):
+    """Pedido #17(4), 10/11: a tarefa nascia sem responsável e ninguém a via."""
+    pedir, registo = visita
+    monkeypatch.setattr(tools, "_preco_do_imovel", lambda ref: dict(IMOVEL, angariador="Ana Teste"))
+    pedir()
+    assert registo["tarefas"][-1]["responsavel"] == "Ana Teste"
+    monkeypatch.setattr(tools, "_preco_do_imovel", lambda ref: dict(IMOVEL))  # imóvel sem angariador: não inventa
+    pedir(nome="Outra Pessoa")
+    assert registo["tarefas"][-1].get("responsavel") is None

@@ -724,7 +724,7 @@ def _preco_do_imovel(ref: str) -> dict | None:
     resp = (
         get_supabase()
         .table("imoveis")
-        .select("imovel_ref,venda_preco,arrendamento_preco,morada")
+        .select("imovel_ref,venda_preco,arrendamento_preco,morada,angariador")
         .ilike("imovel_ref", ref.replace(" ", ""))
         .limit(1)
         .execute()
@@ -811,6 +811,7 @@ async def _pedir_visita(inputs: dict, contexto: dict) -> str:
             # Campos de métrica (migration 0018). O título continua legível
             # para o corretor, mas deixa de ser a fonte de verdade.
             "tipo": "visita",
+            "responsavel": (imovel.get("angariador") or "").strip() or None,  # pedido #17(4): a visita leva o angariador do imóvel
             "agente": contexto.get("agente"),
             "conversa_id": contexto.get("conversa_id"),
         },

@@ -16,6 +16,7 @@ from app.agents.broker.guards import _TAREFA_QUALIFICADA, e_fecho_da_pessoa, e_r
 from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.integrations import ego_api, egorealestate
+from app.notificacoes import notificar
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,54 @@ def _responsavel_da_oportunidade(telefone: str | None, email: str | None = None)
 
 def _ja_tem_oportunidade(telefone: str | None) -> bool:
     return bool(_responsavel_da_oportunidade(telefone))
+
+
+def _ref_base(ref: str | None) -> str:
+    """«FH2588_V1» e «FH2588A» → «FH2588»: o mesmo imóvel com sufixo de anúncio ou de lote."""
+    m = re.match(r"[A-Za-z]*[0-9]+", ref or "")
+    return m.group(0).upper() if m else (ref or "").strip().upper()
+
+
+def _oportunidades_ativas(telefone: str | None, email: str | None = None) -> list[dict]:
+    """Oportunidades ativas (não apagadas) deste número ou email: ref, imóvel e consultor."""
+    def _q():
+        return (get_supabase().table("oportunidades").select("oportunidade_ref,imovel_ref,responsavel")
+                .eq("oportunidade_estado", "Ativa").eq("apagada_no_ego", False))
+    r = []
+    if telefone and len(telefone) >= 9:
+        r = _q().ilike("cliente_telefone", f"%{telefone[-9:]}%").limit(10).execute().data or []
+    if not r and email:
+        r = _q().ilike("cliente_email", email.strip()).limit(10).execute().data or []
+    return r
+
+
+def _mesmo_imovel(ops: list[dict], ref: str | None) -> bool:
+    """A pessoa já tem oportunidade ativa DESTE imóvel (ou não dá para provar que é de outro: sem ref de um dos lados)."""
+    return not ref or any(not o.get("imovel_ref") or _ref_base(o["imovel_ref"]) == _ref_base(ref) for o in ops)
+
+
+def _lead_da_caixa(linha: dict, leads: list[dict]) -> dict | None:
+    return next((l for l in leads if _ja_nas_leads(linha, [l])), None)
+
+
+def _avisar_oportunidade_ativa(linha: dict, ops: list[dict]) -> None:
+    """Pedido #17 (10/11): a pessoa já tem oportunidade ativa deste imóvel, por isso não se cria lead nova; avisa-se a
+    consultora (e o diretor). Antes marcava-se em silêncio e ninguém sabia que ela tinha voltado a mostrar interesse. Nunca levanta."""
+    try:
+        emails = [e for e in {_email_do_responsavel(o.get("responsavel")) for o in ops} if e]
+        motivo = linha.get("interesse_real_motivo") or ("respondeu à Matilde" if linha.get("respondeu_em") else "sem resposta ao WhatsApp há mais de 2 h")
+        resumo = " ".join((linha.get("interesse_real_resumo") or "").split())[:_MAX_RESUMO_OBS]
+        corpo = "\n".join(p for p in (
+            f"{linha.get('nome') or 'Uma pessoa'} voltou a mostrar interesse pelo imóvel {linha.get('imovel_ref') or '—'} (lead da Meta): {motivo}.",
+            f"Telefone: {telefone_da_linha(linha) or '—'} · Email: {linha.get('email') or '—'}",
+            "Já tem oportunidade ativa no eGO: " + ", ".join(sorted({o.get("oportunidade_ref") or "?" for o in ops})) + ".",
+            f"Resumo: {resumo}" if resumo else None,
+            "",
+            "Não se criou lead nova (evita duplicar). Se quiseres, acrescenta uma nota na oportunidade.",
+        ) if p is not None)
+        notificar(f"Lead Meta com oportunidade ativa — {linha.get('imovel_ref') or 'imóvel?'}", corpo, para_extra=emails)
+    except Exception:
+        logger.exception("Falha a avisar da oportunidade ativa da lead %s", linha.get("id"))
 
 
 def _candidatas(agora: datetime) -> list[dict]:
@@ -473,14 +522,23 @@ def processar(agora: datetime | None = None) -> dict:
         marca = {"ego_lead_em": agora.isoformat()}
         try:
             tel = telefone_da_linha(linha)
-            if _ja_nas_leads(linha, leads) or _ja_tem_oportunidade(tel):
+            na_caixa = _lead_da_caixa(linha, leads)
+            ops = [] if na_caixa else _oportunidades_ativas(tel, linha.get("email"))
+            if na_caixa:
                 contagem["ja_existiam"] += 1
+                if str(na_caixa.get("id", "")).isdigit():
+                    marca["ego_lead_id"] = int(na_caixa["id"])  # pedido #17(d): a marca leva o id sempre que o eGO o dá
+            elif ops and _mesmo_imovel(ops, linha.get("imovel_ref")):
+                contagem["ja_existiam"] += 1
+                contagem["avisadas"] = contagem.get("avisadas", 0) + 1
+                _avisar_oportunidade_ativa(linha, ops)
             elif not (linha.get("email") or "").strip():  # a Web API recusa sem email: fica por criar, à vista
                 logger.warning("Lead %s sem email: não se cria no eGO (Web API exige)", linha["id"])
                 contagem["erros"] += 1
                 continue
             else:
-                ident = _criar_lead(linha, tel) or _id_da_lead(tel, linha.get("email"))  # a Web API não devolve o id
+                # oportunidade ativa de OUTRO imóvel (pedido #17, 10/11): é interesse novo, cria-se a lead deste imóvel
+                ident = _criar_lead(linha, tel, ja_conhecido=bool(ops)) or _id_da_lead(tel, linha.get("email"))  # a Web API não devolve o id
                 if ident:
                     marca["ego_lead_id"] = ident
                 contagem["criadas"] += 1
@@ -494,7 +552,8 @@ def processar(agora: datetime | None = None) -> dict:
             logger.exception("Falha a enviar a lead %s para o eGO", linha["id"])
             contagem["erros"] += 1
     if marcadas:
-        registar_marcas("cron", agora, marcadas, criadas=contagem["criadas"], ja_existiam=contagem["ja_existiam"])
+        registar_marcas("cron", agora, marcadas, criadas=contagem["criadas"], ja_existiam=contagem["ja_existiam"],
+                        avisadas=contagem.get("avisadas", 0))
     return contagem
 
 
