@@ -28,6 +28,20 @@ class LeadsDaMeta(BaseModel):
         return v
 
 
+class FalhaDoVigia(BaseModel):
+    erro: str = ""
+
+
+# n8n, saída de erro do fluxo «Vigia leads Meta»: o vigia falhou (ex.: token da Meta expirado). Email, no máx. 1 por 12 h.
+@router.post("/leads/meta/vigia-falhou")
+async def vigia_falhou(corpo: FalhaDoVigia, dry: int = 0, acesso=Depends(require_n8n_access)):
+    try:
+        return await asyncio.get_event_loop().run_in_executor(None, vigia_leads.avisar_falha, corpo.erro, bool(dry))
+    except Exception:
+        logger.exception("Falha a avisar que o vigia das leads da Meta falhou")
+        raise HTTPException(status_code=502, detail="Falha a avisar.")
+
+
 # n8n, fluxo «Vigia leads Meta» (de 30 em 30 min). `?dry=1` compara sem registar nem avisar.
 @router.post("/leads/meta/reconciliar")
 async def reconciliar_leads_meta(corpo: LeadsDaMeta, dry: int = 0, acesso=Depends(require_n8n_access)):

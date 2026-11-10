@@ -118,3 +118,20 @@ def test_endpoint_rejeita_corpo_invalido():
     for mau in ({}, {"hoje": 3}, {"2026-11-03": -1}, {f"2026-11-0{i}": 1 for i in range(1, 9)}):
         with pytest.raises(ValidationError):
             LeadsDaMeta(dias=mau)
+
+
+def test_falha_do_vigia_avisa_uma_vez_em_12h(monkeypatch):
+    bd = _BD([])
+    enviados = _usa(monkeypatch, bd)
+    assert v.avisar_falha("OAuthException 190")["avisou"] and len(enviados) == 1
+    assert "OAuthException 190" in enviados[0][1] and "Facebook Figueira Home" in enviados[0][1]
+    assert bd.inseridos[-1]["tipo"] == v.TIPO_FALHA
+    bd.log.append({"tipo": v.TIPO_FALHA, "resumo": {}})  # já houve aviso há pouco
+    r = v.avisar_falha("OAuthException 190")
+    assert r == {"avisou": False, "repetido": True} and len(enviados) == 1
+
+
+def test_falha_do_vigia_dry_nao_envia(monkeypatch):
+    bd = _BD([])
+    enviados = _usa(monkeypatch, bd)
+    assert v.avisar_falha("x", dry=True) == {"avisou": False, "dry": True} and enviados == [] and bd.inseridos == []
