@@ -264,3 +264,35 @@ def test_endpoint_falha_devolve_502_e_avisa(monkeypatch):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── angariador pelo `brokerId` (pedido #45) ───────────────────────────────
+
+def _com_nome(**linhas):
+    return _bd(**{r: {"angariador": n} for r, n in linhas.items()})
+
+
+def test_nome_do_angariador_vem_do_broker_id_mais_frequente():
+    api = {"A": _item("A", brokerId=7), "B": _item("B", brokerId=7), "C": _item("C", brokerId=7), "D": _item("D", brokerId=8)}
+    bd = _com_nome(A="Ana Teste", B="Ana Teste", C="Outra Pessoa", D="")
+    assert sync.nomes_por_broker(api, bd) == {7: "Ana Teste"}
+
+
+def test_imovel_novo_leva_o_angariador_e_sem_nome_conhecido_fica_none():
+    nomes = {7: "Ana Teste"}
+    assert sync.mapear_imovel_novo(_item(brokerId=7), nomes)["angariador"] == "Ana Teste"
+    assert sync.mapear_imovel_novo(_item(brokerId=9), nomes)["angariador"] is None
+    assert sync.mapear_imovel_novo(_item(), None)["angariador"] is None
+
+
+def test_plano_preenche_angariador_vazio_e_nunca_troca_o_que_la_esta():
+    api = {r: _item(r, estado=7, brokerId=7, lastUpdate="2026-10-14T14:37:10") for r in ("REF", "VAZIO", "TEM")}
+    bd = _bd(REF={"angariador": "Ana Teste"}, VAZIO={"angariador": ""}, TEM={"angariador": "Outra Pessoa"})
+    p = sync.planear_imoveis_todos(api, bd)
+    assert dict(p["atualizar"]) == {"VAZIO": {"disponibilidade": "Em Prospecção", "ego_atualizado_em": "2026-10-14T13:37:10+00:00", "angariador": "Ana Teste"}}
+
+
+def test_plano_nao_escreve_angariador_em_imovel_da_web_api_nem_manual():
+    api = {"W": _item("W", brokerId=7), "M": _item("M", brokerId=7), "R": _item("R", brokerId=7)}
+    bd = _bd(W={"disponivel_na_api": True, "angariador": ""}, M={"fonte": "manual", "angariador": ""}, R={"angariador": "Ana Teste"})
+    assert sync.planear_imoveis_todos(api, bd)["atualizar"] == []

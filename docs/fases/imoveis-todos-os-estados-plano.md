@@ -92,4 +92,5 @@ as chaves das linhas inseridas são idênticas; nenhuma linha é apagada.
 1. **Inserir todos** os 705, incluindo os 520 em Prospecção, com `disponivel_na_api=false` (pedido do Miguel: «incluindo os em Prospecção»).
 2. **Cron diário às 06:47 UTC**, desligado até à 1.ª passagem aprovada.
 3. **Linhas `fonte='manual'` com divergência** (FH2483_B, FH2491): só aparecem no resumo.
-4. **Fase 2** (natureza, angariador, localização) fica para depois.
+4. **Angariador (10/11):** vem do `brokerId` da API (não do `securityUserId`, que é quem criou o registo): o nome tira-se dos imóveis que já o têm (`nomes_por_broker`, 4 213 de 4 218 certos) e só se preenche onde está vazio (imóveis da Web API e `manual` ficam de fora). Dry-run: 688 a preencher; ~260 sem `brokerId` no eGO ficam por preencher.
+5. **Fase 2** (natureza, localização) fica para depois.

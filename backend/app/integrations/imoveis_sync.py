@@ -668,7 +668,22 @@ def _inteiro(v):
     return v if isinstance(v, int) and v != _INT_SENTINEL and v >= 0 else None
 
 
-def mapear_imovel_novo(item: dict) -> dict:
+def nomes_por_broker(api: dict[str, dict], existentes: dict[str, dict]) -> dict[int, str]:
+    """`{brokerId do eGO: nome do angariador}`, tirado dos imóveis que já têm angariador (a API nova só dá o id).
+    Confirmado a 10/11: o `brokerId` bate com o nome em 4 213 de 4 218 imóveis (o `securityUserId` NÃO: é quem criou
+    o registo). Vale o nome mais frequente por id, tal como o eGO o escreve (`profiles.ego_responsavel`).
+    ponytail: um angariador que ainda não tem nenhum imóvel com nome fica por resolver; GetEmployee daria o nome."""
+    contagem: dict[int, dict[str, int]] = {}
+    for ref, linha in existentes.items():
+        nome = (linha.get("angariador") or "").strip()
+        bid = (api.get(ref) or {}).get("brokerId")
+        if nome and bid:
+            contagem.setdefault(bid, {}).setdefault(nome, 0)
+            contagem[bid][nome] += 1
+    return {bid: max(c, key=c.get) for bid, c in contagem.items()}
+
+
+def mapear_imovel_novo(item: dict, nomes: dict[int, str] | None = None) -> dict:
     """Linha nova para `imoveis`. **Sempre as mesmas chaves** (o upsert por lotes do PostgREST escreve NULL em tudo o
     que falta a algum registo) e `disponivel_na_api=False`: a coluna `publicado` é GENERATED e um Disponível com preço
     e `disponivel_na_api` verdadeiro apareceria no site sem estar publicado (o APA_5495 é Disponível a 100 000 €)."""
@@ -690,6 +705,7 @@ def mapear_imovel_novo(item: dict) -> dict:
         "area_terreno": item.get("landArea") or None,
         "venda_preco": _preco_do_negocio(item, _NEGOCIO_VENDA),
         "arrendamento_preco": _preco_do_negocio(item, _NEGOCIO_ARRENDAMENTO),
+        "angariador": (nomes or {}).get(item.get("brokerId")),
     }
 
 
@@ -699,7 +715,9 @@ def planear_imoveis_todos(api: dict[str, dict], existentes: dict[str, dict]) -> 
     - novo → insere (`disponivel_na_api=False`);
     - existente que a Web API vê (`disponivel_na_api`) → NÃO se escreve, a Web API manda; divergência só no resumo;
     - existente `fonte='manual'` → NÃO se escreve; divergência só no resumo;
-    - o resto → atualiza `disponibilidade` e `ego_atualizado_em` se mudaram."""
+    - o resto → atualiza `disponibilidade` e `ego_atualizado_em` se mudaram, e preenche `angariador` se estiver vazio
+      (nunca troca um que já lá está)."""
+    nomes = nomes_por_broker(api, existentes)
     plano = {"inserir": [], "atualizar": [], "divergencias_web_api": [], "divergencias_manual": [], "desconhecidos": 0}
     for ref, item in api.items():
         estado = ESTADO_IMOVEL.get(item.get("realestateStatusId"))
@@ -708,7 +726,7 @@ def planear_imoveis_todos(api: dict[str, dict], existentes: dict[str, dict]) -> 
             continue
         atual = existentes.get(ref)
         if atual is None:
-            plano["inserir"].append(mapear_imovel_novo(item))
+            plano["inserir"].append(mapear_imovel_novo(item, nomes))
             continue
         diverge = atual.get("disponibilidade") != estado
         if atual.get("fonte") == "manual":
@@ -720,10 +738,13 @@ def planear_imoveis_todos(api: dict[str, dict], existentes: dict[str, dict]) -> 
         else:
             novo_em = _lisboa_para_utc(item.get("lastUpdate"))
             mais_recente = bool(novo_em and (not atual.get("ego_atualizado_em") or novo_em > str(atual["ego_atualizado_em"])))
-            if diverge or mais_recente:
+            nome = None if (atual.get("angariador") or "").strip() else nomes.get(item.get("brokerId"))
+            if diverge or mais_recente or nome:
                 valores = {"disponibilidade": estado}
                 if novo_em:
                     valores["ego_atualizado_em"] = novo_em
+                if nome:
+                    valores["angariador"] = nome
                 plano["atualizar"].append((ref, valores))
     return plano
 
@@ -740,7 +761,7 @@ async def sync_imoveis_todos(origem: str = "manual", dry: bool = False) -> dict:
         linhas, inicio = [], 0
         while True:
             lote = (get_supabase().table("imoveis")
-                    .select("imovel_ref,fonte,disponibilidade,disponivel_na_api,ego_atualizado_em")
+                    .select("imovel_ref,fonte,disponibilidade,disponivel_na_api,ego_atualizado_em,angariador")
                     .range(inicio, inicio + 999).execute().data)
             linhas += lote
             inicio += 1000
@@ -753,6 +774,8 @@ async def sync_imoveis_todos(origem: str = "manual", dry: bool = False) -> dict:
     resumo = {
         "dry": dry, "no_ego": len(api), "no_supabase": len(existentes),
         "a_inserir": len(plano["inserir"]), "a_atualizar": len(plano["atualizar"]),
+        "angariador_a_preencher": sum(1 for _, v in plano["atualizar"] if "angariador" in v)
+        + sum(1 for r in plano["inserir"] if r.get("angariador")),
         "divergencias_web_api": plano["divergencias_web_api"], "divergencias_manual": plano["divergencias_manual"],
         "desconhecidos": plano["desconhecidos"], "inseridos": 0, "atualizados": 0, "erros": 0,
     }
