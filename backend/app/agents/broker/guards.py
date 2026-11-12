@@ -251,6 +251,53 @@ def lead_qualificada(cliente: dict | None) -> bool:
     return all(cliente.get(campo) not in (None, "") for campo in _CAMPOS_MQL)
 
 
+def _contacto_ja_no_ego(supabase, telefone: str | None) -> bool:
+    """O contacto Meta deste telefone já tem lead no eGO (`ego_lead_em`). Falha para False: o aviso normal sai na mesma."""
+    if not telefone:
+        return False
+    try:
+        lista = ",".join(variantes_telefone(telefone))
+        return bool(
+            supabase.table("contactos").select("id")
+            .or_(f"telefone.in.({lista}),telemovel.in.({lista})")
+            .not_.is_("meta_lead_id", "null").not_.is_("ego_lead_em", "null").limit(1).execute().data
+        )
+    except Exception:
+        logger.exception("Falha a ver se o contacto já está no eGO")
+        return False
+
+
+def _avisar_lead_ja_no_ego(supabase, cliente: dict, lead: dict, titulo: str, agente: str | None,
+                           telefone: str | None, email: str | None) -> None:
+    """A lead já existe no eGO (criada às 2 h «sem resposta», OBS desatualizado) e a pessoa respondeu e qualificou: não há
+    lead nova para criar, por isso em vez da tarefa `lead_ego` (ficava pendente para sempre) avisa-se a consultora do imóvel.
+    A tarefa `lead_ego_aviso` nasce concluída: só serve para o aviso não repetir em 24 h (mesma chave do aviso normal)."""
+    supabase.table("agente_tarefas").insert({
+        "titulo": titulo, "tipo": "lead_ego_aviso", "estado": "concluida", "agente": agente,
+        "descricao": "Lead já no eGO voltou a responder à assistente; consultora avisada por email.",
+    }).execute()
+    arrendar = (cliente.get("tipo_interesse") or "") == "arrendamento"
+    notificar(
+        f"Lead já no eGO voltou a responder — {cliente.get('nome') or telefone or email}",
+        "\n".join(p for p in (
+            f"Uma lead que já está no eGO respondeu à {_NOME_AGENTE.get(agente, 'assistente')} e qualificou.",
+            "O texto dela no eGO ainda diz «sem resposta»: não tem o que ela disse.",
+            "",
+            f"Nome:      {cliente.get('nome') or '—'}",
+            f"Telefone:  {telefone or '—'}",
+            f"Interesse: {cliente.get('tipo_interesse') or '—'}",
+            f"Orçamento: {cliente.get('orcamento') or '—'}",
+            f"Zona:      {cliente.get('zona_preferida') or '—'}",
+            f"Imóvel do anúncio: {lead.get('imovel_ref') or '—'}",
+            "",
+            "Atenção: quer ARRENDAR (o imóvel do anúncio está à venda): confirmar se quer comprar ou arrendar." if arrendar else "",
+            "Não se criou lead nova. Se quiseres, acrescenta uma nota na lead do eGO.",
+        ) if p is not None),
+        imovel_ref=lead.get("imovel_ref"),
+    )
+    logger.info("Lead %s já no eGO; consultora avisada", lead["id"])
+
+
 def _promover_lead(
     supabase, cliente: dict, estados: tuple[str, ...] = ("contactada",),
     agente: str | None = None,
@@ -332,6 +379,9 @@ def _promover_lead(
         ja_avisada = []
     if ja_avisada:
         logger.info("Lead %s qualificada; aviso já enviado nas últimas %sh", lead["id"], _JANELA_AVISO_HORAS)
+        return
+    if _contacto_ja_no_ego(supabase, telefone):
+        _avisar_lead_ja_no_ego(supabase, cliente, lead, titulo, agente, telefone, email)
         return
     supabase.table("agente_tarefas").insert({
         "titulo": titulo,
