@@ -183,6 +183,31 @@ def test_pessoa_ja_na_caixa_de_leads_nao_cria_mas_marca(monkeypatch):
     assert r["ja_existiam"] == 1 and bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat()})]
 
 
+def test_lead_da_caixa_de_outro_imovel_nao_trava_a_lead_nova(monkeypatch):
+    """13/11: o cron marcava como «já existia» a lead aberta de OUTRO imóvel e a deste nunca chegava ao eGO."""
+    bd = _BD([_linha()])
+    enviados = []
+    _usa(monkeypatch, bd, lambda *a: enviados.append(a) or "555",
+         leads=[{"phone": "+351912345678", "realestateReference": "FH0002"}])
+    monkeypatch.setattr(lp, "notificar", lambda *a, **k: pytest.fail("não há lead deste imóvel: nada a avisar"))
+    r = lp.processar(AGORA)
+    assert (r["criadas"], r["ja_existiam"]) == (1, 0) and len(enviados) == 1
+    assert "já existente no eGO" in enviados[0][3]
+
+
+@pytest.mark.parametrize("ref_da_lead", ["FH0001", "fh0001_V2", None])
+def test_lead_da_caixa_do_mesmo_imovel_marca_e_avisa_a_consultora(monkeypatch, ref_da_lead):
+    bd = _BD([_linha()])
+    avisos = []
+    lead = {"id": 777, "phone": "+351912345678"} | ({"realestateReference": ref_da_lead} if ref_da_lead else {})
+    _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"), leads=[lead])
+    monkeypatch.setattr(lp, "notificar", lambda assunto, corpo, **k: avisos.append((assunto, corpo, k)))
+    r = lp.processar(AGORA)
+    assert r["ja_existiam"] == 1 and bd.updates == [("c1", {"ego_lead_em": AGORA.isoformat(), "ego_lead_id": 777})]
+    (assunto, corpo, k), = avisos
+    assert "já na caixa" in assunto and "id 777" in corpo and k["imovel_ref"] == "FH0001"
+
+
 def test_sem_conseguir_ler_as_leads_nao_cria_nada(monkeypatch):
     bd = _BD([_linha()])
     _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
@@ -296,6 +321,20 @@ def test_recusa_de_pessoa_com_oportunidade_ativa_nao_cria_e_diz_a_quem_avisar(mo
 def test_recusa_de_pessoa_ja_na_caixa_de_leads_nao_cria(monkeypatch):
     _, enviados = _recusa(monkeypatch, caixa=[{"phone": "+351912345678"}])
     assert lp.recusou_whatsapp("m1")["resultado"] == "ja_na_caixa" and enviados == []
+
+
+def test_recusa_com_lead_na_caixa_de_outro_imovel_cria(monkeypatch):
+    _, enviados = _recusa(monkeypatch, caixa=[{"phone": "+351912345678", "realestateReference": "FH0002"}])
+    r = lp.recusou_whatsapp("m1")
+    assert r["resultado"] == "criada" and len(enviados) == 1
+
+
+def test_recusa_com_oportunidade_ativa_de_outro_imovel_cria(monkeypatch):
+    """31/10: a recusa de quem tinha oportunidade ativa de outro imóvel não criava a lead do imóvel novo."""
+    bd, enviados = _recusa(monkeypatch, responsavel="Ana Teste")
+    bd.oportunidade, bd.imovel_da_oportunidade = True, "FH0002"
+    r = lp.recusou_whatsapp("m1")
+    assert r["resultado"] == "criada" and r["responsavel"] is None and len(enviados) == 1
 
 
 def test_recusa_de_contacto_antigo_cria_e_diz_que_ja_existia(monkeypatch):

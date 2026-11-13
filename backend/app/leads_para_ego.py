@@ -232,8 +232,43 @@ def _mesmo_imovel(ops: list[dict], ref: str | None) -> bool:
     return not ref or any(not o.get("imovel_ref") or _ref_base(o["imovel_ref"]) == _ref_base(ref) for o in ops)
 
 
+def _mesmo_imovel_da_lead(lead: dict, ref: str | None) -> bool:
+    """A lead da caixa é deste imóvel (ou não dá para provar que é de outro: sem ref de um dos lados)."""
+    ref_lead = lead.get("realestateReference")
+    return not ref or not ref_lead or _ref_base(ref_lead) == _ref_base(ref)
+
+
 def _lead_da_caixa(linha: dict, leads: list[dict]) -> dict | None:
-    return next((l for l in leads if _ja_nas_leads(linha, [l])), None)
+    """Lead aberta desta pessoa PARA ESTE IMÓVEL. Uma de outro imóvel não conta: é interesse novo (13/11: o cron
+    marcava-a como «já existia» e a lead do imóvel novo nunca chegava ao eGO)."""
+    return next((l for l in leads if _ja_nas_leads(linha, [l]) and _mesmo_imovel_da_lead(l, linha.get("imovel_ref"))), None)
+
+
+def _responsavel_do_mesmo_imovel(telefone: str | None, email: str | None, ref: str | None) -> str | None:
+    """`_responsavel_da_oportunidade`, mas só se a oportunidade ativa for deste imóvel: uma de outro não trava a lead nova."""
+    responsavel = _responsavel_da_oportunidade(telefone, email)
+    if responsavel:
+        ops = _oportunidades_ativas(telefone, email)
+        if ops and not _mesmo_imovel(ops, ref):
+            return None
+    return responsavel
+
+
+def _avisar_lead_na_caixa(linha: dict, lead: dict) -> None:
+    """A pessoa já tem lead aberta deste imóvel no eGO, por isso não se cria outra. Avisa a consultora do imóvel (e o
+    diretor) com o id da lead que fez match: antes marcava-se em silêncio e ninguém sabia que ela voltou. Nunca levanta."""
+    try:
+        motivo = linha.get("interesse_real_motivo") or ("respondeu à Matilde" if linha.get("respondeu_em") else "sem resposta ao WhatsApp há mais de 2 h")
+        corpo = "\n".join((
+            f"{linha.get('nome') or 'Uma pessoa'} entrou como lead da Meta pelo imóvel {linha.get('imovel_ref') or '—'}: {motivo}.",
+            f"Telefone: {telefone_da_linha(linha) or '—'} · Email: {linha.get('email') or '—'}",
+            f"Já há uma lead aberta no eGO com este contacto (id {lead.get('id') or '?'}, imóvel {lead.get('realestateReference') or '—'}).",
+            "",
+            "Não se criou lead nova (evita duplicar). Confirma que a lead existente é desta pessoa e acrescenta uma nota se for preciso.",
+        ))
+        notificar(f"Lead Meta já na caixa do eGO — {linha.get('imovel_ref') or 'imóvel?'}", corpo, imovel_ref=linha.get("imovel_ref"))
+    except Exception:
+        logger.exception("Falha a avisar da lead na caixa da lead %s", linha.get("id"))
 
 
 def _avisar_oportunidade_ativa(linha: dict, ops: list[dict]) -> None:
@@ -528,6 +563,7 @@ def processar(agora: datetime | None = None) -> dict:
                 contagem["ja_existiam"] += 1
                 if str(na_caixa.get("id", "")).isdigit():
                     marca["ego_lead_id"] = int(na_caixa["id"])  # pedido #17(d): a marca leva o id sempre que o eGO o dá
+                _avisar_lead_na_caixa(linha, na_caixa)
             elif ops and _mesmo_imovel(ops, linha.get("imovel_ref")):
                 contagem["ja_existiam"] += 1
                 contagem["avisadas"] = contagem.get("avisadas", 0) + 1
@@ -538,7 +574,7 @@ def processar(agora: datetime | None = None) -> dict:
                 continue
             else:
                 # oportunidade ativa de OUTRO imóvel (pedido #17, 10/11): é interesse novo, cria-se a lead deste imóvel
-                ident = _criar_lead(linha, tel, ja_conhecido=bool(ops)) or _id_da_lead(tel, linha.get("email"))  # a Web API não devolve o id
+                ident = _criar_lead(linha, tel, ja_conhecido=bool(ops) or _ja_nas_leads(linha, leads)) or _id_da_lead(tel, linha.get("email"))  # a Web API não devolve o id
                 if ident:
                     marca["ego_lead_id"] = ident
                 contagem["criadas"] += 1
@@ -611,13 +647,14 @@ def recusou_whatsapp(meta_lead_id: str, imovel_ref: str | None = None) -> dict |
     linha["imovel_ref"] = linha.get("imovel_ref") or (imovel_ref or "").strip() or ref_do_anuncio(linha.get("ad_name"))
 
     try:
-        na_caixa = _ja_nas_leads(linha, ego_api.leads_abertas())
+        leads = ego_api.leads_abertas()
+        na_caixa = bool(_lead_da_caixa(linha, leads))
         verificado = True
     except Exception:
         logger.exception("Falha a ler as leads do eGO — a criar sem confirmar")
         na_caixa, verificado = False, False
 
-    responsavel = _responsavel_da_oportunidade(tel, email)
+    responsavel = _responsavel_do_mesmo_imovel(tel, email, linha.get("imovel_ref"))
     marca = {"ego_lead_em": agora.isoformat()}
     if responsavel:
         resultado = "oportunidade_ativa"
