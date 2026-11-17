@@ -45,6 +45,8 @@ tarefas):
 
 **F2.1 — feita (17/11, por commitar).** `ego_api.py`: `tarefas_pendentes`, `tipos_de_tarefa`, `utilizadores`, `refs_de_leads` (arquivadas por páginas, só `id`+`name`, para a RAM do agentos; o resto por `GetOpportunity`, máx. 60) e `_com_espera` (429: espera 65 s). `integrations/tarefas_api.py`: mapeamento puro e `snapshot()`. `cliente_nome`, `tipo_oportunidade` e `url` copiam-se da linha de `oportunidades` no sync (F2.2), como o relatório faz. `tests/test_tarefas_api.py`: 21 testes, suíte 888 verdes.
 
+**F2.2 — feita (17/11, por commitar).** `tarefas_api.sincronizar(sb, dry)` + endpoint `/oportunidades/sync/tarefas` (`?dry=1` conta sem gravar, a qualquer momento; com `TAREFAS_VIA_API` no Fly grava pela API; vazio = scraper). Upsert agrupado por conjunto de colunas (senão o lote escreve NULL em `tarefa_criado_por`), travão max(50, 5%), campos da oportunidade juntos. **Dry-run real (PC, só leitura, 17/11):** pendentes 2 113, sem lead 25, com ref 2 049, saltadas por FK 33, abertas nossas 2 049, **a inserir 0, a atualizar 2 049, a fechar 0**. Critério de passagem cumprido. Suíte 892 verdes.
+
 **F2.1 — Módulo e mapeamento (o que era o plano).** `ego_api.tarefas_pendentes()` (paginado, levanta se vierem menos linhas que o `totalRows`, como
 `todos_os_imoveis`) e um mapeador API → registo de `tarefas` que devolve exatamente as chaves de `scraper/tarefas.map_row`. Testes com
 respostas simuladas e os valores reais de estado e data observados na F2.0.

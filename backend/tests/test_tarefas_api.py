@@ -189,3 +189,106 @@ def test_snapshot_liga_lead_directa_e_de_roteiro_e_conta_as_sem_lead(monkeypatch
     s = tarefas_api.snapshot()
     assert s["brutas"] == 3 and s["sem_lead"] == 1
     assert [t["oportunidade_ref"] for t in s["tarefas"]] == ["VEN_1", "CAP_2"]
+
+
+# ── sincronizar (F2.2) ────────────────────────────────────────────────────
+
+class _Q:
+    def __init__(self, bd, nome):
+        self.bd, self.nome, self.filtros, self.op, self.dados = bd, nome, {}, "select", None
+
+    def select(self, *_):
+        return self
+
+    def eq(self, c, v):
+        self.filtros[c] = v
+        return self
+
+    def order(self, *_):
+        return self
+
+    def range(self, a, b):
+        self.fatia = (a, b)
+        return self
+
+    def upsert(self, regs, on_conflict=None):
+        self.op, self.dados = "upsert", regs
+        self.bd.upserts.append(regs)
+        return self
+
+    def update(self, d):
+        self.op, self.dados = "update", d
+        return self
+
+    def execute(self):
+        linhas = self.bd.tabelas[self.nome]
+        if self.op == "upsert":
+            chave = ("oportunidade_ref", "tarefa_titulo", "tarefa_due_raw")
+            for r in self.dados:
+                alvo = next((x for x in linhas if all(x.get(c) == r.get(c) for c in chave)), None)
+                alvo.update(r) if alvo else linhas.append({"id": len(linhas) + 1, **r})
+            return type("R", (), {"data": []})
+        sel = [x for x in linhas if all(x.get(c) == v for c, v in self.filtros.items())]
+        if self.op == "update":
+            [x.update(self.dados) for x in sel]
+            return type("R", (), {"data": []})
+        a, b = getattr(self, "fatia", (0, 10**9))
+        return type("R", (), {"data": sel[a:b + 1]})
+
+
+class _BD:
+    def __init__(self, oportunidades, tarefas):
+        self.tabelas = {"oportunidades": oportunidades, "tarefas": tarefas}
+        self.upserts = []
+
+    def table(self, nome):
+        return _Q(self, nome)
+
+    def rpc(self, *_):
+        return type("R", (), {"execute": lambda s: type("D", (), {"data": 7})()})()
+
+
+def _snap(monkeypatch, tarefas, sem_lead=0):
+    monkeypatch.setattr(tarefas_api, "snapshot", lambda: {"brutas": len(tarefas) + sem_lead, "sem_lead": sem_lead, "tarefas": tarefas})
+
+
+def _reg(ref="VEN_1", titulo="Contactar", due="02/07/2026", **kw):
+    return {"oportunidade_ref": ref, "tarefa_titulo": titulo, "tarefa_due_raw": due, "tarefa_status": "pendente", "origem_lista": "todas_as_colunas"} | kw
+
+
+OPPS = [{"oportunidade_ref": "VEN_1", "cliente_nome": "Cliente Teste", "tipo_oportunidade": "Venda", "url": "https://x/1"}]
+
+
+def test_sincronizar_dry_conta_e_nao_escreve(monkeypatch):
+    bd = _BD(OPPS, [{"id": 1, **_reg(due="01/07/2026")}, {"id": 2, **_reg(due="03/07/2026")}])
+    _snap(monkeypatch, [_reg(), _reg(due="03/07/2026"), _reg(ref="VEN_9")], sem_lead=4)
+    r = tarefas_api.sincronizar(bd, dry=True)
+    assert (r["a_inserir"], r["a_atualizar"], r["a_fechar"], r["sem_fk"], r["sem_lead"], r["gravadas"]) == (1, 1, 1, 1, 4, 0)
+    assert bd.upserts == [] and all(x["tarefa_status"] == "pendente" for x in bd.tabelas["tarefas"])
+
+
+def test_sincronizar_grava_junta_campos_da_oportunidade_e_fecha(monkeypatch):
+    bd = _BD(OPPS, [{"id": 1, **_reg(due="01/07/2026")}, {"id": 2, **_reg(due="01/08/2026", origem_lista="Ativas")}])
+    _snap(monkeypatch, [_reg()])
+    r = tarefas_api.sincronizar(bd, dry=False)
+    assert (r["via"], r["gravadas"], r["fechadas"], r["contacto_id"]) == ("api", 1, 1, 7)
+    nova = next(x for x in bd.tabelas["tarefas"] if x["tarefa_due_raw"] == "02/07/2026")
+    assert (nova["cliente_nome"], nova["url"]) == ("Cliente Teste", "https://x/1")
+    estados = {x["id"]: x["tarefa_status"] for x in bd.tabelas["tarefas"] if "id" in x}
+    assert estados[1] == "concluida"  # saiu do snapshot, é nossa
+    assert bd.tabelas["tarefas"][1]["tarefa_status"] == "pendente"  # outra origem nunca se toca
+
+
+def test_sincronizar_trava_fecho_em_massa_sem_escrever(monkeypatch):
+    bd = _BD(OPPS, [{"id": i, **_reg(due=f"{i:02d}/01/2026")} for i in range(1, 61)])  # 60 abertas, snapshot vazio → fecharia 60
+    _snap(monkeypatch, [])
+    with pytest.raises(ego_api.EgoApiErro, match="travão"):
+        tarefas_api.sincronizar(bd, dry=False)
+    assert all(x["tarefa_status"] == "pendente" for x in bd.tabelas["tarefas"]) and bd.upserts == []
+
+
+def test_gravar_nao_mistura_colunas_no_mesmo_lote(monkeypatch):
+    """Sem `tarefa_criado_por` num registo, o lote partilhado escreveria NULL nele (e noutros)."""
+    bd = _BD(OPPS, [])
+    tarefas_api._gravar(bd, [_reg(due="01/07/2026", tarefa_criado_por="Ana"), _reg(due="02/07/2026")])
+    assert len(bd.upserts) == 2 and sorted(len(l) for l in bd.upserts) == [1, 1]

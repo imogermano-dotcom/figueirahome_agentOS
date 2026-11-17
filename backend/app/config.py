@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     lead_respondeu_ego: str = ""
     # Fase A2: grava as notas novas das oportunidades ativas lidas pela API do eGO (cron das 04:17). Vazio = só conta (dry-run).
     notas_api_ego: str = ""
+    # F2: o endpoint das tarefas lê pela API do eGO em vez do scraper (docs/fases/tarefas-pela-api-plano.md). Vazio = scraper.
+    tarefas_via_api: str = ""
 
     # Scraper de relatório eGO (jmarques_todas_as_colunas) — app Fly.io
     # separada e dedicada, Playwright não cabe na RAM da app principal.

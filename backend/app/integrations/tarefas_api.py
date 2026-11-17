@@ -77,6 +77,72 @@ def mapear(t: dict, ref: str, tipos: dict[int, str], utilizadores: dict[int, str
     return {k: v for k, v in registo.items() if v not in (None, "")}
 
 
+ESTADO_FECHADA = "concluida"
+LIMITE_FECHO_MIN = 50  # travão: fechar mais de max(50, 5% das abertas) aborta (hoje fecha ~3 por dia)
+_LOTE = 200
+
+
+def _paginar(consulta) -> list[dict]:
+    """`consulta(inicio, fim)` devolve um lote; ordenado, senão a paginação do PostgREST salta e repete linhas."""
+    out, inicio = [], 0
+    while True:
+        lote = consulta(inicio, inicio + 999)
+        out += lote
+        if len(lote) < 1000:
+            return out
+        inicio += 1000
+
+
+def _chave(t: dict) -> tuple:
+    return tuple(t.get(c) for c in CHAVE)
+
+
+def _gravar(sb, registos: list[dict]) -> int:
+    """Upsert por lotes **do mesmo conjunto de colunas**: uma coluna presente num só registo do lote escreveria NULL nos outros
+    (o `tarefa_criado_por` falta nas de utilizadores que já saíram do eGO)."""
+    grupos: dict[frozenset, list[dict]] = {}
+    for r in registos:
+        grupos.setdefault(frozenset(r), []).append(r)
+    for grupo in grupos.values():
+        for i in range(0, len(grupo), _LOTE):
+            sb.table("tarefas").upsert(grupo[i:i + _LOTE], on_conflict=",".join(CHAVE)).execute()
+    return len(registos)
+
+
+def sincronizar(sb, dry: bool = True) -> dict:
+    """Snapshot das pendentes pela API → `tarefas`: upsert, fecha as nossas `pendente` que saíram e propaga o `contacto_id`.
+    Mesmas chaves de resumo que o scraper (`activas`, `com_ref`, `gravadas`, `fechadas`, `contacto_id`) mais `via: "api"`.
+    `dry` só conta. Levanta (sem escrever) se o snapshot falhar ou se fechasse demais."""
+    snap = snapshot()
+    opps = {o["oportunidade_ref"]: o for o in _paginar(lambda a, b: sb.table("oportunidades")
+            .select("oportunidade_ref,cliente_nome,tipo_oportunidade,url").order("oportunidade_ref").range(a, b).execute().data)}
+    unicas = {_chave(t): t for t in snap["tarefas"]}  # a última ganha, como o relatório
+    com_fk = [t | {k: v for k, v in opps[t["oportunidade_ref"]].items() if k != "oportunidade_ref" and v not in (None, "")}
+              for t in unicas.values() if t["oportunidade_ref"] in opps]
+    sem_fk = len(unicas) - len(com_fk)
+    abertas = _paginar(lambda a, b: sb.table("tarefas").select("id," + ",".join(CHAVE)).eq("origem_lista", ORIGEM)
+                       .eq("tarefa_status", ESTADO_ABERTA).order("id").range(a, b).execute().data)
+    vistas = {_chave(t) for t in com_fk}
+    fechar = [e for e in abertas if _chave(e) not in vistas]
+    limite = max(LIMITE_FECHO_MIN, len(abertas) // 20)
+    resumo = {"via": "api", "activas": snap["brutas"], "sem_lead": snap["sem_lead"], "com_ref": len(com_fk), "sem_fk": sem_fk,
+              "abertas_nossas": len(abertas), "a_fechar": len(fechar), "limite_fecho": limite}
+    if len(fechar) > limite:
+        raise ego_api.EgoApiErro(f"travão: fecharia {len(fechar)} tarefas (limite {limite}), nada gravado — {resumo}")
+    if dry:
+        existentes = {_chave(r) for r in _paginar(lambda a, b: sb.table("tarefas").select(",".join(CHAVE)).order("id").range(a, b).execute().data)}
+        ja = sum(1 for t in com_fk if _chave(t) in existentes)
+        return resumo | {"a_atualizar": ja, "a_inserir": len(com_fk) - ja, "gravadas": 0, "fechadas": 0, "dry": True}
+    gravadas = _gravar(sb, com_fk)
+    for e in fechar:
+        sb.table("tarefas").update({"tarefa_status": ESTADO_FECHADA}).eq("id", e["id"]).execute()
+    try:  # best-effort, como no scraper: sem a migration 0046 a RPC não existe e o sync não pode falhar
+        propagado = sb.rpc("propagar_contacto_id", {}).execute().data
+    except Exception:
+        propagado = None
+    return resumo | {"gravadas": gravadas, "fechadas": len(fechar), "contacto_id": propagado}
+
+
 def snapshot() -> dict:
     """Lê as pendentes e liga-as às oportunidades. Devolve `brutas` (todas as pendentes da API), `sem_lead` (imóveis, entidades,
     processos: ficam de fora) e `tarefas` já no formato da BD, sem os campos que vêm da oportunidade (o sync junta-os).

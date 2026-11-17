@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import require_auth, require_sync_access
 from app.config import settings
-from app.integrations import ego_api, ego_notas
+from app.integrations import ego_api, ego_notas, tarefas_api
 from app.notificacoes import falha_de_sync
 from app.db.supabase_client import get_supabase
 
@@ -78,11 +78,23 @@ async def sync_oportunidades_completo_endpoint(acesso=Depends(require_sync_acces
 
 
 @router.post("/oportunidades/sync/tarefas")
-async def sync_tarefas_endpoint(acesso=Depends(require_sync_access)):
+async def sync_tarefas_endpoint(dry: bool = False, acesso=Depends(require_sync_access)):
     """Snapshot das tarefas activas do eGO (4 relatórios em fatias, ~150 s no PC;
     tecto de 600 s para o Fly). Mesmo desenho do `completo`: o backend guarda o
-    segredo do scraper e grava o resumo em `agente_sync_log`."""
+    segredo do scraper e grava o resumo em `agente_sync_log`.
+    Com `TAREFAS_VIA_API` (ou `?dry=1`, que só conta e não grava) lê pela API do eGO em vez do scraper (F2)."""
     origem = "cron" if acesso == "sync-secret" else "manual"
+    if dry or settings.tarefas_via_api:
+        try:
+            resumo = await asyncio.get_event_loop().run_in_executor(None, tarefas_api.sincronizar, get_supabase(), dry)
+        except Exception as e:
+            logger.exception("Falha no sync de tarefas pela API")
+            if not dry:
+                await falha_de_sync("egorealestate_tarefas", "tarefas (API)", origem, repr(e))
+            raise HTTPException(status_code=502, detail=str(e)[:500])
+        if not dry:
+            await _log_execucao(resumo, origem, tipo="egorealestate_tarefas")
+        return resumo
     if not settings.scraper_service_url or not settings.scraper_service_secret:
         raise HTTPException(status_code=502, detail="SCRAPER_SERVICE_URL/SECRET não configurados.")
 
