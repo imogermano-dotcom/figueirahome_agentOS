@@ -47,6 +47,10 @@ tarefas):
 
 **F2.2 — feita (17/11, por commitar).** `tarefas_api.sincronizar(sb, dry)` + endpoint `/oportunidades/sync/tarefas` (`?dry=1` conta sem gravar, a qualquer momento; com `TAREFAS_VIA_API` no Fly grava pela API; vazio = scraper). Upsert agrupado por conjunto de colunas (senão o lote escreve NULL em `tarefa_criado_por`), travão max(50, 5%), campos da oportunidade juntos. **Dry-run real (PC, só leitura, 17/11):** pendentes 2 113, sem lead 25, com ref 2 049, saltadas por FK 33, abertas nossas 2 049, **a inserir 0, a atualizar 2 049, a fechar 0**. Critério de passagem cumprido. Suíte 892 verdes.
 
+**F2.3 — feita (17/11).** Deploy do agentos (`793f561`); 1.ª passagem real à mão do PC (`sincronizar(dry=False)`, não pelo Fly: sem o interruptor o endpoint corre o scraper): 2 049 gravadas, 0 novas, 0 fechadas, total 24 193 e pendentes 5 446 iguais antes e depois. `TAREFAS_VIA_API=1` ligado no Fly (`secrets deploy`). Reverter: `flyctl secrets unset TAREFAS_VIA_API --app figueirahome-agentos`.
+
+**F2.4 em curso (desde 17/11).** Ver o cron de 18/11 05:07 UTC: `egorealestate_tarefas` com `via:"api"`, sem `_erro`, `a_fechar` ≈ 3, `com_ref` ≈ 2 049.
+
 **F2.1 — Módulo e mapeamento (o que era o plano).** `ego_api.tarefas_pendentes()` (paginado, levanta se vierem menos linhas que o `totalRows`, como
 `todos_os_imoveis`) e um mapeador API → registo de `tarefas` que devolve exatamente as chaves de `scraper/tarefas.map_row`. Testes com
 respostas simuladas e os valores reais de estado e data observados na F2.0.
