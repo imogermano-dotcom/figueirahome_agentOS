@@ -281,6 +281,72 @@ def refs_ativas() -> set[str]:
     return {o["name"] for o in oportunidades_ativas() if o.get("name")}
 
 
+def _com_espera(pedido, tentativas: int = 5):
+    """O eGO responde 429 ao fim de umas dezenas de pedidos (`retry_after_seconds` 60): espera e repete."""
+    for i in range(tentativas):
+        try:
+            return pedido()
+        except EgoApiErro as e:
+            if "429" not in str(e) or i == tentativas - 1:
+                raise
+            time.sleep(65)
+
+
+def tarefas_pendentes(por_pagina: int = 500) -> list[dict]:
+    """Tarefas por fazer (`ListTaskByPage`, estados 1 Pendente e 4 Em Curso; a 17/11 só há 4: 2 113). A resposta é `searchList`/
+    `searchCount`. Levanta se vierem menos linhas do que o `searchCount`: fechar tarefas com um snapshot parcial seria um erro."""
+    todas: list[dict] = []
+    pagina = 0
+    while True:
+        d = _com_espera(lambda: _pedido("POST", "/task/Task/ListTaskByPage",
+                                        json={"pageIndex": pagina, "numberOfRecords": por_pagina, "eventStatusIds": [1, 4]}))
+        todas += d["searchList"]
+        if len(d["searchList"]) < por_pagina:
+            break
+        pagina += 1
+    if len(todas) < d.get("searchCount", 0):
+        raise EgoApiErro(f"tarefas: página incompleta ({len(todas)} de {d['searchCount']})")
+    return todas
+
+
+def tipos_de_tarefa() -> dict[int, str]:
+    """`eventTypeId` → nome em PT-PT (`ListTaskType`, 33 a 17/11). É o `tarefa_titulo` que o relatório sempre deu."""
+    d = _pedido("GET", "/task/TaskMetadata/ListTaskType")
+    return {x["id"]: (x["name"].get("PT-PT") if isinstance(x["name"], dict) else x["name"]) for x in d}
+
+
+def utilizadores() -> dict[int, str]:
+    """`id` → nome dos utilizadores (`ListEmployees`, 15 a 17/11). Quem já saiu do eGO não vem aqui: 4 ids de 85 tarefas."""
+    d = _pedido("GET", "/organization/SecurityUser/ListEmployees")
+    lista = d if isinstance(d, list) else next((v for v in d.values() if isinstance(v, list)), [])
+    return {f["id"]: " ".join(f"{f.get('entityFirstName') or ''} {f.get('entityLastName') or ''}".split()) for f in lista}
+
+
+def refs_de_leads(ids: set[int], max_individuais: int = 60) -> dict[int, str]:
+    """`id` da lead → referência da oportunidade (`VEN_…`). As ativas vêm num pedido; as arquivadas (~19 000 linhas de 157 campos)
+    leem-se página a página e só se guarda `id` e `name`, para a RAM do agentos. O que a listagem não traz (leads arquivadas com
+    `isOpportunity: 2`, 32 a 17/11) resolve-se por `GetOpportunity`, no máximo `max_individuais`. Levanta se algum id ficar por resolver:
+    uma tarefa sem referência fora do snapshot seria fechada por engano."""
+    refs = {o["id"]: o["name"] for o in oportunidades_ativas() if o.get("name") and o["id"] in ids}
+    pagina = 0
+    while ids - refs.keys():
+        d = _com_espera(lambda: _pedido("POST", "/lead/Opportunity/ListOpportunityByPage",
+                                        json={"leadArchived": 1, "pageIndex": pagina, "numberOfRecords": 500}))
+        refs |= {o["id"]: o["name"] for o in d["opportunities"] if o.get("name") and o["id"] in ids and o["id"] not in refs}
+        if len(d["opportunities"]) < 500:
+            break
+        pagina += 1
+    falta = sorted(ids - refs.keys())
+    if len(falta) > max_individuais:
+        raise EgoApiErro(f"{len(falta)} leads sem referência na listagem (máximo {max_individuais} por GetOpportunity)")
+    for i in falta:
+        nome = (_com_espera(lambda: _pedido("GET", "/lead/Opportunity/GetOpportunity", params={"opportunityId": i})) or {}).get("name")
+        if not nome:
+            raise EgoApiErro(f"lead {i} sem referência")
+        refs[i] = nome
+    return refs
+
+
 def oportunidade_apagada(opportunity_id: int | str) -> bool:
     """Apagada no eGO: `fieldStatusId = 1` (a apagada é lógica e continua legível) ou 404. Arquivada NÃO é apagada.
     Qualquer outro erro levanta (não se marca sem saber)."""
