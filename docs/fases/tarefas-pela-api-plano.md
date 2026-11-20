@@ -51,6 +51,13 @@ tarefas):
 
 **F2.4 em curso (desde 17/11).** Ver o cron de 18/11 05:07 UTC: `egorealestate_tarefas` com `via:"api"`, sem `_erro`, `a_fechar` ≈ 3, `com_ref` ≈ 2 049.
 
+**F2.5 — Guardar o id da tarefa do eGO (19/11, pedido #8; muda o «sem migration» do âmbito).** O #8 pede o id e as notas de 08/10 e 26/10 deixam-no em aberto: sem ele, uma tarefa reagendada muda a chave `(ref, título, data)`, entra como nova e a antiga fecha-se.
+- **Migration `0060` (corre o utilizador):** `tarefas.ego_id bigint` + índice **simples, não único**: uma tarefa reagendada mantém o id e muda a chave, o upsert por chave insere uma linha nova com o mesmo `ego_id` da antiga, e um índice único rejeitaria o lote inteiro (cron parado). O único (não parcial, para o PostgREST o aceitar em `on_conflict`) só no passo 2, depois de resolvidos os repetidos. Reversível: `drop index`, `drop column`.
+- **Passo 1 (agora): só gravar.** `mapear` acrescenta `ego_id = t["id"]`; o upsert **continua pela chave** e passa a escrever a coluna nas ~2 050 linhas existentes (a 1.ª passagem é o backfill: 0 inseridas, ~2 050 atualizadas). Ordem obrigatória: migration → deploy; ao contrário, o upsert falha por coluna desconhecida e o sync pára.
+- **Passo 2 (com a F3, não agora): trocar a chave para `ego_id`** e o fecho por `ego_id`. Só faz sentido quando o ramo de tarefas do relatório das oportunidades (03:37, que grava pela chave antiga) sair: até lá cada um recriava a linha do outro quando uma tarefa é reagendada.
+- **Efeito já no passo 1:** `activas` 2 116 − 25 sem lead = 2 091, mas só 2 085 chaves distintas: 6 tarefas colidem na chave (mesma oportunidade, tipo e dia) e uma sobrepõe a outra. Com o id, vê-se quais (contagem `sem_id_na_bd` e duplicados no resumo, sem texto).
+- **Prova:** teste de `mapear` com `id`; `_gravar` leva `ego_id`; dry-run em produção depois da migration (a atualizar ≈ 2 050, a inserir 0).
+
 **F2.1 — Módulo e mapeamento (o que era o plano).** `ego_api.tarefas_pendentes()` (paginado, levanta se vierem menos linhas que o `totalRows`, como
 `todos_os_imoveis`) e um mapeador API → registo de `tarefas` que devolve exatamente as chaves de `scraper/tarefas.map_row`. Testes com
 respostas simuladas e os valores reais de estado e data observados na F2.0.

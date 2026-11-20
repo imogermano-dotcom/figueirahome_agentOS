@@ -49,6 +49,11 @@ def test_mapear_da_as_colunas_do_relatorio():
                  "origem_lista": "todas_as_colunas"}
 
 
+def test_ego_id_vai_na_linha_e_sem_id_nao_se_escreve():
+    assert tarefas_api.mapear(_t(id=4321), "VEN_1", TIPOS, USERS)["ego_id"] == 4321
+    assert "ego_id" not in tarefas_api.mapear(_t(), "VEN_1", TIPOS, USERS)
+
+
 def test_titulo_e_o_tipo_nao_o_subject():
     assert tarefas_api.mapear(_t(eventTypeId=11), "VEN_1", TIPOS, USERS)["tarefa_titulo"] == "Follow-up/Recontactar"
 
@@ -265,6 +270,14 @@ def test_sincronizar_dry_conta_e_nao_escreve(monkeypatch):
     r = tarefas_api.sincronizar(bd, dry=True)
     assert (r["a_inserir"], r["a_atualizar"], r["a_fechar"], r["sem_fk"], r["sem_lead"], r["gravadas"]) == (1, 1, 1, 1, 4, 0)
     assert bd.upserts == [] and all(x["tarefa_status"] == "pendente" for x in bd.tabelas["tarefas"])
+
+
+def test_sincronizar_conta_tarefas_que_colidem_na_chave_e_grava_o_ego_id(monkeypatch):
+    bd = _BD(OPPS, [{"id": 1, **_reg()}])
+    _snap(monkeypatch, [_reg(ego_id=11), _reg(ego_id=12), _reg(due="05/07/2026", ego_id=13)])  # as duas primeiras partilham a chave
+    r = tarefas_api.sincronizar(bd, dry=False)
+    assert r["colisoes_chave"] == 1 and r["gravadas"] == 2
+    assert {x.get("ego_id") for x in bd.tabelas["tarefas"]} == {12, 13}  # a última ganha, como o relatório
 
 
 def test_sincronizar_grava_junta_campos_da_oportunidade_e_fecha(monkeypatch):

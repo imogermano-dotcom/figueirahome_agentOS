@@ -58,6 +58,7 @@ def mapear(t: dict, ref: str, tipos: dict[int, str], utilizadores: dict[int, str
     oportunidade = oportunidade or {}
     reag = (t.get("rescheduledDate") or "")[:10] or None
     registo = {
+        "ego_id": t.get("id"),  # F2.5 (migration 0060): a chave de upsert continua a ser `CHAVE`, o id só se grava
         "oportunidade_ref": ref,
         "tarefa_titulo": tipos[t["eventTypeId"]],
         "tarefa_descricao": t.get("subject"),
@@ -126,6 +127,7 @@ def sincronizar(sb, dry: bool = True) -> dict:
     fechar = [e for e in abertas if _chave(e) not in vistas]
     limite = max(LIMITE_FECHO_MIN, len(abertas) // 20)
     resumo = {"via": "api", "activas": snap["brutas"], "sem_lead": snap["sem_lead"], "com_ref": len(com_fk), "sem_fk": sem_fk,
+              "colisoes_chave": len(snap["tarefas"]) - len(unicas),  # tarefas que partilham a chave: só a última fica (o `ego_id` distingue-as)
               "abertas_nossas": len(abertas), "a_fechar": len(fechar), "limite_fecho": limite}
     if len(fechar) > limite:
         raise ego_api.EgoApiErro(f"travão: fecharia {len(fechar)} tarefas (limite {limite}), nada gravado — {resumo}")
