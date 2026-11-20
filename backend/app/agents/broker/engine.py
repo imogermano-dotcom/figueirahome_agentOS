@@ -332,8 +332,8 @@ async def _contexto_inicial(
 ) -> tuple[str, dict | None, dict | None]:
     """Perfil para o prompt e, se for caso disso, o template já enviado.
 
-    O fluxo real das leads da Meta não passa por endpoint nenhum nosso: o Make
-    escreve a lead, o n8n manda o template, e o A1 só entra quando a pessoa
+    O fluxo real das leads da Meta não passa por endpoint nenhum nosso: o n8n
+    grava a lead e manda o template, e o A1 só entra quando a pessoa
     responde. Nessa altura `agente_clientes` ainda não tem linha — quem tem as
     respostas do formulário é `leads.ficha`.
 

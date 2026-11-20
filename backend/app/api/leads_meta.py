@@ -7,7 +7,7 @@ um template é quase sempre "Sim", "Olá" ou "Quero saber mais", e o router
 resolve isso pelo mecanismo que já existe (routing sticky, `router.py:73`) e
 deixa o texto do template no histórico, para o A1 não repetir o que já foi dito.
 
-O Make escreve em `leads` directamente pelo PostgREST; este módulo não ingere,
+O n8n (webhook da Meta, desde 20/11 sem o Make) grava as leads pelas RPCs `lead_meta_*`; este módulo não ingere,
 só semeia. Chamado com `X-Automacao-Secret`.
 """
 

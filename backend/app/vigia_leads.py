@@ -64,8 +64,9 @@ def texto_do_alerta(faltam: dict[str, int], meta: dict[str, int], supabase: dict
     linhas = [f"A conta de anúncios da Meta tem mais leads do que as que chegaram ao Supabase (duas verificações seguidas):", ""]
     for dia in sorted(faltam):
         linhas.append(f"  {dia}: Meta {meta[dia]} · Supabase {supabase.get(dia, 0)} · faltam {faltam[dia]}")
-    linhas += ["", "Ver, por esta ordem: o cenário do Make está ligado e sem erros? O webhook do n8n recebeu (execuções de "
-               "'Meta leads to supabase')? A lead pode ter sido filtrada como teste.",
+    linhas += ["", "Ver, por esta ordem: a página está subscrita ao webhook `leadgen` da app da Meta? O webhook do n8n recebeu "
+               "(execuções de 'Meta leads to supabase') e a leitura da lead pela Graph API deu erro? A lead pode ter sido "
+               "filtrada como teste.",
                "São contagens, não ids: a Meta não diz quais faltam sem acesso à página."]
     return "\n".join(linhas)
 

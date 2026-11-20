@@ -244,7 +244,7 @@ def falha_de_workflow(workflow: str, no: str, erro: str, execucao: str, dry: boo
     if "oauth" in erro.lower() or "facebook" in erro.lower() or "190" in erro:
         linhas += ["", "Parece o token da Meta/Facebook: a credencial «Facebook Figueira Home» (n8n) é partilhada pelo vigia "
                    "e pelo «Meta leads to supabase», que lê cada lead com ela. Com o token morto, as leads novas podem não "
-                   "estar a entrar. Ver também a ligação ao Facebook no Make."]
+                   "estar a entrar."]
     linhas += ["", "Este aviso não se repete em 12 h para o mesmo fluxo."]
     notificar(f"n8n: o fluxo «{workflow}» falhou", "\n".join(linhas), para_extra=_alertas_extra())
     try:
