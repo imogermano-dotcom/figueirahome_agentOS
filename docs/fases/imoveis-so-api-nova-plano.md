@@ -36,7 +36,7 @@ chegam ao portal, e FH2574, FH2552 e FH2483_B continuam errados. Pediu: sync inc
 1. **Quem alimenta a `imoveis_ego_api`?** O portal do Miguel lê `imoveis` ou `imoveis_ego_api`?
    - **A. Nós** escrevemos a `imoveis_ego_api` num sync novo (preciso do esquema exato e de saber se mais alguém escreve lá).
    - **B. O portal passa a ler a `imoveis`**, que já recebe os syncs (a `imoveis_ego_api` fica abandonada).
-2. **`minDateAltered`**: confirmar que a `ListRealestateByPage` o aceita e filtra (ver `api-1.json`, fora do repo, e uma chamada de teste).
+2. **`minDateAltered`: confirmado a 20/11** (só leitura). Aceita `AAAA-MM-DDTHH:MM:SS` e filtra por `lastUpdate`: sem filtro 5 186; desde há 24 h 4; desde há 7 dias 280; desde há 1 h 0; desde 2030 0. `totalRows` bate com as linhas. A incremental é barata (poucas linhas por corrida).
    Sem ele a «incremental» é uma leitura completa (~5 200 imóveis) de 10 em 10 min; aí passa a 30 ou 60 min ou compara-se `lastUpdate` em memória.
 3. **Frequência**: 10 em 10 min são 144 corridas por dia no eGO; medir o tempo de uma leitura completa antes de fixar.
 
@@ -93,4 +93,4 @@ Comissões (#41, o eGO ainda não as expõe), o webhook da Janela Digital (depen
 
 ## Próximo passo
 
-Decisão 2 (`minDateAltered`), depois a fase 1 em dry-run, só sobre a `imoveis`. A decisão 1 (A/B) só é precisa para a fase 1b.
+Fase 1 em dry-run (`minDateAltered` já confirmado), só sobre a `imoveis`. A decisão 1 (A/B) só é precisa para a fase 1b.
