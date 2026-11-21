@@ -68,7 +68,7 @@ Objetivo: acabar com FH2574 e FH2552 e com a espera de 24 h, sem tocar no que o 
    - **Regra proposta:** escrever `latitude`/`longitude` se a coordenada é **única**, ou se o grupo tem **2 a 9 imóveis da mesma rua** (frações do mesmo prédio;
      comparar só a rua, não o texto inteiro: «Rua do Pinhal» e «Rua do Pinhal, Buarcos…» são o mesmo sítio). Grupos de **10 ou mais** não se escrevem
      (centróide). 2 a 9 com ruas diferentes: não se escrevem. Dados novos da API substituem a coordenada guardada (a nossa pode ser o centróide).
-     Validar antes contra os 49 publicados e contra o mapa do site. Andar e fração precisam de colunas novas (migration, corrida por ti).
+     Validar antes contra os 49 publicados e contra o mapa do site. **Feito a 21/11** (ver `imoveis-morada-gps-resumo.md`): sem migration (`piso`, `numero`, `fracao` já existiam); só se preenchem campos vazios, também em `manual`.
 5. **Webhook da Janela Digital**: fora do nosso controlo, só quando existir.
 
 Prova da fase 1: dry-run em produção antes; 1.ª passagem real com OK; contar `publicado` (49) antes e depois; FH2574 e FH2552 corretos; site igual.
@@ -105,4 +105,4 @@ Comissões (#41, o eGO ainda não as expõe), o webhook da Janela Digital (depen
 
 ## Próximo passo
 
-Fase 1 em dry-run (`minDateAltered` já confirmado), só sobre a `imoveis`. A decisão 1 (A/B) só é precisa para a fase 1b.
+Fase 1b feita. Falta a fase 1 (estado dos imóveis que a Web API vê, incremental com `minDateAltered`, registo e aviso), em dry-run primeiro.
