@@ -102,9 +102,30 @@ def test_plano_novo_insere():
     assert [x["imovel_ref"] for x in p["inserir"]] == ["N"] and p["atualizar"] == []
 
 
-def test_plano_imovel_que_a_web_api_ve_nao_se_escreve():
-    p = sync.planear_imoveis_todos({"W": _item("W", estado=8)}, _bd(W={"disponivel_na_api": True, "disponibilidade": "Disponível"}))
-    assert p["atualizar"] == [] and p["divergencias_web_api"] == [{"imovel_ref": "W", "no_supabase": "Disponível", "no_ego": "Retirado"}]
+_SITE = [{"portalId": 1, "websiteId": 8662, "applicationId": 1}]
+
+
+def test_plano_imovel_que_a_web_api_ve_so_muda_o_estado_quando_difere():
+    api = {"W": _item("W", estado=8, portals=_SITE), "S": _item("S", estado=2, portals=_SITE)}
+    p = sync.planear_imoveis_todos(api, _bd(W={"disponivel_na_api": True, "disponibilidade": "Disponível"},
+                                            S={"disponivel_na_api": True, "disponibilidade": "Disponível"}))
+    assert p["divergencias_web_api"] == [{"imovel_ref": "W", "no_supabase": "Disponível", "no_ego": "Retirado"}]
+    (ref, valores), = p["atualizar"]
+    assert ref == "W" and valores["disponibilidade"] == "Retirado" and "disponivel_na_api" not in valores
+
+
+def test_plano_disponivel_fora_do_site_fica_disponivel_e_nao_publicado():
+    """FH2574: Disponível no eGO, `portals` vazio, `disponivel_na_api` velho a True → estado certo e «no site» a False."""
+    api = {"F": _item("F", estado=2), "V": _item("V", estado=2, portals=_SITE)}
+    p = sync.planear_imoveis_todos(api, _bd(F={"disponivel_na_api": True, "disponibilidade": "Por validar"},
+                                            V={"disponivel_na_api": True, "disponibilidade": "Disponível"}))
+    (ref, valores), = p["atualizar"]
+    assert ref == "F" and valores["disponibilidade"] == "Disponível" and valores["disponivel_na_api"] is False
+
+
+def test_plano_sem_nenhum_site_na_resposta_nao_mexe_no_disponivel_na_api():
+    p = sync.planear_imoveis_todos({"F": _item("F", estado=2)}, _bd(F={"disponivel_na_api": True, "disponibilidade": "Disponível"}))
+    assert p["atualizar"] == []
 
 
 def test_plano_manual_nunca_se_escreve():
