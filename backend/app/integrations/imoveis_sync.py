@@ -827,13 +827,15 @@ def planear_morada_gps(api: dict[str, dict], existentes: dict[str, dict]) -> dic
     return r
 
 
-async def sync_morada_gps(origem: str = "manual", dry: bool = True) -> dict:
+async def sync_morada_gps(origem: str = "manual", dry: bool = True, api: dict[str, dict] | None = None,
+                         registar: bool = True) -> dict:
     """Preenche morada, código postal, número, piso, fração e GPS vazios em `imoveis` a partir da API nova.
     `dry=True` por omissão: só conta. Cada coluna escreve-se com a condição «ainda vazia» (se alguém a preencheu
     entretanto, não se escreve por cima)."""
     from app.integrations import ego_api
 
-    api = ego_api.um_por_referencia(await _run(ego_api.todos_os_imoveis))
+    if api is None:  # o sync diário de todos os estados passa a lista que já leu
+        api = ego_api.um_por_referencia(await _run(ego_api.todos_os_imoveis))
     cols = ",".join(["imovel_ref", "latitude", "longitude"] + [c for c, _ in _CAMPOS_MORADA])
 
     def _ler():
@@ -864,7 +866,8 @@ async def sync_morada_gps(origem: str = "manual", dry: bool = True) -> dict:
             except Exception:
                 logger.exception("Falha a preencher morada/GPS de %s", ref)
                 resumo["erros"] += 1
-        await _log_execucao("egorealestate_morada_gps", resumo, [], origem)
+        if registar:  # no sync diário o resumo vai dentro do log dele
+            await _log_execucao("egorealestate_morada_gps", resumo, [], origem)
     return resumo
 
 
@@ -916,6 +919,15 @@ async def sync_imoveis_todos(origem: str = "manual", dry: bool = False) -> dict:
             except Exception:
                 logger.exception("Falha a atualizar o imóvel %s", ref)
                 resumo["erros"] += 1
+    # Morada e GPS vazios (fase 1b), depois dos inserts para os imóveis novos já os apanharem. Uma falha aqui não
+    # derruba o sync de estados (que já correu): fica registada no resumo.
+    try:
+        mg = await sync_morada_gps(origem, dry, api, registar=False)
+        resumo["morada_gps"] = {k: mg[k] for k in ("imoveis_a_atualizar", "atualizados", "erros")}
+    except Exception as e:
+        logger.exception("Falha a preencher morada e GPS no sync diário")
+        resumo["morada_gps"] = {"erro": repr(e)}
+    if not dry:
         await _log_execucao("egorealestate_imoveis_todos", resumo, [], origem)
     return resumo
 

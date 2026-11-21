@@ -212,6 +212,7 @@ def test_execucao_insere_em_lotes_com_ignore_duplicates_e_atualiza_com_condicoes
     assert valores["disponibilidade"] == "Vendido"
     assert ("eq", "imovel_ref", "E") in filtros and ("eq", "disponivel_na_api", False) in filtros and ("neq", "fonte", "manual") in filtros
     assert bd.logs[0]["tipo"] == "egorealestate_imoveis_todos" and bd.logs[0]["origem"] == "cron"
+    assert len(bd.logs) == 1 and "morada_gps" in bd.logs[0]["resumo"]  # fase 1b dentro do mesmo log, sem 2.º registo
 
 
 def test_falha_num_lote_conta_erros_e_continua(monkeypatch):
