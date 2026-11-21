@@ -33,9 +33,9 @@ chegam ao portal, e FH2574, FH2552 e FH2483_B continuam errados. Pediu: sync inc
 
 ## Decisões por tomar (antes da fase 1)
 
-1. **Quem alimenta a `imoveis_ego_api`?** O portal do Miguel lê `imoveis` ou `imoveis_ego_api`?
-   - **A. Nós** escrevemos a `imoveis_ego_api` num sync novo (preciso do esquema exato e de saber se mais alguém escreve lá).
-   - **B. O portal passa a ler a `imoveis`**, que já recebe os syncs (a `imoveis_ego_api` fica abandonada).
+1. **Quem alimenta a `imoveis_ego_api`? Fechada a 21/11 (Miguel): ninguém.** O portal lê a `imoveis`. A `imoveis_ego_api` só servia a aba «Imóveis» do
+   Conteúdo Social e o angariador dos Compradores; ele passa-as a ler a `imoveis` e depois apaga a `imoveis_ego_api`. Ninguém mais escreve lá. O que
+   lhe faz falta na `imoveis` é a **latitude/longitude e a morada completa** vindas da API (ver fase 1b).
 2. **`minDateAltered`: confirmado a 20/11** (só leitura). Aceita `AAAA-MM-DDTHH:MM:SS` e filtra por `lastUpdate`: sem filtro 5 186; desde há 24 h 4; desde há 7 dias 280; desde há 1 h 0; desde 2030 0. `totalRows` bate com as linhas. A incremental é barata (poucas linhas por corrida).
    Sem ele a «incremental» é uma leitura completa (~5 200 imóveis) de 10 em 10 min; aí passa a 30 ou 60 min ou compara-se `lastUpdate` em memória.
 3. **Frequência**: 10 em 10 min são 144 corridas por dia no eGO; medir o tempo de uma leitura completa antes de fixar.
@@ -53,10 +53,18 @@ Objetivo: acabar com FH2574 e FH2552 e com a espera de 24 h, sem tocar no que o 
    de planear/gravar do passo 1, sobre um subconjunto. Passagem **completa semanal** como rede de segurança (a atual, já diária, passa a semanal ou fica).
 3. **Registo e aviso**: cada corrida grava em `agente_sync_log` (`egorealestate_imoveis_todos` ou novo `tipo`), falha de cron manda email
    (`notificacoes.falha_de_sync`, como os outros). Travão: não escreve se a leitura vier com menos de 90% dos imóveis da anterior.
-4. **`imoveis_ego_api` fica fora da fase 1** (decidido 20/11): a fase 1 só escreve na `imoveis`. A tabela espelho trata-se numa **fase 1b**,
-   depois de a `imoveis` estar certa e estável: copiar da `imoveis` (ou da leitura da API) para a `imoveis_ego_api`, consoante a decisão 1.
-   Limite conhecido: se o portal do Miguel ler a `imoveis_ego_api`, ele continua a ver dados de 30/10 até a 1b estar feita; por isso
-   perguntar-lhe já qual das duas tabelas o portal lê, e pedir-lhe o esquema da `imoveis_ego_api` (colunas e quem mais escreve lá).
+4. **Fase 1b (substitui a antiga ideia de alimentar a `imoveis_ego_api`, abandonada): GPS e morada completa na `imoveis`.** Medido a 21/11, só leitura:
+   - **Morada:** a API tem `address` em 4 117 imóveis (a BD tem morada em 3 438; faltam 691 que a API tem), `zipCode` 3 386 (BD 2 787), `buildingNumber`,
+     `floor`, `fraction`. A `imoveis` só tem `morada`, `numero`, `codigo_postal`, `concelho`, `freguesia`: **andar e fração não têm coluna** (migration, corrida
+     por ti). Nas 3 423 moradas que existem nos dois lados, 3 398 são iguais; as 25 diferentes só diferem em quebras de linha.
+   - **GPS: a API devolve-o, mas só parte é real.** `gpsLat`/`gpsLon` vêm em 3 925 imóveis e 2 513 partilham coordenada (627 no mesmo ponto): o resto
+     é o centróide da zona. O sinal candidato é **`exportGeoreference`** (booleano, 242 `true`): dos 24 imóveis com coordenada real conhecida (Web API,
+     `HasGPSLocation`), 22 têm-no a `true` e 20 coordenadas coincidem com a API (2 `true` e 2 `false` divergem, uma por ~5 km). Dos 242, 231 têm GPS e
+     110 estão numa coordenada partilhada (podem ser frações do mesmo prédio). A heurística «coordenada mais repetida da zona» falha (2 falsos centróides
+     em 24) e fica descartada.
+   - **Proposta:** `latitude`/`longitude` só com `exportGeoreference=true` (mesmo princípio do `HasGPSLocation`), nunca por cima de uma coordenada que a Web
+     API já deu; validar antes contra os 49 publicados e contra o mapa do site, e investigar as 4 divergências. As 3 694 coordenadas com `false` não se
+     escrevem (centróide). Andar e fração precisam de colunas novas (migration, corrida por ti).
 5. **Webhook da Janela Digital**: fora do nosso controlo, só quando existir.
 
 Prova da fase 1: dry-run em produção antes; 1.ª passagem real com OK; contar `publicado` (49) antes e depois; FH2574 e FH2552 corretos; site igual.
