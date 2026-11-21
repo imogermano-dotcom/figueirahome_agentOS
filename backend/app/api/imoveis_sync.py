@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.deps import require_auth, require_sync_access
 from app.db.supabase_client import get_supabase
-from app.integrations.imoveis_sync import sync_egorealestate_api, sync_egorealestate_crm, sync_imoveis_todos
+from app.integrations.imoveis_sync import sync_egorealestate_api, sync_egorealestate_crm, sync_imoveis_todos, sync_morada_gps
 from app.notificacoes import falha_de_sync
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,18 @@ async def sync_imoveis_todos_endpoint(dry: bool = False, acesso=Depends(require_
         logger.exception("Falha no sync dos imóveis de todos os estados")
         await falha_de_sync("egorealestate_imoveis_todos", "imóveis (todos os estados)", origem, repr(e))
         raise HTTPException(status_code=502, detail="Falha a sincronizar os imóveis de todos os estados.")
+
+
+@router.post("/imoveis/sync/morada-gps")
+async def sync_morada_gps_endpoint(dry: bool = True, acesso=Depends(require_sync_access)):
+    """Fase 1b: preenche morada, piso, fração e GPS vazios pela API nova. **Só conta por omissão**; escrever = `?dry=0`."""
+    origem = "cron" if acesso == "sync-secret" else "manual"
+    try:
+        return await sync_morada_gps(origem, dry)
+    except Exception as e:
+        logger.exception("Falha a preencher morada e GPS dos imóveis")
+        await falha_de_sync("egorealestate_morada_gps", "imóveis (morada e GPS)", origem, repr(e))
+        raise HTTPException(status_code=502, detail="Falha a preencher morada e GPS dos imóveis.")
 
 
 @router.post("/imoveis/sync/egorealestate/crm")
