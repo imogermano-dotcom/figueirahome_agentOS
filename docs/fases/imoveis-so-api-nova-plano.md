@@ -57,14 +57,18 @@ Objetivo: acabar com FH2574 e FH2552 e com a espera de 24 h, sem tocar no que o 
    - **Morada:** a API tem `address` em 4 117 imóveis (a BD tem morada em 3 438; faltam 691 que a API tem), `zipCode` 3 386 (BD 2 787), `buildingNumber`,
      `floor`, `fraction`. A `imoveis` só tem `morada`, `numero`, `codigo_postal`, `concelho`, `freguesia`: **andar e fração não têm coluna** (migration, corrida
      por ti). Nas 3 423 moradas que existem nos dois lados, 3 398 são iguais; as 25 diferentes só diferem em quebras de linha.
-   - **GPS: a API devolve-o, mas só parte é real.** `gpsLat`/`gpsLon` vêm em 3 925 imóveis e 2 513 partilham coordenada (627 no mesmo ponto): o resto
-     é o centróide da zona. O sinal candidato é **`exportGeoreference`** (booleano, 242 `true`): dos 24 imóveis com coordenada real conhecida (Web API,
-     `HasGPSLocation`), 22 têm-no a `true` e 20 coordenadas coincidem com a API (2 `true` e 2 `false` divergem, uma por ~5 km). Dos 242, 231 têm GPS e
-     110 estão numa coordenada partilhada (podem ser frações do mesmo prédio). A heurística «coordenada mais repetida da zona» falha (2 falsos centróides
-     em 24) e fica descartada.
-   - **Proposta:** `latitude`/`longitude` só com `exportGeoreference=true` (mesmo princípio do `HasGPSLocation`), nunca por cima de uma coordenada que a Web
-     API já deu; validar antes contra os 49 publicados e contra o mapa do site, e investigar as 4 divergências. As 3 694 coordenadas com `false` não se
-     escrevem (centróide). Andar e fração precisam de colunas novas (migration, corrida por ti).
+   - **GPS: a API devolve o que o eGO guarda em «Coordenadas GPS», e sem pino o eGO guarda o centróide da zona** (confirmado em captura de ecrã a 21/11).
+     `gpsLat`/`gpsLon` vêm em 3 925 imóveis; 2 513 partilham coordenada (627 no mesmo ponto, o centróide da freguesia). **`exportGeoreference` não serve de
+     sinal** (é «exportar para portais»: o 01604 tem pino real único e `false`). A heurística «coordenada mais repetida da zona» também falha (2 falsos
+     centróides em 24).
+   - **Sinal escolhido: tamanho do grupo de imóveis com a mesma coordenada.** Distribuição: 1 imóvel → 1 412; 2 a 9 → 823 (280 pontos); 10 a 49 → 239;
+     50 ou mais → 1 451. Contra as 24 coordenadas reais conhecidas (Web API `HasGPSLocation`): grupo 1 → 10 iguais, 0 diferentes; 2 a 9 → 9 iguais, 3
+     diferentes; 10 a 49 → 0 e 1; 50 ou mais → 1 e 0. As diferenças vistas são pinos afinados no eGO depois da nossa cópia (FH2573: a nossa BD tinha o centróide dos
+     627, a API tem o ponto real, **confirmado no eGO a 21/11**).
+   - **Regra proposta:** escrever `latitude`/`longitude` se a coordenada é **única**, ou se o grupo tem **2 a 9 imóveis da mesma rua** (frações do mesmo prédio;
+     comparar só a rua, não o texto inteiro: «Rua do Pinhal» e «Rua do Pinhal, Buarcos…» são o mesmo sítio). Grupos de **10 ou mais** não se escrevem
+     (centróide). 2 a 9 com ruas diferentes: não se escrevem. Dados novos da API substituem a coordenada guardada (a nossa pode ser o centróide).
+     Validar antes contra os 49 publicados e contra o mapa do site. Andar e fração precisam de colunas novas (migration, corrida por ti).
 5. **Webhook da Janela Digital**: fora do nosso controlo, só quando existir.
 
 Prova da fase 1: dry-run em produção antes; 1.ª passagem real com OK; contar `publicado` (49) antes e depois; FH2574 e FH2552 corretos; site igual.
