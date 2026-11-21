@@ -749,6 +749,125 @@ def planear_imoveis_todos(api: dict[str, dict], existentes: dict[str, dict]) -> 
     return plano
 
 
+# ── Fase 1b: morada completa e GPS pela API nova (`docs/fases/imoveis-so-api-nova-plano.md`) ──────────────────────────
+
+_GRUPO_MAX_MESMA_RUA = 9  # a partir de 10 imóveis na mesma coordenada é o centróide da zona (medido a 21/11)
+
+
+def _rua(address: str | None) -> str:
+    """Só a rua, para comparar: «Rua do Pinhal» e «Rua do Pinhal, Buarcos…» são o mesmo sítio."""
+    import re
+    import unicodedata
+
+    s = unicodedata.normalize("NFKD", (address or "").split(",")[0].split("\n")[0])
+    s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+    return re.sub(r"\s+", " ", re.sub(r"\d+|n[ºo°]\.?", " ", s)).strip()
+
+
+def gps_fiavel(api: dict[str, dict]) -> dict[str, tuple[float, float]]:
+    """`{ref: (lat, lon)}` das coordenadas que são pino e não centróide: **única**, ou partilhada por 2 a 9 imóveis da
+    mesma rua (frações do mesmo prédio). 10 ou mais, ou 2 a 9 de ruas diferentes: não entram.
+    ponytail: heurística medida contra 24 pinos reais (21/11), não prova; o pino afinado no eGO é a fonte."""
+    grupos: dict[tuple[float, float], list[str]] = {}
+    for ref, item in api.items():
+        lat, lon = item.get("gpsLat"), item.get("gpsLon")
+        if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and (lat or lon):
+            grupos.setdefault((round(lat, 5), round(lon, 5)), []).append(ref)
+    fiaveis = {}
+    for ponto, refs in grupos.items():
+        mesma_rua = len(refs) == 1 or (
+            len(refs) <= _GRUPO_MAX_MESMA_RUA
+            and len({_rua(api[r].get("address")) for r in refs}) == 1 and _rua(api[refs[0]].get("address")))
+        if mesma_rua:
+            for r in refs:
+                fiaveis[r] = (api[r]["gpsLat"], api[r]["gpsLon"])
+    return fiaveis
+
+
+_CAMPOS_MORADA = (("morada", "address"), ("codigo_postal", "zipCode"), ("numero", "buildingNumber"),
+                  ("piso", "floor"), ("fracao", "fraction"))  # (coluna de `imoveis`, chave da API nova): 1:1, 0 conflitos a 21/11
+
+
+def _vazio(v) -> bool:
+    return v is None or not str(v).strip()
+
+
+def planear_morada_gps(api: dict[str, dict], existentes: dict[str, dict]) -> dict:
+    """Fase 1b. **Só preenche campos vazios** (também em `fonte='manual'`; nunca troca o que lá está). `valores` =
+    `{ref: {coluna: valor}}`; o resto são contagens para o dry-run. O GPS «a alterar» (pino afinado no eGO depois da
+    nossa cópia) só é contado, não se escreve."""
+    fiaveis = gps_fiavel(api)
+    r = {"valores": {}, "no_ego_e_bd": 0, "preencher": {c: 0 for c, _ in _CAMPOS_MORADA} | {"gps": 0},
+         "gps_igual": 0, "gps_a_alterar": [], "gps_recusado_centroide": 0}
+    for ref, item in api.items():
+        atual = existentes.get(ref)
+        if atual is None:
+            continue
+        r["no_ego_e_bd"] += 1
+        v = {}
+        for coluna, chave in _CAMPOS_MORADA:
+            novo = " ".join(str("" if item.get(chave) is None else item[chave]).split())  # 0 = rés-do-chão, não é vazio
+            if novo and _vazio(atual.get(coluna)):
+                v[coluna] = novo
+        if item.get("gpsLat") and ref not in fiaveis:
+            r["gps_recusado_centroide"] += 1
+        elif ref in fiaveis:
+            lat, lon = fiaveis[ref]
+            if atual.get("latitude") is None and atual.get("longitude") is None:
+                v["latitude"], v["longitude"] = lat, lon
+            elif round(float(atual["latitude"] or 0), 5) == round(lat, 5) and round(float(atual["longitude"] or 0), 5) == round(lon, 5):
+                r["gps_igual"] += 1
+            else:
+                r["gps_a_alterar"].append(ref)
+        for c in v:
+            if c != "longitude":
+                r["preencher"]["gps" if c == "latitude" else c] += 1
+        if v:
+            r["valores"][ref] = v
+    return r
+
+
+async def sync_morada_gps(origem: str = "manual", dry: bool = True) -> dict:
+    """Preenche morada, código postal, número, piso, fração e GPS vazios em `imoveis` a partir da API nova.
+    `dry=True` por omissão: só conta. Cada coluna escreve-se com a condição «ainda vazia» (se alguém a preencheu
+    entretanto, não se escreve por cima)."""
+    from app.integrations import ego_api
+
+    api = ego_api.um_por_referencia(await _run(ego_api.todos_os_imoveis))
+    cols = ",".join(["imovel_ref", "latitude", "longitude"] + [c for c, _ in _CAMPOS_MORADA])
+
+    def _ler():
+        linhas, inicio = [], 0
+        while True:
+            lote = get_supabase().table("imoveis").select(cols).range(inicio, inicio + 999).execute().data
+            linhas += lote
+            inicio += 1000
+            if len(lote) < 1000:
+                return linhas
+
+    existentes = {x["imovel_ref"]: x for x in await _run(_ler)}
+    plano = planear_morada_gps(api, existentes)
+    valores = plano.pop("valores")
+    resumo = {"dry": dry, "imoveis_a_atualizar": len(valores), **plano, "gps_a_alterar": len(plano["gps_a_alterar"]),
+              "atualizados": 0, "erros": 0}
+    if not dry:
+        for ref, v in valores.items():
+            try:
+                for coluna, valor in v.items():
+                    if coluna == "longitude":
+                        continue
+                    campos = {"latitude": v["latitude"], "longitude": v["longitude"]} if coluna == "latitude" else {coluna: valor}
+                    q = get_supabase().table("imoveis").update(campos).eq("imovel_ref", ref)
+                    q = q.is_("latitude", "null") if coluna == "latitude" else q.or_(f"{coluna}.is.null,{coluna}.eq.")
+                    await _run(q.execute)
+                resumo["atualizados"] += 1
+            except Exception:
+                logger.exception("Falha a preencher morada/GPS de %s", ref)
+                resumo["erros"] += 1
+        await _log_execucao("egorealestate_morada_gps", resumo, [], origem)
+    return resumo
+
+
 async def sync_imoveis_todos(origem: str = "manual", dry: bool = False) -> dict:
     """Traz para `imoveis` os imóveis de TODOS os estados (a Web API só dá os publicados). Nunca apaga linhas e não
     escreve em imóveis que a Web API vê nem em `fonte='manual'`. `dry=True` só conta."""
