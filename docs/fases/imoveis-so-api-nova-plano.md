@@ -44,11 +44,19 @@ chegam ao portal, e FH2574, FH2552 e FH2483_B continuam errados. Pediu: sync inc
 
 Objetivo: acabar com FH2574 e FH2552 e com a espera de 24 h, sem tocar no que o site mostra.
 
-1. **Estado dos imóveis que a Web API vê**: o sync de todos os estados passa a atualizar `disponibilidade` e `ego_atualizado_em` também nesses,
-   quando o estado do eGO difere. **Nunca** escreve `publicado` (GENERATED) nem `disponivel_na_api`. `fonte='manual'` continua intocado
-   (FH2483_B só se resolve quando o Miguel limpar os duplicados). Dry-run primeiro; esperado: FH2574 e FH2552 corrigem-se, `publicado` continua 49.
-   - Cuidado: o ritual de publicar e despublicar no eGO (memória do projeto) faz o estado passar por «Por validar»; o sync não pode impedir
-     essa dança, só refletir o que o eGO diz. Verificar que um imóvel `publicado` não passa a não publicado por um estado transitório lido a meio.
+1. **Estado e «no site» (FEITO a 21/11, `2ad6216`, v226; 1.ª gravação pelo cron de 22/11).** O sync de todos os estados passa a escrever,
+   também nos imóveis que a Web API vê, `disponibilidade` (do `realestateStatusId`) e `disponivel_na_api` (= o `portals` tem o `websiteId` 8662,
+   o nosso site) e `ego_atualizado_em`. **Porquê:** `disponivel_na_api` só passava a `false` quando um publicado sumia da Web API; os nunca
+   publicados ficavam com o valor velho (4 268 linhas, FH2574 incluído), e `publicado` = Disponível + preço + `disponivel_na_api`. Medido a
+   21/11: a Web API devolve 53 imóveis (49 Disponíveis com preço = os 49 `publicado`, mais 3 Vendidos e 1 Reservado que o eGO mantém no site
+   «apesar de indisponível»), **todos com o site 8662 em `portals`**; o `portals` tem mais 154 (Retirados, Por validar…) que não aparecem na Web API.
+   Simulação: `publicado` muda em 0 imóveis (continua 49); estado muda em 2 (FH2574 → Disponível, e fica **fora do site**; FH2552 → Retirado);
+   «no site» muda em 370 (335 `true`→`false`, 35 ao contrário), nenhum dos 370 está publicado.
+   - Escrita só se a linha ainda estiver como a lemos (estado e `disponivel_na_api`); `fonte='manual'` intocado (FH2483_B só quando o Miguel limpar os
+     duplicados); se nenhum imóvel da resposta traz o site, `disponivel_na_api` não se mexe; nunca se escreve `publicado` (GENERATED).
+   - Cuidado (por observar): o ritual de publicar e despublicar no eGO faz o estado passar por «Por validar»; o sync só reflete o que o eGO diz.
+   - Aviso «eGO deixou de publicar»: com o sync novo a despublicar primeiro, a tarefa pode deixar de nascer; ver se faz falta.
+   - Copia dos 370 (antes/depois) fora do repo; reverter = repor os campos de `antes`.
 2. **Incremental**: o sync corre de X em X min só sobre os imóveis alterados (`minDateAltered` ou `lastUpdate` > última corrida). Mesma função
    de planear/gravar do passo 1, sobre um subconjunto. Passagem **completa semanal** como rede de segurança (a atual, já diária, passa a semanal ou fica).
 3. **Registo e aviso**: cada corrida grava em `agente_sync_log` (`egorealestate_imoveis_todos` ou novo `tipo`), falha de cron manda email
@@ -105,4 +113,4 @@ Comissões (#41, o eGO ainda não as expõe), o webhook da Janela Digital (depen
 
 ## Próximo passo
 
-Fase 1b feita. Falta a fase 1 (estado dos imóveis que a Web API vê, incremental com `minDateAltered`, registo e aviso), em dry-run primeiro.
+Fase 1b e o ponto 1 da fase 1 (estado e «no site») feitos. Falta, na fase 1, o incremental com `minDateAltered`, o registo/aviso dedicado e o travão dos 90%. Antes: ver o cron de 22/11 gravar os 370 sem erros e com `publicado` a 49.
