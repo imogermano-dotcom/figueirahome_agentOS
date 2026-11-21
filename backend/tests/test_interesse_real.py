@@ -25,7 +25,7 @@ from tests.test_leads_para_ego import AGORA, ISO, _BD, _linha, _usa  # noqa: E40
     ("pedido de informação sobre imóvel", True), ("procura de moradia", True), ("pesquisa de imóvel", True),
     ("Pedido de chamada telefónica", True), ("Elegibilidade para Garantia Pública e crédito habitação", True),
     ("entrevista de recrutamento", False), ("angariação", False), ("reclamação", False), ("assunto legal", False),
-    ("proposta de angariação", False), ("", False), (None, False),
+    ("proposta de angariação", False), ("mensagem para a equipa", False), ("", False), (None, False),
 ])
 def test_motivo_de_compra(motivo, compra):
     assert guards.motivo_de_compra(motivo) is compra

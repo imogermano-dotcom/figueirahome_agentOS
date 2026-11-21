@@ -173,7 +173,7 @@ _TIPOS_QUE_PROMOVEM = ("compra", "arrendamento")
 # Escalada de quem é comprador conta sempre como interesse real (pedido #17, 01/11): ficam de fora só os motivos que
 # não são compra. `marcar_interesse_real` só marca contactos Meta de comprador, por isso recrutamento e angariação
 # nunca entram por aqui, mesmo com um motivo que não os nomeie.
-_MOTIVO_FORA = re.compile(r"recrut|angaria|reclama|legal|jur[ií]dic", re.I)
+_MOTIVO_FORA = re.compile(r"recrut|angaria|reclama|legal|jur[ií]dic|equipa", re.I)
 _MAX_RESUMO = 1500
 
 
