@@ -26,6 +26,7 @@ class _BD:
 
     def __init__(self, meta_created_at, log=()):
         self.contactos, self.log, self.inseridos, self._t, self._tipo = [{"meta_created_at": m} for m in meta_created_at], list(log), [], None, None
+        self.filtros = []
 
     def table(self, nome):
         self._t, self._tipo = nome, None
@@ -34,7 +35,7 @@ class _BD:
     def __getattr__(self, nome):
         if nome == "not_":
             return self
-        return lambda *a, **k: self
+        return lambda *a, **k: (self.filtros.append((nome, a)), self)[1]
 
     def eq(self, coluna, valor):
         if coluna == "tipo":
@@ -66,6 +67,13 @@ def test_dias_em_hora_de_lisboa(monkeypatch):
     bd = _BD(["2026-11-02T23:30:00+00:00", "2026-11-03T08:00:00+00:00"])  # 23:30 UTC de 02/11 ainda é 02/11 em Lisboa (UTC+0)
     _usa(monkeypatch, bd)
     assert v.contar_no_supabase(["2026-11-02", "2026-11-03"]) == {"2026-11-02": 1, "2026-11-03": 1}
+
+
+def test_so_conta_leads_de_anuncio(monkeypatch):
+    bd = _BD([NOITE])
+    _usa(monkeypatch, bd)
+    v.contar_no_supabase(["2026-11-03"])
+    assert ("is_", ("ad_id", "null")) in bd.filtros  # testes e leads orgânicas (sem ad_id) não tapam a falta de uma real
 
 
 def test_primeira_vez_regista_mas_nao_avisa(monkeypatch):

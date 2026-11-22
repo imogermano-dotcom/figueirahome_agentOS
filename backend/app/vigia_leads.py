@@ -24,10 +24,13 @@ REPETIR_ALERTA_H = 12
 
 
 def contar_no_supabase(dias: list[str]) -> dict[str, int]:
-    """Leads Meta por dia (hora de Lisboa, como a conta de anúncios) em `contactos.meta_created_at`."""
+    """Leads Meta por dia (hora de Lisboa, como a conta de anúncios) em `contactos.meta_created_at`.
+
+    Só as de anúncio (`ad_id` preenchido): a Meta conta anúncios, e testes ou leads orgânicas do formulário
+    (sem `ad_id`) tapavam a falta de uma real (20/11: Supabase 4, Meta 3, faltavam 2 e o vigia dizia 1)."""
     desde = datetime.combine(date.fromisoformat(min(dias)), datetime.min.time(), tzinfo=LISBOA).astimezone(timezone.utc)
     linhas = (get_supabase().table("contactos").select("meta_created_at")
-              .not_.is_("meta_lead_id", "null").gte("meta_created_at", desde.isoformat()).limit(5000).execute().data or [])
+              .not_.is_("meta_lead_id", "null").not_.is_("ad_id", "null").gte("meta_created_at", desde.isoformat()).limit(5000).execute().data or [])
     contagem = dict.fromkeys(dias, 0)
     for l in linhas:
         dia = datetime.fromisoformat(l["meta_created_at"].replace("Z", "+00:00")).astimezone(LISBOA).date().isoformat()
