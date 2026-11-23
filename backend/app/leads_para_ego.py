@@ -514,6 +514,90 @@ def _candidatas_paradas(agora: datetime) -> list[dict]:
     return paradas[:LIMITE_POR_VOLTA]
 
 
+def _ja_avisada(linha: dict) -> bool:
+    """Já há aviso (`lead_ego_aviso`) ou tarefa `lead_ego` desta pessoa **nesta entrada**: o da qualificação (12/11) tem a mesma
+    chave (título). Falha para avisada: um email a menos custa menos do que repeti-lo a cada volta."""
+    titulos = titulos_da_tarefa(linha)
+    if not titulos:
+        return True
+    try:
+        r = (get_supabase().table("agente_tarefas").select("id").in_("tipo", ["lead_ego_aviso", "lead_ego"])
+             .in_("titulo", titulos).gte("criado_em", linha.get("meta_created_at") or "1970-01-01").limit(1).execute().data)
+        return bool(r)
+    except Exception:
+        logger.exception("Falha a ver o aviso da lead %s", linha.get("id"))
+        return True
+
+
+def _candidatas_respondeu_depois(agora: datetime) -> list[dict]:
+    """Compradores Meta cuja lead **já está no eGO** (criada «sem resposta» às 2 h) e que responderam à Matilde **depois** da
+    marca. A conversa tem de ter assentado (`JANELA_PARADA_HORAS`) e não acabar em recusa nem despedida. Sem aviso desta
+    entrada. Desligado sem `LEAD_RESPONDEU_EGO` (mesmo interruptor/piloto da porta «conversa parada»)."""
+    if not settings.lead_respondeu_ego:
+        return []
+    resp = (
+        get_supabase().table("contactos").select(_COLUNAS + ",ego_lead_id")
+        .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
+        .not_.is_("ego_lead_em", "null").not_.is_("respondeu_em", "null").is_("nao_contactar_em", "null")
+        .gte("meta_created_at", settings.lead_compra_ego_desde)
+        .gte("meta_created_at", (agora - timedelta(days=IDADE_MAX_PARADA_DIAS)).isoformat())
+        .order("meta_created_at").limit(200).execute()
+    )
+    avisar = []
+    for l in resp.data or []:
+        if not (vale_para_a_entrada(l, "ego_lead_em") and vale_para_a_entrada(l, "respondeu_em")):
+            continue
+        if _dt(l["respondeu_em"]) <= _dt(l["ego_lead_em"]):
+            continue  # respondeu antes da lead: o OBS já a conta (ou é a porta «interesse real»)
+        tel = telefone_da_linha(l)
+        if not tel or not _no_piloto(tel):
+            continue
+        ultima, textos = _conversa_do(tel, _dt(l.get("meta_created_at")))
+        if not ultima or ultima > agora - timedelta(hours=JANELA_PARADA_HORAS):
+            continue  # ainda a conversar: espera-se que assente para avisar uma vez com o resumo completo
+        if textos and (e_fecho_da_pessoa(textos[-1]) or any(e_recusa(t) for t in textos[-3:])):
+            continue
+        if not _ja_avisada(l):
+            avisar.append(l)
+    return avisar[:LIMITE_POR_VOLTA]
+
+
+def avisar_respondeu_depois(agora: datetime) -> int:
+    """Email à consultora do imóvel (e ao diretor): a lead que criámos «sem resposta» respondeu depois. Não escreve no eGO.
+    A tarefa `lead_ego_aviso` (concluída) grava-se **antes** do envio: se falhar, não se envia (repetia a cada volta).
+    Nunca levanta; devolve quantos avisos saíram."""
+    enviados = 0
+    try:
+        candidatas = [_com_conversa(_imovel_da_entrada(l)) for l in _candidatas_respondeu_depois(agora)]
+    except Exception:
+        logger.exception("Falha a procurar leads que responderam depois de criadas")
+        return 0
+    for l in candidatas:
+        try:
+            titulo = f"{_TAREFA_QUALIFICADA} — {l.get('nome') or telefone_da_linha(l)}"  # a mesma chave do aviso da qualificação
+            get_supabase().table("agente_tarefas").insert({
+                "titulo": titulo, "tipo": "lead_ego_aviso", "estado": "concluida", "agente": "a1_vendedor",
+                "descricao": "Lead já no eGO respondeu depois de criada; consultora avisada por email.",
+            }).execute()
+            resumo = l.get("respostas_da_pessoa") or resumo_da_conversa([])
+            corpo = "\n".join(p for p in (
+                f"{l.get('nome') or 'Uma pessoa'} (lead da Meta, imóvel {l.get('imovel_ref') or '—'}) respondeu à Matilde depois de a lead ir para o eGO.",
+                "O texto da lead no eGO ainda diz «sem resposta»: não tem o que ela disse.",
+                "",
+                f"Telefone: {telefone_da_linha(l) or '—'} · Email: {l.get('email') or '—'}",
+                f"Lead no eGO: {l['ego_lead_id']}" if l.get("ego_lead_id") else "Lead no eGO: (id não registado)",
+                f"Respostas da pessoa: {resumo}" if resumo else None,
+                AVISO_ARRENDAR if l.get("procura_arrendar") else None,
+                "",
+                "Não se alterou a lead no eGO. Se quiseres, acrescenta uma nota com o que ela disse.",
+            ) if p is not None)
+            notificar(f"Lead já no eGO respondeu à Matilde — {l.get('imovel_ref') or 'imóvel?'}", corpo, imovel_ref=l.get("imovel_ref"))
+            enviados += 1
+        except Exception:
+            logger.exception("Falha a avisar que a lead %s respondeu depois", l.get("id"))
+    return enviados
+
+
 def angariador_da_ref(ref: str | None, por_ref: dict[str, str]) -> str | None:
     """Angariador do imóvel pela ref exata ou, se vier com sufixo («FH2584_V1»), pela curta («FH2584»)."""
     if not ref:
@@ -594,6 +678,8 @@ def processar(agora: datetime | None = None) -> dict:
     agora = agora or datetime.now(timezone.utc)
     preencher_responsavel_meta()
     contagem = {"ativo": True, "criadas": 0, "ja_existiam": 0, "erros": 0}
+    if avisadas := avisar_respondeu_depois(agora):
+        contagem["respondeu_depois"] = avisadas
     candidatas = _candidatas(agora)
     vistas = {l["id"] for l in candidatas}
     candidatas += [l for l in _candidatas_interesse(agora) if l["id"] not in vistas]
