@@ -23,7 +23,7 @@ def _respondeu(**kw):
 
 def _conversa(monkeypatch, horas_parada, textos=("Gostaria de ir ver a casa", "O valor desta casa", "Não")):
     """A conversa de WhatsApp deste número: última atividade há `horas_parada` horas."""
-    monkeypatch.setattr(lp, "_conversa_do", lambda tel: (AGORA - timedelta(hours=horas_parada), list(textos)))
+    monkeypatch.setattr(lp, "_conversa_do", lambda tel, *_: (AGORA - timedelta(hours=horas_parada), list(textos)))
 
 
 def _ligado(monkeypatch, ligado=True):
@@ -54,7 +54,7 @@ def test_conversa_ainda_viva_espera(monkeypatch):
 
 def test_desligado_nao_consulta_conversas(monkeypatch):
     _ligado(monkeypatch, ligado=False)
-    monkeypatch.setattr(lp, "_conversa_do", lambda tel: pytest.fail("não devia consultar"))
+    monkeypatch.setattr(lp, "_conversa_do", lambda tel, *_: pytest.fail("não devia consultar"))
     bd = _BD([_respondeu()])
     _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
     assert lp.processar(AGORA)["criadas"] == 0
@@ -97,7 +97,7 @@ def test_so_olha_para_as_leads_das_ultimas_semanas(monkeypatch):
 
 def test_sem_conversa_de_whatsapp_nao_cria(monkeypatch):
     _ligado(monkeypatch)
-    monkeypatch.setattr(lp, "_conversa_do", lambda tel: (None, []))
+    monkeypatch.setattr(lp, "_conversa_do", lambda tel, *_: (None, []))
     bd = _BD([_respondeu()])
     _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
     assert lp.processar(AGORA)["criadas"] == 0
@@ -106,7 +106,7 @@ def test_sem_conversa_de_whatsapp_nao_cria(monkeypatch):
 def test_quem_nao_respondeu_continua_pelo_caminho_das_2h(monkeypatch):
     """Sem resposta há 3 h: cria a lead das 2 h, não a da conversa parada (e não consulta conversas)."""
     _ligado(monkeypatch)
-    monkeypatch.setattr(lp, "_conversa_do", lambda tel: pytest.fail("não tem conversa"))
+    monkeypatch.setattr(lp, "_conversa_do", lambda tel, *_: pytest.fail("não tem conversa"))
     bd = _BD([_linha()])
     corpos = []
     _usa(monkeypatch, bd, lambda nome, email, tel, obs, ego_id: corpos.append(obs) or "555")

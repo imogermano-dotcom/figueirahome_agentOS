@@ -12,7 +12,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from app.agents.broker.guards import _TAREFA_QUALIFICADA, e_fecho_da_pessoa, e_recusa, normalizar_telefone, variantes_telefone
+from app.agents.broker.guards import _TAREFA_QUALIFICADA, e_fecho_da_pessoa, e_recusa, normalizar_telefone, vale_para_a_entrada, variantes_telefone
 from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.integrations import ego_api, egorealestate
@@ -33,11 +33,12 @@ _MAX_RESUMO_OBS = 600  # do resumo da conversa que vai no OBS da lead
 _MAX_RESPOSTAS_OBS = 900  # do bloco «Respostas da pessoa» (as mais recentes; o pedido inicial fica sempre)
 _PERGUNTA_OBS, _RESPOSTA_OBS = 140, 200  # por pergunta da Matilde e por resposta da pessoa
 IDADE_MAX_PARADA_DIAS = 14  # só se olha para as que entraram há menos tempo (cada uma custa uma consulta por volta)
+IDADE_MAX_REENTRADA_DIAS = 7  # uma pessoa que volta (linha de `contactos` reaproveitada) só conta se a entrada nova for recente
 JANELA_PARADA_HORAS = 4  # conversa sem mensagens (nem o lembrete) há este tempo: a pessoa já não vai responder
 
 _COLUNAS = ("id,nome,telefone,telemovel,email,meta_lead_id,imovel_ref,ad_name,meta_form_name,criado_em,"
             "meta_created_at,template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em,"
-            "interesse_real_em,interesse_real_motivo,interesse_real_resumo,nao_contactar_em")
+            "interesse_real_em,interesse_real_motivo,interesse_real_resumo,nao_contactar_em,ego_lead_em")
 
 
 def dentro_do_horario(agora: datetime) -> bool:
@@ -67,14 +68,52 @@ def _dt(valor: str | None) -> datetime | None:
     return datetime.fromisoformat(valor.replace("Z", "+00:00")) if valor else None
 
 
+def precisa_de_lead(linha: dict, agora: datetime) -> bool:
+    """Falta criar a lead desta entrada. Uma marca desta entrada (ou sem como a datar) trava. Uma **reentrada** (rasto de
+    entrada anterior: marca, template, resposta…) só conta se a entrada nova for dos últimos `IDADE_MAX_REENTRADA_DIAS`:
+    o histórico não se recupera (22/11: uma entrada de 07/11 com `respondeu_em` de outubro passava a candidata)."""
+    if linha.get("ego_lead_em") and vale_para_a_entrada(linha, "ego_lead_em"):
+        return False
+    if not _reentrada(linha):
+        return True
+    entrada = _dt(linha.get("meta_created_at"))
+    return bool(entrada and entrada >= agora - timedelta(days=IDADE_MAX_REENTRADA_DIAS))
+
+
+def _reentrada(linha: dict) -> bool:
+    """A linha traz o rasto de uma entrada anterior (algum destes campos é anterior a `meta_created_at`)."""
+    entrada = _dt(linha.get("meta_created_at"))
+    return bool(entrada) and any(
+        (v := _dt(linha.get(c))) and v < entrada
+        for c in ("ego_lead_em", "template_enviado_em", "respondeu_em", "contacto_humano_em", "interesse_real_em"))
+
+
+def _imovel_da_entrada(linha: dict) -> dict:
+    """Numa reentrada `contactos.imovel_ref` é o da 1.ª entrada (o RPC só grava o novo em `leads`): usa-se o da linha de
+    `leads` com o `meta_lead_id` atual. Sem ela, fica o que vinha. Nunca levanta."""
+    if not (_reentrada(linha) and linha.get("meta_lead_id")):
+        return linha
+    try:
+        r = get_supabase().table("leads").select("imovel_ref").eq("meta_lead_id", linha["meta_lead_id"]).limit(1).execute().data
+    except Exception:
+        logger.exception("Falha a ler o imóvel da entrada da lead %s", linha.get("id"))
+        return linha
+    return linha | {"imovel_ref": r[0]["imovel_ref"]} if r and r[0].get("imovel_ref") else linha
+
+
 def elegivel(linha: dict, agora: datetime) -> bool:
-    """Sem resposta e sem consultor, e (número sem WhatsApp, ou template enviado há mais de 2 h). `nao_contactar_em` não conta: é só do WhatsApp, a lead continua válida para o telefone."""
-    if linha.get("respondeu_em") or linha.get("contacto_humano_em") or linha.get("ego_lead_em"):
+    """Sem resposta e sem consultor, e (número sem WhatsApp, ou template enviado há mais de 2 h). `nao_contactar_em` não conta: é só do WhatsApp, a lead continua válida para o telefone.
+
+    Só contam as marcas desta entrada, e as 2 h contam desde o último de template e entrada: numa reentrada o template é o
+    da 1.ª vez e a pessoa ainda não teve tempo de escrever."""
+    if any(vale_para_a_entrada(linha, c) for c in ("respondeu_em", "contacto_humano_em", "ego_lead_em")):
         return False
     if linha.get("whatsapp_falhou_em"):
         return True  # quem não tem WhatsApp é quem mais precisa de telefonema: sem esperar
     template = _dt(linha.get("template_enviado_em"))
-    return bool(template and template <= agora - timedelta(hours=JANELA_HORAS))
+    if not template:
+        return False
+    return max(template, _dt(linha.get("meta_created_at")) or template) <= agora - timedelta(hours=JANELA_HORAS)
 
 
 def observacao_da_lead(linha: dict, com_imovel: bool, recusou: bool = False, ja_conhecido: bool = False) -> str:
@@ -291,31 +330,38 @@ def _avisar_oportunidade_ativa(linha: dict, ops: list[dict]) -> None:
         logger.exception("Falha a avisar da oportunidade ativa da lead %s", linha.get("id"))
 
 
+def _sem_marca_ou_reentrada(agora: datetime) -> str:
+    """Filtro do servidor (o PostgREST não compara duas colunas): sem marca, ou entrada recente (`precisa_de_lead` decide)."""
+    return f"ego_lead_em.is.null,meta_created_at.gte.{(agora - timedelta(days=IDADE_MAX_REENTRADA_DIAS)).isoformat()}"
+
+
 def _candidatas(agora: datetime) -> list[dict]:
     resp = (
         get_supabase().table("contactos").select(_COLUNAS)
         .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
-        .is_("ego_lead_em", "null").gte("meta_created_at", settings.lead_compra_ego_desde)
+        .or_(_sem_marca_ou_reentrada(agora)).gte("meta_created_at", settings.lead_compra_ego_desde)
         .order("meta_created_at").limit(200).execute()
     )
-    return [l for l in resp.data or [] if elegivel(l, agora)][:LIMITE_POR_VOLTA]
+    return [l for l in resp.data or [] if precisa_de_lead(l, agora) and elegivel(l, agora)][:LIMITE_POR_VOLTA]
 
 
-def _candidatas_interesse() -> list[dict]:
+def _candidatas_interesse(agora: datetime) -> list[dict]:
     """Compradores Meta marcados com interesse real (pedido #17), **mesmo os que já responderam**. Desligado sem o segredo."""
     if not settings.lead_interesse_ego:
         return []
     resp = (
         get_supabase().table("contactos").select(_COLUNAS)
         .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
-        .not_.is_("interesse_real_em", "null").is_("ego_lead_em", "null")
-        .gte("meta_created_at", settings.lead_compra_ego_desde).order("interesse_real_em").limit(LIMITE_POR_VOLTA).execute()
+        .not_.is_("interesse_real_em", "null").or_(_sem_marca_ou_reentrada(agora))
+        .gte("meta_created_at", settings.lead_compra_ego_desde).order("interesse_real_em").limit(200).execute()
     )
-    return [l for l in resp.data or [] if not l.get("ego_lead_em")]
+    return [l for l in resp.data or [] if precisa_de_lead(l, agora) and vale_para_a_entrada(l, "interesse_real_em")][:LIMITE_POR_VOLTA]
 
 
-def _conversa_do(telefone: str) -> tuple[datetime | None, list[str]]:
-    """Última atividade da conversa de WhatsApp deste número e o que a pessoa escreveu nela."""
+def _conversa_do(telefone: str, desde: datetime | None = None) -> tuple[datetime | None, list[str]]:
+    """Última atividade da conversa de WhatsApp deste número e o que a pessoa escreveu nela. As mensagens não têm hora:
+    uma conversa cuja última atividade é anterior a `desde` (a entrada Meta) é toda da entrada anterior e não conta.
+    ponytail: uma conversa que atravessa a entrada (reaproveitada em <48 h) conta inteira; separar exigia hora por mensagem."""
     resp = (
         get_supabase().table("agente_conversas").select("atualizado_em,mensagens")
         .eq("canal", "whatsapp").in_("participante", variantes_telefone(telefone))
@@ -324,8 +370,11 @@ def _conversa_do(telefone: str) -> tuple[datetime | None, list[str]]:
     if not resp.data:
         return None, []
     linha = resp.data[0]
+    atividade = _dt(linha.get("atualizado_em"))
+    if desde and atividade and atividade < desde:
+        return None, []
     textos = [m["content"] for m in linha.get("mensagens") or [] if m.get("role") == "user" and isinstance(m.get("content"), str)]
-    return _dt(linha.get("atualizado_em")), textos
+    return atividade, textos
 
 
 def resumo_da_conversa(textos: list[str]) -> str:
@@ -342,14 +391,19 @@ def procura_arrendar(textos: list[str]) -> bool:
     return any(_ARRENDAR.search(t) for t in textos)
 
 
-def _mensagens_do(telefone: str) -> list[dict]:
-    """Mensagens (as duas partes) da conversa de WhatsApp deste número."""
+def _mensagens_do(telefone: str, desde: datetime | None = None) -> list[dict]:
+    """Mensagens (as duas partes) da conversa de WhatsApp deste número; vazio se a conversa é anterior a `desde` (ver `_conversa_do`)."""
     resp = (
-        get_supabase().table("agente_conversas").select("mensagens")
+        get_supabase().table("agente_conversas").select("mensagens,atualizado_em")
         .eq("canal", "whatsapp").in_("participante", variantes_telefone(telefone))
         .order("atualizado_em", desc=True).limit(1).execute()
     )
-    return (resp.data[0].get("mensagens") if resp.data else None) or []
+    if not resp.data:
+        return []
+    atividade = _dt(resp.data[0].get("atualizado_em"))
+    if desde and atividade and atividade < desde:
+        return []
+    return resp.data[0].get("mensagens") or []
 
 
 _FRASE_PERGUNTA = re.compile(r"[^.!?\n]*\?")
@@ -417,7 +471,7 @@ def _com_conversa(linha: dict) -> dict:
         return linha
     try:
         tel = telefone_da_linha(linha)
-        mensagens = _mensagens_do(tel) if tel else []
+        mensagens = _mensagens_do(tel, _dt(linha.get("meta_created_at"))) if tel else []
     except Exception:
         logger.exception("Falha a ler a conversa da lead %s", linha.get("id"))
         return linha
@@ -439,19 +493,20 @@ def _candidatas_paradas(agora: datetime) -> list[dict]:
     resp = (
         get_supabase().table("contactos").select(_COLUNAS)
         .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
-        .not_.is_("respondeu_em", "null").is_("ego_lead_em", "null").is_("contacto_humano_em", "null").is_("nao_contactar_em", "null")
+        .not_.is_("respondeu_em", "null").or_(_sem_marca_ou_reentrada(agora)).is_("nao_contactar_em", "null")
         .gte("meta_created_at", settings.lead_compra_ego_desde)
         .gte("meta_created_at", (agora - timedelta(days=IDADE_MAX_PARADA_DIAS)).isoformat())
         .order("meta_created_at").limit(200).execute()
     )
     paradas = []
     for l in resp.data or []:
-        if l.get("ego_lead_em") or l.get("contacto_humano_em") or l.get("nao_contactar_em") or not l.get("respondeu_em"):
+        if (not precisa_de_lead(l, agora) or vale_para_a_entrada(l, "contacto_humano_em") or l.get("nao_contactar_em")
+                or not vale_para_a_entrada(l, "respondeu_em")):
             continue
         tel = telefone_da_linha(l)
         if not tel or not _no_piloto(tel):
             continue
-        ultima, textos = _conversa_do(tel)
+        ultima, textos = _conversa_do(tel, _dt(l.get("meta_created_at")))
         if textos and (e_fecho_da_pessoa(textos[-1]) or any(e_recusa(t) for t in textos[-3:])):
             continue  # despediu-se («obrigado 🤩», «até breve») ou recusou numa das últimas 3 mensagens («do momento não tenho»)
         if ultima and ultima <= agora - timedelta(hours=JANELA_PARADA_HORAS):
@@ -541,12 +596,12 @@ def processar(agora: datetime | None = None) -> dict:
     contagem = {"ativo": True, "criadas": 0, "ja_existiam": 0, "erros": 0}
     candidatas = _candidatas(agora)
     vistas = {l["id"] for l in candidatas}
-    candidatas += [l for l in _candidatas_interesse() if l["id"] not in vistas]
+    candidatas += [l for l in _candidatas_interesse(agora) if l["id"] not in vistas]
     vistas = {l["id"] for l in candidatas}
     candidatas += [l for l in _candidatas_paradas(agora) if l["id"] not in vistas]
     if not candidatas:
         return contagem
-    candidatas = [_com_conversa(l) for l in candidatas]
+    candidatas = [_com_conversa(_imovel_da_entrada(l)) for l in candidatas]
     try:
         leads = ego_api.leads_abertas()  # sem saber o que lá está, criar podia duplicar: nesta volta não se cria
     except Exception:
@@ -630,12 +685,12 @@ def recusou_whatsapp(meta_lead_id: str, imovel_ref: str | None = None) -> dict |
     Desligado com `LEAD_COMPRA_EGO_DESDE` vazio, e nunca para contactos anteriores a essa data (o histórico não)."""
     if not settings.lead_compra_ego_desde:
         return {"resultado": "desligado", "criada": False}
-    linhas = (get_supabase().table("contactos").select(_COLUNAS + ",ego_lead_em")
+    linhas = (get_supabase().table("contactos").select(_COLUNAS)
               .eq("meta_lead_id", meta_lead_id).limit(1).execute().data)
     if not linhas:
         return None
     linha = linhas[0]
-    if linha.get("ego_lead_em"):
+    if vale_para_a_entrada(linha, "ego_lead_em"):  # uma marca de entrada anterior não trata esta recusa
         return {"resultado": "ja_tratada"}
     # compara-se por dia (a data de ativação é um dia) e pela entrada da lead Meta, não pelo `criado_em` do contacto
     if entrou_pela_meta_em(linha) < str(settings.lead_compra_ego_desde)[:10]:

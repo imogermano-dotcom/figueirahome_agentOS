@@ -640,3 +640,113 @@ def test_lead_ja_na_caixa_grava_o_id_da_lead_do_eGO(monkeypatch):
 
 def test_ref_base():
     assert [lp._ref_base(x) for x in ("FH2588_V1", "fh2588a", "FH2588", None, "CAS_123")] == ["FH2588", "FH2588", "FH2588", "", "CAS_123"]
+
+
+# ── reentrada: a linha de `contactos` reaproveitada traz campos da entrada anterior (21/11) ──
+# `docs/fases/lead-meta-reentrada-plano.md`
+
+def _reentrada(**kw):
+    """Pessoa que entrou há muito (campos de 26/10) e voltou há 3 h pelo imóvel FH0002."""
+    antigo = (AGORA - timedelta(days=20)).isoformat()
+    return _linha(meta_lead_id="m2", imovel_ref="FH0001", meta_created_at=ISO(3), template_enviado_em=antigo,
+                  ego_lead_em=antigo, respondeu_em=antigo, contacto_humano_em=None, **kw)
+
+
+def test_vale_para_a_entrada():
+    assert lp.vale_para_a_entrada({"ego_lead_em": ISO(1), "meta_created_at": ISO(2)}, "ego_lead_em")
+    assert not lp.vale_para_a_entrada({"ego_lead_em": ISO(5), "meta_created_at": ISO(2)}, "ego_lead_em")
+    assert not lp.vale_para_a_entrada({"ego_lead_em": None, "meta_created_at": ISO(2)}, "ego_lead_em")
+    assert lp.vale_para_a_entrada({"ego_lead_em": ISO(5)}, "ego_lead_em"), "sem entrada não há como provar que é antigo"
+
+
+def test_marca_anterior_a_entrada_nao_trava_e_posterior_trava():
+    assert lp.precisa_de_lead(_reentrada(), AGORA)
+    assert not lp.precisa_de_lead(_reentrada() | {"ego_lead_em": ISO(1)}, AGORA)
+    assert lp.precisa_de_lead(_linha(), AGORA), "sem marca"
+
+
+def test_reentrada_com_mais_de_7_dias_nao_se_recupera():
+    velha = _reentrada() | {"meta_created_at": (AGORA - timedelta(days=8)).isoformat()}
+    assert not lp.precisa_de_lead(velha, AGORA)
+
+
+def test_respondeu_e_contacto_humano_de_entrada_anterior_nao_bloqueiam_mas_os_desta_sim():
+    antigo = ISO(24 * 20)
+    assert lp.elegivel(_linha(meta_created_at=ISO(3), template_enviado_em=ISO(24 * 20), respondeu_em=antigo,
+                              contacto_humano_em=antigo), AGORA)
+    assert not lp.elegivel(_linha(meta_created_at=ISO(3), respondeu_em=ISO(1)), AGORA)
+    assert not lp.elegivel(_linha(meta_created_at=ISO(3), contacto_humano_em=ISO(1)), AGORA)
+
+
+def test_reentrada_espera_2h_desde_a_entrada_nao_desde_o_template_antigo():
+    r = _reentrada() | {"respondeu_em": None, "ego_lead_em": None}
+    assert lp.elegivel(r, AGORA)  # entrou há 3 h
+    assert not lp.elegivel(r | {"meta_created_at": ISO(1)}, AGORA)  # entrou há 1 h
+    assert lp.elegivel(r | {"meta_created_at": ISO(0.5), "whatsapp_falhou_em": ISO(0.4)}, AGORA), "sem WhatsApp: imediato"
+
+
+def test_cron_cria_a_lead_da_reentrada_com_o_imovel_da_entrada_e_nao_repete(monkeypatch):
+    bd = _BD([_reentrada()])
+    enviados = []
+    _usa(monkeypatch, bd, lambda *a: enviados.append(a) or "555")
+    bd.contactos[0]["imovel_ref"] = "FH0002"  # o duplo devolve esta linha também para `leads` (o imóvel certo: ver o teste abaixo)
+    r = lp.processar(AGORA)
+    assert (r["criadas"], r["erros"]) == (1, 0) and len(enviados) == 1
+    (id_, marca), = bd.updates
+    assert id_ == "c1" and marca["ego_lead_em"] == AGORA.isoformat()
+    # a volta seguinte vê a marca nova (posterior à entrada): não cria
+    bd2 = _BD([_reentrada() | {"ego_lead_em": AGORA.isoformat()}])
+    _usa(monkeypatch, bd2, lambda *a: pytest.fail("não devia criar duas vezes"))
+    assert lp.processar(AGORA)["criadas"] == 0
+
+
+def test_reentrada_com_conversa_antiga_nao_leva_o_resumo_da_entrada_anterior(monkeypatch):
+    mensagens = [{"role": "user", "content": "Quero arrendar o outro imóvel"}]
+    monkeypatch.setattr(lp, "get_supabase", lambda: type("B", (), {
+        "table": lambda s, n: s, "select": lambda s, *a: s, "eq": lambda s, *a: s, "in_": lambda s, *a: s,
+        "order": lambda s, *a, **k: s, "limit": lambda s, *a: s,
+        "execute": lambda s: type("R", (), {"data": [{"mensagens": mensagens, "atualizado_em": ISO(24 * 20)}]})()})())
+    entrada = lp._dt(ISO(3))
+    assert lp._mensagens_do("912345678", entrada) == []
+    assert lp._mensagens_do("912345678") == mensagens
+    assert lp._conversa_do("912345678", entrada) == (None, [])
+    assert lp._com_conversa(_reentrada(interesse_real_em=ISO(1))).get("respostas_da_pessoa") == ""
+
+
+def test_recusa_da_2a_entrada_cria_lead_e_a_da_mesma_entrada_e_ja_tratada(monkeypatch):
+    bd, enviados = _recusa(monkeypatch, _reentrada() | {"meta_lead_id": "m1", "template_enviado_em": None})
+    assert lp.recusou_whatsapp("m1")["resultado"] == "criada" and len(enviados) == 1
+    bd, enviados = _recusa(monkeypatch, _reentrada() | {"meta_lead_id": "m1", "ego_lead_em": ISO(1)})
+    assert lp.recusou_whatsapp("m1") == {"resultado": "ja_tratada"} and not enviados
+
+
+def test_imovel_da_entrada_vem_de_leads_so_numa_reentrada(monkeypatch):
+    class _B:
+        def __getattr__(self, _):
+            return lambda *a, **k: self
+
+        def execute(self):
+            return type("R", (), {"data": [{"imovel_ref": "FH0002"}]})()
+
+    monkeypatch.setattr(lp, "get_supabase", lambda: _B())
+    assert lp._imovel_da_entrada(_reentrada())["imovel_ref"] == "FH0002"
+    assert lp._imovel_da_entrada(_linha())["imovel_ref"] == "FH0001", "1.ª entrada: fica o de `contactos`"
+
+
+def test_paradas_reentrada_ignora_a_despedida_da_conversa_antiga(monkeypatch):
+    """Caso D: a conversa antiga acabou em despedida; a de `_conversa_do(desde=entrada)` já vem vazia e não trava."""
+    monkeypatch.setattr(settings, "lead_respondeu_ego", "1")
+    monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
+    antigo = ISO(24 * 20)
+    linha = _linha(meta_created_at=ISO(10), template_enviado_em=antigo, respondeu_em=ISO(9), ego_lead_em=None)
+    monkeypatch.setattr(lp, "get_supabase", lambda: _BD([linha]))
+    monkeypatch.setattr(lp, "_conversa_do", lambda tel, desde=None: (AGORA - timedelta(hours=9), ["obrigado, até breve"]) if desde is None else (AGORA - timedelta(hours=9), ["Quero visitar"]))
+    (parada,) = lp._candidatas_paradas(AGORA)
+    assert parada["conversa_parada_resumo"] == "Quero visitar"
+
+
+def test_reentrada_sem_marca_mas_com_resposta_antiga_e_entrada_velha_fica_de_fora():
+    """Caso D: entrada de há 15 dias, `respondeu_em` da entrada anterior, sem marca no eGO."""
+    d = _reentrada() | {"ego_lead_em": None, "meta_created_at": (AGORA - timedelta(days=15)).isoformat()}
+    assert not lp.precisa_de_lead(d, AGORA)
+    assert lp.precisa_de_lead(d | {"meta_created_at": ISO(3)}, AGORA)

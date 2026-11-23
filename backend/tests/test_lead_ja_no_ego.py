@@ -51,7 +51,7 @@ def _corre(monkeypatch, contactos):
 
 
 def test_lead_ja_no_ego_avisa_a_consultora_sem_tarefa_pendente(monkeypatch):
-    bd, avisos = _corre(monkeypatch, [{"id": "c1"}])
+    bd, avisos = _corre(monkeypatch, [{"id": "c1", "ego_lead_em": "2026-11-01T10:00:00+00:00", "meta_created_at": "2026-11-01T09:00:00+00:00"}])
     assert [t["tipo"] for t in bd.tarefas] == ["lead_ego_aviso"] and bd.tarefas[0]["estado"] == "concluida"
     assert len(avisos) == 1
     assunto, corpo, k = avisos[0]
@@ -61,5 +61,12 @@ def test_lead_ja_no_ego_avisa_a_consultora_sem_tarefa_pendente(monkeypatch):
 
 def test_lead_fora_do_ego_continua_a_criar_a_tarefa_lead_ego(monkeypatch):
     bd, avisos = _corre(monkeypatch, [])
+    assert [t["tipo"] for t in bd.tarefas] == ["lead_ego"]
+    assert len(avisos) == 1 and "já no eGO" not in avisos[0][0]
+
+
+def test_marca_de_entrada_anterior_nao_e_ja_no_ego(monkeypatch):
+    """21/11: a marca era da 1.ª entrada (outro imóvel) e a promoção dizia «já no eGO» sobre a lead errada."""
+    bd, avisos = _corre(monkeypatch, [{"id": "c1", "ego_lead_em": "2026-10-26T10:00:00+00:00", "meta_created_at": "2026-11-21T09:00:00+00:00"}])
     assert [t["tipo"] for t in bd.tarefas] == ["lead_ego"]
     assert len(avisos) == 1 and "já no eGO" not in avisos[0][0]

@@ -203,6 +203,20 @@ def e_pedido_de_informacao(texto: str | None) -> bool:
     return not (_NEGACAO.search(texto) and all(t.startswith("interess") for t in termos))
 
 
+def vale_para_a_entrada(linha: dict, campo: str) -> bool:
+    """O campo de `contactos` está preenchido **e é desta entrada Meta**. A pessoa que volta a pedir informação reaproveita a
+    linha (o RPC só muda `meta_lead_id`/`meta_created_at`): `ego_lead_em`, `respondeu_em`, `contacto_humano_em` e
+    `interesse_real_em` ficam da entrada anterior e bloqueavam a nova (21/11). Anterior a `meta_created_at` = de outra
+    entrada = conta como vazio. Sem `meta_created_at` não há como provar que é antigo: conta."""
+    def _dt(v):
+        return datetime.fromisoformat(str(v).replace("Z", "+00:00")) if v else None
+    valor = _dt(linha.get(campo))
+    if not valor:
+        return False
+    entrada = _dt(linha.get("meta_created_at"))
+    return not entrada or valor >= entrada
+
+
 def marcar_interesse_real(telefone: str | None, motivo: str, resumo: str | None) -> bool:
     """Marca o contacto Meta de comprador com interesse real; o cron `leads-compra-para-ego` cria a lead no eGO.
 
@@ -218,16 +232,17 @@ def marcar_interesse_real(telefone: str | None, motivo: str, resumo: str | None)
         lista = ",".join(variantes_telefone(numero))
         linhas = (
             get_supabase().table("contactos")
-            .select("id,interesse_real_em,interesse_real_resumo")
+            .select("id,interesse_real_em,interesse_real_resumo,ego_lead_em,meta_created_at")
             .or_(f"telefone.in.({lista}),telemovel.in.({lista})")
-            .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"]).is_("ego_lead_em", "null")
+            .not_.is_("meta_lead_id", "null").contains("tipo_contacto", ["comprador"])
             .order("criado_em", desc=True).limit(1).execute().data
         )
-        if not linhas:
+        # lead já criada para esta entrada: nada a marcar (uma marca de entrada anterior não conta)
+        if not linhas or vale_para_a_entrada(linhas[0], "ego_lead_em"):
             return False
         linha = linhas[0]
         resumo = (resumo or "").strip()
-        if linha.get("interesse_real_em"):
+        if vale_para_a_entrada(linha, "interesse_real_em"):  # interesse antigo (outra entrada): recomeça abaixo
             antigo = linha.get("interesse_real_resumo") or ""
             if resumo and resumo not in antigo:
                 junto = (antigo + "\n" + resumo).strip()[:_MAX_RESUMO]
@@ -257,11 +272,12 @@ def _contacto_ja_no_ego(supabase, telefone: str | None) -> bool:
         return False
     try:
         lista = ",".join(variantes_telefone(telefone))
-        return bool(
-            supabase.table("contactos").select("id")
+        linhas = (
+            supabase.table("contactos").select("ego_lead_em,meta_created_at")
             .or_(f"telefone.in.({lista}),telemovel.in.({lista})")
-            .not_.is_("meta_lead_id", "null").not_.is_("ego_lead_em", "null").limit(1).execute().data
+            .not_.is_("meta_lead_id", "null").not_.is_("ego_lead_em", "null").limit(5).execute().data
         )
+        return any(vale_para_a_entrada(l, "ego_lead_em") for l in linhas or [])  # a marca de uma entrada anterior é de outro imóvel
     except Exception:
         logger.exception("Falha a ver se o contacto já está no eGO")
         return False

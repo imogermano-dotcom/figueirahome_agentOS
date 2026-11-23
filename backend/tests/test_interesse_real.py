@@ -317,7 +317,7 @@ def test_consultas_do_cron_filtram_pela_entrada_da_lead_meta(monkeypatch):
     monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-20")
     monkeypatch.setattr(settings, "lead_interesse_ego", "1")
     lp._candidatas(AGORA)
-    lp._candidatas_interesse()
+    lp._candidatas_interesse(AGORA)
     assert filtros == ["meta_created_at", "meta_created_at"]
 
 
@@ -436,7 +436,7 @@ def test_observacao_sem_arrendar_nao_leva_aviso():
 
 def test_cron_cria_a_lead_de_quem_pede_arrendamento_com_o_aviso_e_a_conversa(monkeypatch):
     _ligado(monkeypatch)
-    monkeypatch.setattr(lp, "_mensagens_do", lambda tel: list(_CONVERSA))
+    monkeypatch.setattr(lp, "_mensagens_do", lambda tel, *_: list(_CONVERSA))
     bd = _BD([_interessada()])
     corpos = []
     _usa(monkeypatch, bd, lambda nome, email, tel, obs, ego_id: corpos.append(obs) or "555")
@@ -446,7 +446,7 @@ def test_cron_cria_a_lead_de_quem_pede_arrendamento_com_o_aviso_e_a_conversa(mon
 
 def test_cron_leva_a_conversa_mesmo_sem_falar_em_arrendar(monkeypatch):
     _ligado(monkeypatch)
-    monkeypatch.setattr(lp, "_mensagens_do", lambda tel: [{"role": "user", "content": "Quero visitar a casa"}])
+    monkeypatch.setattr(lp, "_mensagens_do", lambda tel, *_: [{"role": "user", "content": "Quero visitar a casa"}])
     bd = _BD([_interessada()])
     corpos = []
     _usa(monkeypatch, bd, lambda nome, email, tel, obs, ego_id: corpos.append(obs) or "555")
@@ -456,7 +456,7 @@ def test_cron_leva_a_conversa_mesmo_sem_falar_em_arrendar(monkeypatch):
 
 def test_cron_nao_para_se_a_conversa_falhar(monkeypatch):
     _ligado(monkeypatch)
-    monkeypatch.setattr(lp, "_mensagens_do", lambda tel: (_ for _ in ()).throw(RuntimeError("bd em baixo")))
+    monkeypatch.setattr(lp, "_mensagens_do", lambda tel, *_: (_ for _ in ()).throw(RuntimeError("bd em baixo")))
     bd = _BD([_interessada()])
     corpos = []
     _usa(monkeypatch, bd, lambda nome, email, tel, obs, ego_id: corpos.append(obs) or "555")
@@ -470,3 +470,22 @@ def test_pergunta_longa_corta_sem_partir_palavras_e_resposta_com_cortesia_fica()
                                 {"role": "assistant", "content": "Registado."}, {"role": "user", "content": "Feliz noite"}])
     assert "…" in r and "→ Sim, prefiro Buarcos. Muito obrigada" in r and "Feliz noite" not in r
     assert not r.split("| …")[1].lstrip().startswith("uito")  # não começa a meio de «muito»
+
+
+def test_interesse_de_entrada_anterior_recomeca_em_vez_de_acrescentar(monkeypatch):
+    bd = _Contactos([{"id": "c1", "interesse_real_em": ISO(24 * 20), "interesse_real_resumo": "Pediu visita (imóvel antigo).",
+                      "ego_lead_em": ISO(24 * 20), "meta_created_at": ISO(3)}])
+    _marcar(monkeypatch, bd)
+    assert guards.marcar_interesse_real("912345678", "negociação de preço", "Propôs 100 mil.") is True
+    (_, valores), = bd.updates
+    assert valores["interesse_real_resumo"] == "Propôs 100 mil." and valores["interesse_real_motivo"] == "negociação de preço"
+
+
+def test_interesse_da_mesma_entrada_acrescenta_e_lead_ja_criada_nesta_entrada_nao_marca(monkeypatch):
+    bd = _Contactos([{"id": "c1", "interesse_real_em": ISO(1), "interesse_real_resumo": "Pediu visita.", "meta_created_at": ISO(3)}])
+    _marcar(monkeypatch, bd)
+    assert guards.marcar_interesse_real("912345678", "negociação", "Quer negociar.") is True
+    assert bd.updates[0][1] == {"interesse_real_resumo": "Pediu visita.\nQuer negociar."}
+    bd = _Contactos([{"id": "c1", "ego_lead_em": ISO(1), "meta_created_at": ISO(3)}])
+    _marcar(monkeypatch, bd)
+    assert guards.marcar_interesse_real("912345678", "visita", "x") is False and bd.updates == []
