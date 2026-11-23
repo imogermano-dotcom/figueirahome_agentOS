@@ -56,7 +56,7 @@ def test_lead_ja_no_ego_avisa_a_consultora_sem_tarefa_pendente(monkeypatch):
     assert len(avisos) == 1
     assunto, corpo, k = avisos[0]
     assert "já no eGO" in assunto and k["imovel_ref"] == "FH0001"
-    assert "ARRENDAR" in corpo and "sem resposta" in corpo
+    assert "ARRENDAR" in corpo and "lead nova" in corpo and "sem resposta" not in corpo
 
 
 def test_lead_fora_do_ego_continua_a_criar_a_tarefa_lead_ego(monkeypatch):

@@ -88,6 +88,17 @@ def e_recusa(texto: str | None) -> bool:
     return bool(_RECUSA.search(texto)) and "?" not in texto and len(texto) <= 120
 
 
+# A pessoa diz que o imóvel não é para ela por dinheiro («está um pouco longe do meu alcance», «fora do meu orçamento»): sem limite de
+# tamanho, ao contrário de `e_recusa`; a lead nova de quem respondeu depois de convertida não se cria a quem disse isto (23/11, DJ).
+_FORA_DO_ALCANCE = re.compile(
+    r"\b(fora|longe|acima) d[oa] meu (alcance|or[çc]amento)|\b(est[áa]|é|ficou) (um pouco |muito |demasiado )?caro\b|"
+    r"n[ãa]o (tenho|disponho de) (or[çc]amento|dinheiro)|al[ée]m d[ae]s? (minhas|nossas) possibilidades|acima das minhas possibilidades", re.I)
+
+
+def e_fora_do_alcance(texto: str | None) -> bool:
+    return bool(_FORA_DO_ALCANCE.search(texto or ""))
+
+
 # Pedido explícito de não ser contactada: marca o opt-out logo, em código, sem esperar que o modelo chame `encerrar_lead`
 # (pedido #49). Estrito de propósito: «não tenho interesse em arrendar, só comprar» NÃO é um opt-out.
 _OPTOUT = re.compile(
@@ -193,6 +204,14 @@ _PEDIDO_INFO = re.compile(
 
 _NEGACAO = re.compile(r"\b(n[ãa]o|nunca|sem|deixei)\b", re.I)
 
+# Texto que o botão do formulário da Meta pré-preenche no WhatsApp («Olá! Preenchi o teu formulário e gostaria de saber mais
+# sobre o teu negócio…»): a pessoa só o envia, não diz nada sobre o imóvel (23/11: marcava interesse real e ia para o OBS do eGO).
+_PRE_PREENCHIDA = re.compile(r"^\s*ol[áa]!?\s*preenchi o teu formul[áa]rio", re.I)
+
+
+def e_mensagem_pre_preenchida(texto: str | None) -> bool:
+    return bool(_PRE_PREENCHIDA.search(texto or ""))
+
 # Pedido #20 (21/11): mensagens que precisam de uma pessoa. Ensaio com o modelo real (23/11): o prompt sozinho escalava 100% das
 # visitas e só 0–3 em 3 dos pedidos para falar com alguém e das reclamações (temperatura 0,4: varia de corrida para corrida).
 # Rede em código: se o modelo não registou nada naquele turno, o motor escala por ele (`engine._escalar_se_precisa`).
@@ -226,6 +245,8 @@ def precisa_de_pessoa(texto: str | None) -> str | None:
 
 def e_pedido_de_informacao(texto: str | None) -> bool:
     texto = texto or ""
+    if e_mensagem_pre_preenchida(texto):
+        return False
     termos = [m.group(0).lower() for m in _PEDIDO_INFO.finditer(texto)]
     if not termos or e_recusa(texto) or e_optout_explicito(texto):
         return False
@@ -327,7 +348,7 @@ def _avisar_lead_ja_no_ego(supabase, cliente: dict, lead: dict, titulo: str, age
         f"Lead já no eGO voltou a responder — {cliente.get('nome') or telefone or email}",
         "\n".join(p for p in (
             f"Uma lead que já está no eGO respondeu à {_NOME_AGENTE.get(agente, 'assistente')} e qualificou.",
-            "O texto dela no eGO ainda diz «sem resposta»: não tem o que ela disse.",
+            "Se a lead já estiver em tratamento (oportunidade), abre-se uma lead nova quando a conversa assentar.",
             "",
             f"Nome:      {cliente.get('nome') or '—'}",
             f"Telefone:  {telefone or '—'}",
@@ -337,7 +358,7 @@ def _avisar_lead_ja_no_ego(supabase, cliente: dict, lead: dict, titulo: str, age
             f"Imóvel do anúncio: {lead.get('imovel_ref') or '—'}",
             "",
             "Atenção: quer ARRENDAR (o imóvel do anúncio está à venda): confirmar se quer comprar ou arrendar." if arrendar else "",
-            "Não se criou lead nova. Se quiseres, acrescenta uma nota na lead do eGO.",
+            "Não se criou lead nova agora.",
         ) if p is not None),
         imovel_ref=lead.get("imovel_ref"),
     )

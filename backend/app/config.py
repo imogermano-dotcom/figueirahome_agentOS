@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     lead_interesse_ego: str = ""
     # Compradores Meta que responderam à Matilde e deixaram a conversa parada: criar a lead no eGO (vazio = desligado).
     lead_respondeu_ego: str = ""
+    # Data/hora ISO a partir da qual a lead que responde depois de convertida dá lugar a uma lead NOVA no eGO (vazio = só email).
+    lead_nova_depois_desde: str = ""
     # Fase A2: grava as notas novas das oportunidades ativas lidas pela API do eGO (cron das 04:17). Vazio = só conta (dry-run).
     notas_api_ego: str = ""
     # F2: o endpoint das tarefas lê pela API do eGO em vez do scraper (docs/fases/tarefas-pela-api-plano.md). Vazio = scraper.
