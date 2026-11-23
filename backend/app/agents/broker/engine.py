@@ -19,6 +19,7 @@ import httpx
 
 from app.agents.broker.assistants import (
     A1,
+    A2,
     A3,
     A4,
     APRESENTACAO_A1,
@@ -44,6 +45,7 @@ from app.agents.broker.guards import (
     marcar_nao_contactar,
     marcar_lead_respondeu,
     motivos_escalados,
+    precisa_de_pessoa,
     tools_ja_usadas,
     normalizar_telefone,
     promover_se_qualificada,
@@ -411,6 +413,27 @@ async def _contexto_inicial(
 # Allowlist e não blocklist de propósito: uma tool nova entra por omissão no
 # lado seguro. Acrescentar aqui exige olhar para o schema dela primeiro.
 _TOOLS_INPUT_SEGURO = frozenset({"pesquisar_imoveis", "ficha_imovel"})
+
+
+_TOOLS_DE_REGISTO_DO_TURNO = ("escalar_para_humano", "pedir_visita", "encerrar_lead")
+
+
+async def _escalar_se_precisa(mensagem: str, agente: str, canal: str, tools_usadas: list[str], contexto: dict) -> bool:
+    """Rede em código do pedido #20: a mensagem precisa de uma pessoa e o modelo não registou nada neste turno (ensaio de
+    23/11: 0–3 em 3 nos pedidos para falar com alguém e nas reclamações). Escala por ele, com a mensagem tal e qual: tarefa e
+    email às consultoras do telefone. Só no WhatsApp, na Matilde e na Maria. Nunca levanta. Devolve se escalou."""
+    if canal != "whatsapp" or agente not in (A1, A2) or any(t in _TOOLS_DE_REGISTO_DO_TURNO for t in tools_usadas):
+        return False
+    motivo = precisa_de_pessoa(mensagem)
+    if not motivo:
+        return False
+    try:
+        await execute_tool("escalar_para_humano", {"motivo": motivo, "resumo": mensagem.strip()[:600], "telefone": contexto.get("telefone")}, contexto)
+    except Exception:
+        logger.exception("Falha na escalada em código (%s)", motivo)
+        return False
+    logger.info("Escalada em código (%s): o modelo não registou nada", motivo)
+    return True
 
 
 def _detalhe_tool(bloco: dict) -> dict:
@@ -805,6 +828,9 @@ async def _responder_sem_lock(
                 logger.exception("Erro na chamada final sem tools (%s, %s)", agente, participante)
                 erro = f"sem_texto; {type(exc).__name__}: {exc}"[:500]
 
+    if await _escalar_se_precisa(mensagem, agente, canal, tools_usadas, contexto):
+        tools_usadas.append("escalar_para_humano")
+        tools_detalhe.append({"nome": "escalar_para_humano", "origem": "codigo"})
     latencia_ms = int((time.monotonic() - inicio) * 1000)
     resposta = _sem_erro_apos_registo(resposta, tools_usadas, ja_usadas, escalados)
 

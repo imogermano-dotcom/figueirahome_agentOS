@@ -52,7 +52,7 @@ def mundo(monkeypatch):
     linhas = [tarefa]
     avisos = []
     monkeypatch.setattr(tools, "get_supabase", lambda: SimpleNamespace(table=lambda n: _Q(linhas)))
-    monkeypatch.setattr(tools, "notificar", lambda assunto, corpo, imovel_ref=None: avisos.append((assunto, corpo)))
+    monkeypatch.setattr(tools, "notificar", lambda assunto, corpo, imovel_ref=None, para_extra=None: avisos.append((assunto, corpo)))
     monkeypatch.setattr(tools, "_inserir_tarefa", lambda d: linhas.append(d))
 
     async def _sem_cliente(**kw):

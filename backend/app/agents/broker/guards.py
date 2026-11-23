@@ -193,6 +193,36 @@ _PEDIDO_INFO = re.compile(
 
 _NEGACAO = re.compile(r"\b(n[ãa]o|nunca|sem|deixei)\b", re.I)
 
+# Pedido #20 (21/11): mensagens que precisam de uma pessoa. Ensaio com o modelo real (23/11): o prompt sozinho escalava 100% das
+# visitas e só 0–3 em 3 dos pedidos para falar com alguém e das reclamações (temperatura 0,4: varia de corrida para corrida).
+# Rede em código: se o modelo não registou nada naquele turno, o motor escala por ele (`engine._escalar_se_precisa`).
+_PROPOSTA = re.compile(r"\b(proposta|oferta|ofere[çc]o|proponho)\b[^.?!]{0,60}\d", re.I)
+_RECLAMACAO = re.compile(
+    r"\b(reclama\w*|queixa|queixo|desiludid\w*|inadmiss[ií]vel|p[ée]ssim\w*|vergonh\w*|ningu[ée]m (me )?(responde|atende|liga)"
+    r"|n[ãa]o me respond\w*|sem resposta h[áa])", re.I)
+_PEDE_PESSOA = re.compile(
+    r"\b(falar|passe[- ]?me|passar[- ]?me|ligar)\b[^.?!]{0,50}\b(consultor\w*|respons[áa]vel|algu[ée]m|uma pessoa|pessoa|humano|gestor\w*|diretor|director)\b"
+    r"|\bn[ãa]o (quero|gosto de) (falar com )?(um |uma )?(rob[ôo]|bot|m[áa]quina)\b|\brob[ôo]\b", re.I)
+_VISITA_COMBINADA = re.compile(
+    r"\bvisita\b[^.?!]{0,60}(\b(confirm\w*|desmarc\w*|cancel\w*|adi\w*|remarc\w*|mant[ée]m)\b|\b[àa]s? \d|\b\d{1,2}[h:]\d{0,2})"
+    r"|\b(confirm\w*|desmarc\w*|cancel\w*|remarc\w*)\b[^.?!]{0,40}\bvisita\b"
+    r"|\bamanh[ãa]\b[^.?!]{0,30}\b\d{1,2}[h:]\d{0,2}[^.?!]{0,60}\bvisit\w*"
+    r"|\b\d{1,2}[h:]\d{2}\b[^.?!]{0,40}\bvisita\b", re.I)
+_PROPRIETARIO = re.compile(r"\bsou (o|a) (propriet[áa]ri[oa]|dono|dona)\b", re.I)
+
+
+def precisa_de_pessoa(texto: str | None) -> str | None:
+    """Motivo de escalada se a mensagem precisa de uma pessoa (proposta, reclamação, falar com alguém, visita já combinada,
+    proprietário), ou `None`. Só para a rede em código: o modelo continua a ser o primeiro a decidir."""
+    t = texto or ""
+    if _PROPOSTA.search(t):
+        return "proposta de compra"
+    if _RECLAMACAO.search(t):
+        return "reclamação"
+    if _PEDE_PESSOA.search(t) or _VISITA_COMBINADA.search(t) or _PROPRIETARIO.search(t):
+        return "mensagem para a equipa"
+    return None
+
 
 def e_pedido_de_informacao(texto: str | None) -> bool:
     texto = texto or ""

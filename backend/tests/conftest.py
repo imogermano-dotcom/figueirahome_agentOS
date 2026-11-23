@@ -23,6 +23,15 @@ def _sem_credenciais_reais_de_notificacao(monkeypatch):
     monkeypatch.setattr(settings, "notificacoes_para", "")
 
 
+@pytest.fixture(autouse=True)
+def _sem_consulta_real_das_oportunidades(monkeypatch):
+    """A escalada procura as oportunidades do telefone (`notificacoes.consultoras_do_telefone`): nunca na base real nos testes.
+    Quem a testa a sério repõe a função dentro do próprio teste."""
+    import app.agents.broker.tools as tools
+
+    monkeypatch.setattr(tools, "consultoras_do_telefone", lambda telefone: {"ops": [], "nomes": [], "emails": []})
+
+
 WIDGET_CHAT_SECRET_DE_TESTE = "segredo-de-teste"
 
 

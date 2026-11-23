@@ -24,7 +24,7 @@ def escalar(monkeypatch):
     monkeypatch.setattr(tools, "_inserir_tarefa", registo["tarefas"].append)
     monkeypatch.setattr(
         tools, "notificar",
-        lambda assunto, corpo, imovel_ref=None: registo["avisos"].append((assunto, corpo, imovel_ref)),
+        lambda assunto, corpo, imovel_ref=None, para_extra=None: registo["avisos"].append((assunto, corpo, imovel_ref)),
     )
 
     async def _sem_cliente(**kwargs):

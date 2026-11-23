@@ -83,6 +83,44 @@ def _consultor_do_imovel(imovel_ref: str) -> tuple[str | None, str]:
         return None, "erro a resolver o consultor (ver logs)"
 
 
+def consultoras_do_telefone(telefone: str | None) -> dict:
+    """Quem trata deste telefone no eGO: as oportunidades ATIVAS (não apagadas) ligadas a ele e, de cada `responsavel`, o email
+    (`profiles.ego_responsavel`). Para os avisos de escalada (pedido #20, 21/11): um proprietário de uma OP `CAP_` escreveu à
+    Matilde sobre a visita e a consultora da OP não soube, porque a mensagem não traz imóvel. Várias OPs de várias consultoras:
+    avisam-se todas (a mensagem não diz de que imóvel fala). Nunca levanta; sem nada, devolve listas vazias.
+
+    Devolve `{"ops": [{oportunidade_ref, imovel_ref, responsavel}], "nomes": [...], "emails": [...]}`."""
+    vazio = {"ops": [], "nomes": [], "emails": []}
+    digitos = "".join(c for c in (telefone or "") if c.isdigit())
+    if len(digitos) < 9:
+        return vazio
+    from app.db.supabase_client import get_supabase
+
+    try:
+        sb = get_supabase()
+        ops = (sb.table("oportunidades").select("oportunidade_ref,imovel_ref,responsavel")
+               .eq("oportunidade_estado", "Ativa").eq("apagada_no_ego", False)
+               .ilike("cliente_telefone", f"%{digitos[-9:]}%").limit(10).execute().data) or []
+        nomes = sorted({o["responsavel"] for o in ops if o.get("responsavel")})
+        emails: list[str] = []
+        if nomes:
+            perfis = sb.table("profiles").select("ego_responsavel,email").in_("ego_responsavel", nomes).execute().data or []
+            emails = sorted({p["email"] for p in perfis if p.get("email")})
+        return {"ops": ops, "nomes": nomes, "emails": emails}
+    except Exception:
+        logger.exception("Falha a ligar o telefone às oportunidades")
+        return vazio
+
+
+def texto_das_consultoras(ligacao: dict) -> str | None:
+    """Bloco do email: as oportunidades ativas do telefone e quem as tem. `None` se não há nenhuma."""
+    if not ligacao.get("ops"):
+        return None
+    linhas = [f"  {o.get('oportunidade_ref') or '?'} (imóvel {o.get('imovel_ref') or '—'}) — {o.get('responsavel') or 'sem responsável'}"
+              for o in ligacao["ops"]]
+    return "Oportunidades ativas deste telefone no eGO:\n" + "\n".join(linhas)
+
+
 def configurado() -> bool:
     """Sem API key ou sem destinatário, as notificações estão desligadas.
 

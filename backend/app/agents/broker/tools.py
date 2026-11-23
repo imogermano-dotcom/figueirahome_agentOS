@@ -29,7 +29,7 @@ from app.agents.broker.guards import (
 from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.models.lead import ESTADOS_FECHADOS
-from app.notificacoes import notificar
+from app.notificacoes import consultoras_do_telefone, notificar, texto_das_consultoras
 
 logger = logging.getLogger(__name__)
 
@@ -887,19 +887,22 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
         resumo_novo = (inputs.get("resumo") or "").strip()
         if await _run(_atualizar_escalada, contexto.get("conversa_id"), motivo, resumo_novo):
             prefixo = "URGENTE — " if inputs.get("urgente") else ""
+            ligacao = await _run(consultoras_do_telefone, telefone)
             await _run(
                 notificar,
                 f"{prefixo}Atualização da escalada — {motivo} — {nome or telefone or 'contacto'}",
-                "\n".join((
+                "\n".join(p for p in (
                     f"A conversa escalada ({motivo}) ganhou informação nova.",
                     "",
                     f"Contacto: {nome or '—'} — {telefone or '—'}",
+                    texto_das_consultoras(ligacao),
                     "",
                     f"Nova informação: {resumo_novo}",
                     "",
                     "A tarefa no painel foi atualizada com este texto.",
-                )),
+                ) if p is not None),
                 inputs.get("imovel_ref"),
+                ligacao["emails"],
             )
             return "Atualizado: o responsável vê a nova informação. Confirma à pessoa, sem prometer prazos."
         return "Já está registado. Confirma ao cliente que entram em contacto — não repitas o registo nem chames esta tool outra vez."
@@ -911,6 +914,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
     )
 
     prefixo = "URGENTE — " if inputs.get("urgente") else ""
+    ligacao = await _run(consultoras_do_telefone, telefone)  # quem trata deste telefone no eGO (pedido #20)
     await _run(
         _inserir_tarefa,
         {
@@ -932,7 +936,8 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             # Agregável: antes o motivo só existia dentro do título.
             "motivo": motivo,
             # Quem recebe a escalada: a consultora do imóvel (nome tal como o eGO o escreve). Sem imóvel ou sem angariador, nulo.
-            "responsavel": await _run(_angariador_do_imovel, inputs.get("imovel_ref")),
+            "responsavel": (await _run(_angariador_do_imovel, inputs.get("imovel_ref")))
+            or (ligacao["nomes"][0] if ligacao["nomes"] else None),
         },
     )
 
@@ -954,12 +959,16 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             f"Contacto: {nome or '—'} — {telefone or '—'}",
             f"Motivo:   {motivo}",
             f"Imóvel:   {inputs['imovel_ref']}" if inputs.get("imovel_ref") else None,
+            texto_das_consultoras(ligacao),
+            f"Conversa: {contexto['conversa_id']} ({agente}, {contexto.get('canal', '?')}) — ver em Painel › Agentes › Conversas"
+            if contexto.get("conversa_id") else None,
             "",
             inputs.get("resumo"),
             "",
             "O consultor entra em contacto directamente (próximo dia útil se for fora de horas).",
         ) if p is not None),
         inputs.get("imovel_ref"),
+        ligacao["emails"],  # `para_extra`: as consultoras das oportunidades ativas deste telefone
     )
 
     return (
