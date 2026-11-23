@@ -750,3 +750,11 @@ def test_reentrada_sem_marca_mas_com_resposta_antiga_e_entrada_velha_fica_de_for
     d = _reentrada() | {"ego_lead_em": None, "meta_created_at": (AGORA - timedelta(days=15)).isoformat()}
     assert not lp.precisa_de_lead(d, AGORA)
     assert lp.precisa_de_lead(d | {"meta_created_at": ISO(3)}, AGORA)
+
+
+def test_obs_nao_leva_o_interesse_de_outra_entrada():
+    """23/11: a lead da reentrada saiu com o resumo de interesse da 1.ª entrada (outro imóvel)."""
+    antigo = {"interesse_real_em": ISO(24 * 20), "interesse_real_motivo": "visita", "interesse_real_resumo": "Quer visitar o outro imóvel."}
+    o = lp.observacao_da_lead(_reentrada() | antigo | {"ego_lead_em": None}, com_imovel=True)
+    assert "outro imóvel" not in o and "interesse real" not in o and "sem resposta" in o
+    assert "outro imóvel" in lp.observacao_da_lead(_linha(meta_created_at=ISO(30)) | antigo | {"interesse_real_em": ISO(1)}, com_imovel=True)

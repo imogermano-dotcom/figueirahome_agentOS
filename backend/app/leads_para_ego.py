@@ -118,7 +118,7 @@ def elegivel(linha: dict, agora: datetime) -> bool:
 
 def observacao_da_lead(linha: dict, com_imovel: bool, recusou: bool = False, ja_conhecido: bool = False) -> str:
     """Texto do campo OBS da lead no eGO. Sem a conversa."""
-    if linha.get("interesse_real_em"):  # pedido #17: respondeu à Matilde e mostrou interesse
+    if vale_para_a_entrada(linha, "interesse_real_em"):  # pedido #17: respondeu à Matilde e mostrou interesse (desta entrada: o de outra é de outro imóvel)
         resumo = " ".join((linha.get("interesse_real_resumo") or "").split())[:_MAX_RESUMO_OBS]
         quando = (f"respondeu à Matilde com interesse real ({linha['interesse_real_motivo']})."
                   if linha.get("interesse_real_motivo") else "respondeu à Matilde com interesse real.")
