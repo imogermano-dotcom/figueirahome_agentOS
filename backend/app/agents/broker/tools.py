@@ -627,12 +627,17 @@ async def _extrair_mql_do_resumo(resumo: str) -> dict:
     return {}
 
 
-async def _guardar_dados_cliente(inputs: dict, contexto: dict) -> str:
+async def _completar_mql(inputs: dict) -> None:
+    """Preenche `inputs` com o tipo, orçamento e zona que o `resumo` diz e o modelo não passou (nunca sobrepõe o que ele passou)."""
     if inputs.get("resumo") and any(not inputs.get(c) for c in _CAMPOS_MQL_TOOL):
         extraidos = await _extrair_mql_do_resumo(inputs["resumo"])
         for campo in _CAMPOS_MQL_TOOL:
             if not inputs.get(campo) and extraidos.get(campo):
                 inputs[campo] = extraidos[campo]
+
+
+async def _guardar_dados_cliente(inputs: dict, contexto: dict) -> str:
+    await _completar_mql(inputs)
 
     cliente = await find_or_create_cliente(
         nome=inputs.get("nome"),
@@ -907,10 +912,20 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             return "Atualizado: o responsável vê a nova informação. Confirma à pessoa, sem prometer prazos."
         return "Já está registado. Confirma ao cliente que entram em contacto — não repitas o registo nem chames esta tool outra vez."
 
+    # A escalada também grava o resumo na ficha; sem isto uma conversa que acaba aqui (proposta, visita) ficava com notas e sem
+    # tipo/orçamento/zona, e a lead nunca passava a `qualificada` (FH2572, 21/11). Só compra/arrendamento nos assistentes de
+    # compra: a Inês e a Bárbara não mexem em `tipo_interesse`/`contactos.tipo_contacto`.
+    mql: dict = {}
+    if contexto.get("agente") in (A1, A2) and inputs.get("resumo"):
+        copia = {"resumo": inputs["resumo"]}
+        await _completar_mql(copia)
+        if copia.get("tipo_interesse") in ("compra", "arrendamento"):
+            mql = {c: copia[c] for c in _CAMPOS_MQL_TOOL if copia.get(c)}
+
     await find_or_create_cliente(
         nome=nome, telefone=telefone, notas=inputs.get("resumo"),
         origem=contexto.get("origem", "whatsapp"),
-        agente=contexto.get("agente"),
+        agente=contexto.get("agente"), **mql,
     )
 
     prefixo = "URGENTE — " if inputs.get("urgente") else ""

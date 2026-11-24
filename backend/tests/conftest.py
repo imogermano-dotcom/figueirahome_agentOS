@@ -32,7 +32,19 @@ def _sem_consulta_real_das_oportunidades(monkeypatch):
     monkeypatch.setattr(tools, "consultoras_do_telefone", lambda telefone: {"ops": [], "nomes": [], "emails": []})
 
 
-WIDGET_CHAT_SECRET_DE_TESTE = "segredo-de-teste"
+@pytest.fixture(autouse=True)
+def _sem_extrator_mql_real(monkeypatch):
+    """`_extrair_mql_do_resumo` é uma chamada ao modelo: nunca a sério nos testes (resposta sem tool = `{}`).
+    Quem a testa substitui `messages.create` ou a própria função dentro do teste."""
+    import app.agents.broker.tools as tools
+
+    async def _sem_resposta(**kwargs):
+        return type("R", (), {"content": []})()
+
+    monkeypatch.setattr(tools._anthropic.messages, "create", _sem_resposta)
+
+
+WIDGET_CHAT_SECRET_DE_TESTE ="segredo-de-teste"
 
 
 @pytest.fixture(autouse=True)
