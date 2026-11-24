@@ -34,4 +34,11 @@ Antes de escrever, guardar a lista de ids fechados (só ids, ficheiro fora do re
 
 ## Estado (23/11)
 Passo 1 e 3 feitos para a camada **A**: dry-run A 674 / B 0 / C 2 723 (2 383 do C com o mesmo título vivo); fechadas as 674 (`Ativas` 653, `Arquivadas` 21);
-pendentes 5 449 → 4 775 (2 052 da API + 1 514 `Ativas` + 1 209 `Arquivadas`). Decisão do utilizador: só A. **C por decidir** (com o Miguel); ids em ficheiro fora do repo.
+pendentes 5 449 → 4 775 (2 052 da API + 1 514 `Ativas` + 1 209 `Arquivadas`). Decisão do utilizador: só A. ids em ficheiro fora do repo.
+
+## Estado (24/11): C fechado
+Dry-run de 24/11: A 0 / B 0 / C 2 723 (`Ativas` 1 514, `Arquivadas` 1 209; entradas na BD de mar–jun/2026; Venda 2 053, Angariação 632, Arrendamento 38).
+Decisão: fechar o C inteiro (`--aplicar --incluir-c`). Razão: o snapshot da API é o conjunto completo das pendentes do eGO, as legadas não têm `ego_id`
+e nenhum sync as atualiza, por isso já não dizem nada sobre o eGO; a viva da API é a que conta. As 340 sem título igual vivo nem existem no eGO.
+Aplicado a 24/11: 2 723 fechadas, pendentes 4 775 → 2 052 (todas `todas_as_colunas`, `Ativas` e `Arquivadas` a 0). Ids em ficheiro fora do repo.
+**Por ver:** que o cron das 05:07 UTC de 25/11 não as reabre (`fechadas 0`, `abertas_nossas` 2 052 ± as novas). Depois, nota ao Miguel para fechar o #8.

@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from fechar_tarefas_legadas import classificar
+from fechar_tarefas_legadas import a_fechar, classificar
 
 
 def _t(id, ref, titulo="Contactar", due="01/10/2026", origem="Ativas", ego_id=None):
@@ -21,3 +21,5 @@ def test_classifica_a_b_c_e_nunca_toca_nas_vivas():
     r = classificar(legadas, vivas)
     assert [t["id"] for t in r["A"]] == [1] and [t["id"] for t in r["B"]] == [2] and [t["id"] for t in r["C"]] == [3, 4]
     assert r["c_mesmo_titulo"] == 2
+    assert [t["id"] for t in a_fechar(r, False)] == [1, 2]
+    assert [t["id"] for t in a_fechar(r, True)] == [1, 2, 3, 4]

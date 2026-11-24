@@ -2,8 +2,9 @@
 
     cd backend && python scripts/fechar_tarefas_legadas.py            # só conta (A/B/C), não escreve
     cd backend && python scripts/fechar_tarefas_legadas.py --aplicar  # fecha A e B, guarda os ids em --ids
+    cd backend && python scripts/fechar_tarefas_legadas.py --aplicar --incluir-c  # fecha também o C
 
-A = a oportunidade não tem nenhuma pendente na API · B = a mesma chave (ref, título, data) existe viva · C = o resto (nunca se fecha aqui).
+A = a oportunidade não tem nenhuma pendente na API · B = a mesma chave (ref, título, data) existe viva · C = o resto (só com --incluir-c).
 Sem nomes nem telefones na saída. Plano: docs/fases/tarefas-legadas-plano.md
 """
 import argparse
@@ -36,9 +37,14 @@ def classificar(legadas: list[dict], vivas: list[dict]) -> dict:
             "c_mesmo_titulo": sum(1 for t in c if (t["oportunidade_ref"], t.get("tarefa_titulo")) in titulos_vivos)}
 
 
+def a_fechar(r: dict, incluir_c: bool) -> list[dict]:
+    return r["A"] + r["B"] + (r["C"] if incluir_c else [])
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--aplicar", action="store_true")
+    ap.add_argument("--incluir-c", action="store_true", help="fecha também o C (decisão de 24/11)")
     ap.add_argument("--ids", default="tarefas_legadas_fechadas.json", help="onde guardar os ids fechados (fora do repo)")
     args = ap.parse_args()
 
@@ -60,9 +66,9 @@ def main() -> None:
     print("C por tipo:", dict(Counter(t["tipo_oportunidade"] for t in r["C"])))
     print("A por origem:", dict(Counter(t["origem_lista"] for t in r["A"])))
 
-    fechar = r["A"] + r["B"]
+    fechar = a_fechar(r, args.incluir_c)
     if not args.aplicar:
-        print("(dry) nada escrito; usar --aplicar para fechar A+B")
+        print(f"(dry) nada escrito; --aplicar fecharia {len(fechar)}" + ("" if args.incluir_c else " (A+B; --incluir-c junta o C)"))
         return
     with open(args.ids, "w", encoding="utf-8") as f:
         json.dump([t["id"] for t in fechar], f)  # antes de escrever: é a reversão
