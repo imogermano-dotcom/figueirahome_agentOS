@@ -532,3 +532,20 @@ select count(*) from leads
 **Uma segunda tentativa e mais nenhuma.** A spec é omissa sobre o que fazer a
 seguir; `follow_up_em is null` fecha essa porta. Passar a duas é acrescentar um
 contador, não refazer o fluxo.
+
+## Reinjetar uma lead da Meta
+
+Quando o Vigia avisa que há leads da Meta que não chegaram ao Supabase (a Meta não chamou o webhook, ou a chamada falhou), a lead recupera-se
+mandando ao webhook do fluxo «Meta leads to supabase» o mesmo corpo que a Meta manda, só com o `leadgen_id`. O fluxo lê a lead pela Graph API,
+cria-a e envia o template, como se tivesse acabado de entrar (feito a 22/11 00:02 UTC com 2 leads de 20/11).
+
+```
+curl -X POST "<URL do webhook de produção do fluxo 'Meta leads to supabase'>" \
+  -H "Content-Type: application/json" \
+  -d '{"entry":[{"changes":[{"value":{"leadgen_id":"<ID DA LEAD>"}}]}]}'
+```
+
+- O URL não está no repo (repo público): vê-se no nó «Webhook» do fluxo, separador *Production URL*.
+- O `leadgen_id` tem 15–17 dígitos: Meta Business Suite → Caixa de entrada → Leads, ou Gestor de anúncios → Formulários.
+- **Confirma primeiro que a lead não existe em `contactos` (`meta_lead_id`)**: reinjetar uma que já entrou pode duplicar o envio do template (não testado).
+- Não tem `ad_id` quando o corpo vai assim; o fluxo vai buscá-lo à Graph API, por isso a lead fica com a atribuição do anúncio.

@@ -126,3 +126,46 @@ def test_endpoint_rejeita_corpo_invalido():
     for mau in ({}, {"hoje": 3}, {"2026-11-03": -1}, {f"2026-11-0{i}": 1 for i in range(1, 9)}):
         with pytest.raises(ValidationError):
             LeadsDaMeta(dias=mau)
+
+
+def test_ids_em_falta_so_os_que_nao_estao_no_supabase(monkeypatch):
+    monkeypatch.setattr(v, "_existentes", lambda ids: {"1111111111"} & ids)
+    r = v.ids_em_falta({"d1": ["1111111111", "2222222222"], "d2": ["3333333333"]}, ["d1"])
+    assert r == {"d1": ["2222222222"]}  # d2 não foi pedido; o id já gravado não conta
+
+
+def test_alerta_lista_ids_e_avisa_se_a_lista_vem_incompleta():
+    t = v.texto_do_alerta({"d1": 2}, {"d1": 3}, {"d1": 1}, {"d1": ["2222222222"]}, {"d1": ["1111111111", "2222222222"]})
+    assert "2222222222" in t and "incompleta (2 de 3)" in t and "Make" in t
+    sem = v.texto_do_alerta({"d1": 2}, {"d1": 3}, {"d1": 1})
+    assert "ids da Meta" not in sem and "contagens, não ids" in sem
+
+
+def test_verificar_com_ids_manda_os_ids_no_email(monkeypatch):
+    log = [{"tipo": v.TIPO_VERIFICACAO, "resumo": {"diferencas": {"2026-11-03": 2}}}]
+    bd = _BD([NOITE], log)
+    enviados = _usa(monkeypatch, bd)
+    monkeypatch.setattr(v, "_existentes", lambda ids: set())
+    r = v.verificar({"2026-11-03": 3}, ids={"2026-11-03": ["4444444444", "5555555555", "6666666666"]})
+    assert r["ids_em_falta"] == {"2026-11-03": ["4444444444", "5555555555", "6666666666"]} and "4444444444" in enviados[0][1]
+
+
+def test_falha_a_comparar_ids_nao_impede_o_aviso(monkeypatch):
+    log = [{"tipo": v.TIPO_VERIFICACAO, "resumo": {"diferencas": {"2026-11-03": 2}}}]
+    bd = _BD([NOITE], log)
+    enviados = _usa(monkeypatch, bd)
+    monkeypatch.setattr(v, "_existentes", lambda ids: (_ for _ in ()).throw(RuntimeError("bd em baixo")))
+    r = v.verificar({"2026-11-03": 3}, ids={"2026-11-03": ["4444444444"]})
+    assert r["avisou"] and len(enviados) == 1
+
+
+def test_endpoint_valida_os_ids():
+    from pydantic import ValidationError
+
+    from app.api.leads_vigia import LeadsDaMeta
+
+    LeadsDaMeta(dias={"2026-11-03": 1}, ids={"2026-11-03": ["1234567890123456"]})
+    LeadsDaMeta(dias={"2026-11-03": 1})  # sem ids: o corpo antigo continua a valer
+    for mau in ({"2026-11-03": ["abc"]}, {"2026-11-03": ["12"]}, {"hoje": ["1234567890"]}):
+        with pytest.raises(ValidationError):
+            LeadsDaMeta(dias={"2026-11-03": 1}, ids=mau)
