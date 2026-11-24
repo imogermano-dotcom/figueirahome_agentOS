@@ -27,7 +27,7 @@ Script `backend/scripts/criar_contactos_em_falta.py`, **dry-run por omissão**, 
 4. **Criar (d):** `nome`, `telefone`/`telemovel` (a mesma regra de normalização de `guards.normalizar_telefone`), `email`, `ego_link`, `ego_person_id`, `ego_atualizado_em` e `criado_em` = data do `alterDate`,
    `origem='ego_api'`, `whatsapp_permissao=false` (nunca consentimento por defeito). INSERT linha a linha, nunca upsert em lote (uma chave só presente num registo vira coluna e escreve NULL nos outros).
 5. **Ligar:** `ego_api_reconciliar.py --historico --arquivadas --gravar` (já existe, liga por `ego_person_id` e propaga a notas/tarefas/visitas pelo RPC). Depois `--telefones --gravar` (H3).
-6. **Registo:** `agente_sync_log` com os ids criados, os preenchidos e os que ficaram para o Miguel. Reversível: apagar só as linhas criadas (`origem='ego_api'` + ids do registo); as preenchidas voltam a NULL no `ego_link`/`ego_person_id`.
+6. **Registo:** `agente_sync_log` com os ids criados, os preenchidos e os que ficaram para o Miguel. Reversível: apagar só as linhas criadas (pelos `ego_person_id` do registo e do ficheiro de ids; **a `origem='ego_api'` não fica**: a base converte-a em `scraper` no INSERT, visto no 1.º lote de 24/11); as preenchidas voltam a NULL no `ego_link`/`ego_person_id`.
 
 ## O que não muda
 Nada se escreve no eGO. Nunca se apaga nem se altera um campo já preenchido. Os assistentes e o pipeline do Miguel não são tocados.

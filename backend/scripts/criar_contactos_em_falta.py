@@ -175,13 +175,13 @@ def gravar(sb, plano: dict, cache: dict, por_id: dict, prefixo: str, ids_path: s
             ok = (sb.table("contactos").update(novo).eq("id", cid).is_("ego_link", "null").is_("ego_person_id", "null").execute().data)
             r["completadas"] += 1 if ok else 0
         except Exception as e:  # nunca pára o lote
-            r["erros"].append((pid, repr(e)[:120]))
+            r["erros"].append((pid, str(getattr(e, "code", None) or type(e).__name__)))  # nunca o texto: traz o nome
     for pid in criar:
         try:
             sb.table("contactos").insert(linha_nova(pid, cache[str(pid)], prefixo)).execute()
             r["criadas"] += 1
         except Exception as e:
-            r["erros"].append((pid, repr(e)[:120]))
+            r["erros"].append((pid, str(getattr(e, "code", None) or type(e).__name__)))  # nunca o texto: traz o nome
     sb.table("agente_sync_log").insert({"tipo": "egorealestate_contactos_em_falta", "origem": "manual",
         "resumo": {"completadas": r["completadas"], "criadas": r["criadas"], "erros": len(r["erros"]), "pessoas_completadas": [p for p, _ in completar], "pessoas_criadas": criar}}).execute()
     return r
