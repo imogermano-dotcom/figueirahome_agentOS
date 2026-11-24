@@ -89,8 +89,9 @@ def consultoras_do_telefone(telefone: str | None) -> dict:
     Matilde sobre a visita e a consultora da OP não soube, porque a mensagem não traz imóvel. Várias OPs de várias consultoras:
     avisam-se todas (a mensagem não diz de que imóvel fala). Nunca levanta; sem nada, devolve listas vazias.
 
-    Devolve `{"ops": [{oportunidade_ref, imovel_ref, responsavel}], "nomes": [...], "emails": [...]}`."""
-    vazio = {"ops": [], "nomes": [], "emails": []}
+    Devolve `{"ops": [{oportunidade_ref, imovel_ref, responsavel}], "nomes": [...], "emails": [...], "cliente_nome": str | None}`
+    (`cliente_nome`: o nome da pessoa na primeira oportunidade, para o aviso quando o modelo não o passou)."""
+    vazio = {"ops": [], "nomes": [], "emails": [], "cliente_nome": None}
     digitos = "".join(c for c in (telefone or "") if c.isdigit())
     if len(digitos) < 9:
         return vazio
@@ -98,7 +99,7 @@ def consultoras_do_telefone(telefone: str | None) -> dict:
 
     try:
         sb = get_supabase()
-        ops = (sb.table("oportunidades").select("oportunidade_ref,imovel_ref,responsavel")
+        ops = (sb.table("oportunidades").select("oportunidade_ref,imovel_ref,responsavel,cliente_nome")
                .eq("oportunidade_estado", "Ativa").eq("apagada_no_ego", False)
                .ilike("cliente_telefone", f"%{digitos[-9:]}%").limit(10).execute().data) or []
         nomes = sorted({o["responsavel"] for o in ops if o.get("responsavel")})
@@ -106,10 +107,27 @@ def consultoras_do_telefone(telefone: str | None) -> dict:
         if nomes:
             perfis = sb.table("profiles").select("ego_responsavel,email").in_("ego_responsavel", nomes).execute().data or []
             emails = sorted({p["email"] for p in perfis if p.get("email")})
-        return {"ops": ops, "nomes": nomes, "emails": emails}
+        cliente = next((o["cliente_nome"].strip() for o in ops if (o.get("cliente_nome") or "").strip()), None)
+        return {"ops": ops, "nomes": nomes, "emails": emails, "cliente_nome": cliente}
     except Exception:
         logger.exception("Falha a ligar o telefone às oportunidades")
         return vazio
+
+
+def responsavel_principal(ligacao: dict, texto: str | None = None) -> str | None:
+    """A consultora a quem fica a tarefa: a da oportunidade ou imóvel que o texto refere (`CAP_21715`, `APA_5444`); senão a que tem
+    mais oportunidades ativas deste telefone (empate: a primeira). As outras recebem o email na mesma."""
+    ops = [o for o in ligacao.get("ops") or [] if o.get("responsavel")]
+    if not ops:
+        return None
+    t = (texto or "").lower()
+    for o in ops:
+        if any(r and r.lower() in t for r in (o.get("oportunidade_ref"), o.get("imovel_ref"))):
+            return o["responsavel"]
+    contagem: dict[str, int] = {}
+    for o in ops:
+        contagem[o["responsavel"]] = contagem.get(o["responsavel"], 0) + 1
+    return max(contagem, key=lambda n: (contagem[n], -list(contagem).index(n)))
 
 
 def texto_das_consultoras(ligacao: dict) -> str | None:

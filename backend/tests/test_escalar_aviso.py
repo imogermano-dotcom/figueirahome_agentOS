@@ -61,7 +61,7 @@ def test_telefone_liga_as_oportunidades_ativas_e_as_consultoras(monkeypatch):
 @pytest.mark.parametrize("telefone", [None, "", "1234"])
 def test_telefone_sem_digitos_suficientes_nao_consulta(monkeypatch, telefone):
     monkeypatch.setattr("app.db.supabase_client.get_supabase", lambda: pytest.fail("não devia consultar"))
-    assert notificacoes.consultoras_do_telefone(telefone) == {"ops": [], "nomes": [], "emails": []}
+    assert notificacoes.consultoras_do_telefone(telefone) == {"ops": [], "nomes": [], "emails": [], "cliente_nome": None}
 
 
 def test_responsavel_sem_perfil_fica_sem_email_e_a_bd_em_baixo_nao_levanta(monkeypatch):
@@ -69,7 +69,7 @@ def test_responsavel_sem_perfil_fica_sem_email_e_a_bd_em_baixo_nao_levanta(monke
     r = notificacoes.consultoras_do_telefone("912345678")
     assert r["nomes"] == ["Ana Teste"] and r["emails"] == []
     _bd(monkeypatch, rebenta=True)
-    assert notificacoes.consultoras_do_telefone("912345678") == {"ops": [], "nomes": [], "emails": []}
+    assert notificacoes.consultoras_do_telefone("912345678") == {"ops": [], "nomes": [], "emails": [], "cliente_nome": None}
 
 
 def test_texto_das_consultoras():
@@ -141,3 +141,16 @@ def test_atualizacao_da_escalada_tambem_avisa_as_consultoras(escalar, monkeypatc
     assert "Atualização da escalada" in assunto and "19:00" in corpo and "CAP_1" in corpo
     assert para_extra == ["ana@example.com", "bia@example.com"]
     assert registo["tarefas"] == []
+
+
+def test_responsavel_principal_prefere_a_op_citada_e_depois_a_maioria():
+    from app.notificacoes import responsavel_principal
+
+    ligacao = {"ops": [{"oportunidade_ref": "CAP_1", "imovel_ref": "APA_1", "responsavel": "Ana"},
+                       {"oportunidade_ref": "CAP_2", "imovel_ref": "APA_2", "responsavel": "Rita"},
+                       {"oportunidade_ref": "CAP_3", "imovel_ref": "APA_3", "responsavel": "Rita"}]}
+    assert responsavel_principal(ligacao, "Sobre a visita à CAP_1 amanhã") == "Ana"  # a OP que a mensagem cita ganha
+    assert responsavel_principal(ligacao, "Sobre o imóvel apa_1") == "Ana"
+    assert responsavel_principal(ligacao, "Amanhã às 18h30 posso visitar?") == "Rita"  # senão, quem tem mais oportunidades
+    assert responsavel_principal({"ops": [{"oportunidade_ref": "CAP_1", "responsavel": "Ana"}, {"oportunidade_ref": "CAP_2", "responsavel": "Rita"}]}) == "Ana"  # empate: a primeira
+    assert responsavel_principal({"ops": []}) is None and responsavel_principal({"ops": [{"oportunidade_ref": "CAP_1", "responsavel": None}]}) is None

@@ -29,7 +29,7 @@ from app.agents.broker.guards import (
 from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.models.lead import ESTADOS_FECHADOS
-from app.notificacoes import consultoras_do_telefone, notificar, texto_das_consultoras
+from app.notificacoes import consultoras_do_telefone, notificar, responsavel_principal, texto_das_consultoras
 
 logger = logging.getLogger(__name__)
 
@@ -893,6 +893,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
         if await _run(_atualizar_escalada, contexto.get("conversa_id"), motivo, resumo_novo):
             prefixo = "URGENTE — " if inputs.get("urgente") else ""
             ligacao = await _run(consultoras_do_telefone, telefone)
+            nome = nome or ligacao.get("cliente_nome")
             await _run(
                 notificar,
                 f"{prefixo}Atualização da escalada — {motivo} — {nome or telefone or 'contacto'}",
@@ -930,6 +931,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
 
     prefixo = "URGENTE — " if inputs.get("urgente") else ""
     ligacao = await _run(consultoras_do_telefone, telefone)  # quem trata deste telefone no eGO (pedido #20)
+    nome = nome or ligacao.get("cliente_nome")  # o modelo nem sempre o passa; a oportunidade ligada ao telefone sabe-o
     await _run(
         _inserir_tarefa,
         {
@@ -952,7 +954,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             "motivo": motivo,
             # Quem recebe a escalada: a consultora do imóvel (nome tal como o eGO o escreve). Sem imóvel ou sem angariador, nulo.
             "responsavel": (await _run(_angariador_do_imovel, inputs.get("imovel_ref")))
-            or (ligacao["nomes"][0] if ligacao["nomes"] else None),
+            or responsavel_principal(ligacao, inputs.get("resumo")),
         },
     )
 
