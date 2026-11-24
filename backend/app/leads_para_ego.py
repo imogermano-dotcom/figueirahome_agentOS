@@ -38,7 +38,7 @@ _PERGUNTA_OBS, _RESPOSTA_OBS = 140, 200  # por pergunta da Matilde e por respost
 IDADE_MAX_PARADA_DIAS = 14  # só se olha para as que entraram há menos tempo (cada uma custa uma consulta por volta)
 IDADE_MAX_REENTRADA_DIAS = 7  # uma pessoa que volta (linha de `contactos` reaproveitada) só conta se a entrada nova for recente
 LEAD_NOVA_MAX_POR_DIA_H = 24  # no máximo uma lead nova por pessoa neste intervalo (a consultora pode voltar a converter)
-JANELA_PARADA_HORAS = 4  # conversa sem mensagens (nem o lembrete) há este tempo: a pessoa já não vai responder
+JANELA_PARADA_HORAS = 2  # conversa sem mensagens (nem o lembrete) há este tempo: a pessoa já não vai responder (24/11: após 2 h só 14 % voltam, após 4 h 9 %)
 
 _COLUNAS = ("id,nome,telefone,telemovel,email,meta_lead_id,imovel_ref,ad_name,meta_form_name,criado_em,"
             "meta_created_at,template_enviado_em,respondeu_em,contacto_humano_em,whatsapp_falhou_em,"

@@ -46,7 +46,7 @@ def test_conversa_parada_ha_mais_de_4h_cria_a_lead_com_o_que_a_pessoa_disse(monk
 
 def test_conversa_ainda_viva_espera(monkeypatch):
     _ligado(monkeypatch)
-    _conversa(monkeypatch, 3.9)
+    _conversa(monkeypatch, lp.JANELA_PARADA_HORAS - 0.1)
     bd = _BD([_respondeu()])
     _usa(monkeypatch, bd, lambda *a: pytest.fail("não devia criar"))
     assert lp.processar(AGORA)["criadas"] == 0 and bd.updates == []

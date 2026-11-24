@@ -91,3 +91,6 @@ Revisão de 26–27/10: 5 de 14 leads de compra responderam à Matilde e ficaram
 cuja conversa de WhatsApp não tem mensagens (nem o lembrete) há 4 h. Fica de fora quem na última mensagem se despediu, agradeceu ou recusou (`e_fecho_da_pessoa`, `e_recusa`). O OBS diz que respondeu mas a conversa parou e leva o que a pessoa escreveu (últimas 3, cortadas).
 O sinal de interesse real ganha se existir. Mesma janela (9h–20h Lisboa), mesma deduplicação contra o eGO, e nunca sem consultora. Testes em `test_lead_parada.py`.
 Ao ligar, a 1.ª volta cria de uma vez as que já estão nesta situação (6 a 27/10 12:20 UTC): avisar a consultora.
+
+## 24/11: janela da conversa parada 4 h → 2 h
+Os 4 h eram um valor escolhido sem medição. Análise (só leitura, 134 conversas de compra A1, mensagens com hora): depois de T horas de silêncio a pessoa volta a escrever em 21 % (30 min), 16 % (1 h), **14 % (2 h)**, **9 % (4 h)**, 8 % (8 h) e 2 % (24 h). A curva fica quase plana a partir das 2 h; as retomas incluem respostas ao lembrete (infla um pouco as janelas longas) e a amostra é pequena (14 a 25 retomas por linha). `JANELA_PARADA_HORAS = 2` (também serve o ramo «respondeu depois»; quem volta a escrever depois dispara o email «respondeu depois», que já existe). Por deploy; por ver: leads criadas com a conversa a retomar a seguir.
