@@ -236,17 +236,22 @@ def um_por_referencia(imoveis: list[dict]) -> dict[str, dict]:
     return por_ref
 
 
-def contactos_da_entidade(entity_id: int, tentativas: int = 6) -> list[dict]:
-    """`personalContacts` de uma pessoa (`GetEntity`). Dá HTTP 429 ao fim de umas dezenas de pedidos (`retry_after_seconds` 60):
-    espera e repete. `personalContactTypeId` 2 = telefone (pedido #4)."""
+def entidade(entity_id: int, tentativas: int = 6) -> dict:
+    """Pessoa ou empresa do eGO (`GetEntity`). Dá HTTP 429 ao fim de umas dezenas de pedidos (`retry_after_seconds` 60):
+    espera e repete."""
     for i in range(tentativas):
         try:
-            return (_pedido("GET", "/entity/Entity/GetEntity", params={"entityId": entity_id}) or {}).get("personalContacts") or []
+            return _pedido("GET", "/entity/Entity/GetEntity", params={"entityId": entity_id}) or {}
         except (EgoApiErro, httpx.TransportError) as e:  # 429 (espera 60 s) ou ligação fechada pelo eGO (espera 5 s)
             if i == tentativas - 1 or (isinstance(e, EgoApiErro) and "429" not in str(e)):
                 raise
             time.sleep(60 if isinstance(e, EgoApiErro) else 5)
-    return []
+    return {}
+
+
+def contactos_da_entidade(entity_id: int, tentativas: int = 6) -> list[dict]:
+    """`personalContacts` de uma pessoa (`GetEntity`). `personalContactTypeId` 2 = telefone (pedido #4)."""
+    return entidade(entity_id, tentativas).get("personalContacts") or []
 
 
 def oportunidades_arquivadas(por_pagina: int = 500) -> list[dict]:
