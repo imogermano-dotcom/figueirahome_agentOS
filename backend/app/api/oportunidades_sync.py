@@ -181,7 +181,7 @@ def reconciliar_apagadas(hoje: date | None = None) -> dict:
     return resumo
 
 
-_JANELA_NOTAS_DIAS = 3  # notas escritas nos últimos dias; o histórico anterior recuperou-se à mão a 31/10
+_JANELA_NOTAS_DIAS = 7  # notas escritas nos últimos dias (1 por oportunidade e por volta: as outras esperam); o histórico anterior recuperou-se à mão a 31/10
 
 
 def reconciliar_notas() -> dict:
@@ -190,8 +190,9 @@ def reconciliar_notas() -> dict:
     por_gravar = ego_notas.novas((date.today() - timedelta(days=_JANELA_NOTAS_DIAS)).isoformat())
     if not settings.notas_api_ego:
         return {"por_gravar": len(por_gravar), "gravadas": 0, "ligado": False}
-    r = ego_notas.gravar(por_gravar, "cron")
-    return {"por_gravar": len(por_gravar), "gravadas": r["inseridas"], "erros": len(r["erros"]), "ligado": True}
+    agora, adiadas = ego_notas.uma_por_oportunidade(por_gravar)  # evita a corrida da IA nos triggers (ego-api-notas-rotina-plano.md)
+    r = ego_notas.gravar(agora, "cron")
+    return {"por_gravar": len(por_gravar), "gravadas": r["inseridas"], "adiadas": adiadas, "erros": len(r["erros"]), "ligado": True}
 
 
 @router.post("/oportunidades/sync/propostas")

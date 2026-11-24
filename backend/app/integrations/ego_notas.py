@@ -96,6 +96,15 @@ def novas(desde: str = "") -> list[dict]:
     return so_na_api(notas_da_api(list(nome_de)), nome_de, ks, ids, desde)
 
 
+def uma_por_oportunidade(novas_: list[dict]) -> tuple[list[dict], int]:
+    """A mais antiga de cada oportunidade; as outras ficam para o cron seguinte (devolve quantas). Cada INSERT dispara o
+    `extract-preferences` e N notas da mesma oportunidade em milissegundos correm em paralelo a reescrever as preferências."""
+    por_ref: dict[str, dict] = {}
+    for n in sorted(novas_, key=lambda x: (x["dia"], x["ego_id"])):
+        por_ref.setdefault(n["ref"], n)
+    return list(por_ref.values()), len(novas_) - len(por_ref)
+
+
 def gravar(novas_: list[dict], origem: str = "manual") -> dict:
     """INSERT linha a linha (nunca upsert), uma oportunidade de cada vez; copia url/cliente_nome/tipo da oportunidade.
     Regista o resumo em `agente_sync_log` (desfaz-se por `nota_ego_id`) e propaga `contacto_id` no fim."""
