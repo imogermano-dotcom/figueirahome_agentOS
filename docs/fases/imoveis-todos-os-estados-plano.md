@@ -94,3 +94,9 @@ as chaves das linhas inseridas são idênticas; nenhuma linha é apagada.
 3. **Linhas `fonte='manual'` com divergência** (FH2483_B, FH2491): só aparecem no resumo.
 4. **Angariador (10/11):** vem do `brokerId` da API (não do `securityUserId`, que é quem criou o registo): o nome tira-se dos imóveis que já o têm (`nomes_por_broker`, 4 213 de 4 218 certos) e só se preenche onde está vazio (imóveis da Web API e `manual` ficam de fora). Dry-run: 688 a preencher; ~260 sem `brokerId` no eGO ficam por preencher.
 5. **Fase 2** (natureza, localização) fica para depois.
+
+## Ajuste de 25/11: `manual` e angariador (pedido do Miguel, FH2585)
+- **Problema:** o angariador de um imóvel fora da Web API só se preenchia se estivesse vazio, e os 4 000 `fonte='manual'` (carga antiga, sem `ego_id`, nenhum Disponível) nunca se escreviam, com a `disponivel_na_api` herdada a `true`. Trocas de angariador no eGO (FH2585) não chegavam à base.
+- **Regra nova:** `manual` trata-se como os outros (estado, `disponivel_na_api` = «no site» do eGO, `ego_atualizado_em`); o angariador passa a ser o do eGO (`brokerId` → nome) em tudo o que a Web API não mantém (`disponivel_na_api` e não `manual`). Nos `manual` a flag herdada já não conta como «a Web API mantém».
+- **Limite:** `_MAX_ESCRITAS = 500` UPDATEs por volta (primeiro os que mudam angariador ou estado); o resto fica em `adiados` e entra nas voltas seguintes.
+- **Dry-run 25/11:** 3 921 a atualizar (3 918 só a `disponivel_na_api` a passar a `false`), angariador: 229 a preencher e 5 a trocar. Nenhum imóvel passa a no site; os 12 `manual` fora da API não se tocam.

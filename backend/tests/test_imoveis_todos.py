@@ -128,9 +128,12 @@ def test_plano_sem_nenhum_site_na_resposta_nao_mexe_no_disponivel_na_api():
     assert p["atualizar"] == []
 
 
-def test_plano_manual_nunca_se_escreve():
-    p = sync.planear_imoveis_todos({"M": _item("M", estado=2)}, _bd(M={"fonte": "manual", "disponibilidade": "Retirado"}))
-    assert p["atualizar"] == [] and p["divergencias_manual"][0]["imovel_ref"] == "M"
+def test_plano_manual_e_tratado_como_os_outros_e_a_flag_herdada_corrige_se():
+    """Carga antiga (`manual`) sem edição à mão: estado do eGO e `disponivel_na_api` verdadeiro (fora do site = False)."""
+    api = {"M": _item("M", estado=2), "S": _item("S", portals=[{"websiteId": sync._SITE_WEBSITE_ID}])}  # S: prova que o «site» do eGO é fiável
+    p = sync.planear_imoveis_todos(api, _bd(M={"fonte": "manual", "disponibilidade": "Retirado", "disponivel_na_api": True}, S={}))
+    v = dict(p["atualizar"])["M"]
+    assert v["disponibilidade"] == "Disponível" and v["disponivel_na_api"] is False
 
 
 def test_plano_existente_nao_visto_atualiza_estado_e_data():
@@ -231,7 +234,7 @@ def test_execucao_insere_em_lotes_com_ignore_duplicates_e_atualiza_com_condicoes
     assert all(l["disponivel_na_api"] is False for lote, _ in bd.upserts for l in lote)
     (valores, filtros), = bd.updates
     assert valores["disponibilidade"] == "Vendido"
-    assert ("eq", "imovel_ref", "E") in filtros and ("eq", "disponivel_na_api", False) in filtros and ("neq", "fonte", "manual") in filtros
+    assert ("eq", "imovel_ref", "E") in filtros and ("eq", "disponivel_na_api", False) in filtros
     assert bd.logs[0]["tipo"] == "egorealestate_imoveis_todos" and bd.logs[0]["origem"] == "cron"
     assert len(bd.logs) == 1 and "morada_gps" in bd.logs[0]["resumo"]  # fase 1b dentro do mesmo log, sem 2.º registo
 
@@ -307,14 +310,32 @@ def test_imovel_novo_leva_o_angariador_e_sem_nome_conhecido_fica_none():
     assert sync.mapear_imovel_novo(_item(), None)["angariador"] is None
 
 
-def test_plano_preenche_angariador_vazio_e_nunca_troca_o_que_la_esta():
+def test_plano_preenche_angariador_vazio_e_troca_o_que_o_eGO_mudou():
     api = {r: _item(r, estado=7, brokerId=7, lastUpdate="2026-10-14T14:37:10") for r in ("REF", "VAZIO", "TEM")}
     bd = _bd(REF={"angariador": "Ana Teste"}, VAZIO={"angariador": ""}, TEM={"angariador": "Outra Pessoa"})
     p = sync.planear_imoveis_todos(api, bd)
-    assert dict(p["atualizar"]) == {"VAZIO": {"disponibilidade": "Em Prospecção", "ego_atualizado_em": "2026-10-14T13:37:10+00:00", "angariador": "Ana Teste"}}
+    assert {r: v["angariador"] for r, v in p["atualizar"]} == {"VAZIO": "Ana Teste", "TEM": "Ana Teste"}
 
 
-def test_plano_nao_escreve_angariador_em_imovel_da_web_api_nem_manual():
-    api = {"W": _item("W", brokerId=7), "M": _item("M", brokerId=7), "R": _item("R", brokerId=7)}
-    bd = _bd(W={"disponivel_na_api": True, "angariador": ""}, M={"fonte": "manual", "angariador": ""}, R={"angariador": "Ana Teste"})
+def test_plano_nao_escreve_angariador_em_imovel_da_web_api():
+    api = {r: _item(r, estado=7, brokerId=7, lastUpdate="2026-10-14T14:37:10") for r in ("W", "R1", "R2")}
+    bd = _bd(W={"disponivel_na_api": True, "angariador": "Outra Pessoa"}, R1={"angariador": "Ana Teste"}, R2={"angariador": "Ana Teste"})
     assert sync.planear_imoveis_todos(api, bd)["atualizar"] == []
+
+
+def test_manual_com_flag_herdada_a_true_recebe_o_angariador_do_eGO():
+    api = {r: _item(r, brokerId=7) for r in ("M", "R1", "R2")} | {"S": _item("S", portals=[{"websiteId": sync._SITE_WEBSITE_ID}])}
+    bd = _bd(M={"fonte": "manual", "disponivel_na_api": True, "angariador": "Outra Pessoa"}, R1={"angariador": "Ana Teste"}, R2={"angariador": "Ana Teste"}, S={})
+    v = dict(sync.planear_imoveis_todos(api, bd)["atualizar"])["M"]
+    assert v["angariador"] == "Ana Teste" and v["disponivel_na_api"] is False
+
+
+def test_escritas_limitadas_por_volta_e_primeiro_o_que_muda_angariador_ou_estado(monkeypatch):
+    monkeypatch.setattr(sync, "_MAX_ESCRITAS", 1)
+    api = [_item("F", id=1, estado=7), _item("A", id=2, estado=7, brokerId=7), _item("R1", id=3, estado=7, brokerId=7),
+           _item("R2", id=4, estado=7, brokerId=7), _item("S", id=5, estado=7, portals=[{"websiteId": sync._SITE_WEBSITE_ID}])]
+    linhas = list(_bd(R1={"angariador": "Ana Teste"}, R2={"angariador": "Ana Teste"}, F={"fonte": "manual", "disponivel_na_api": True},
+                      A={"angariador": "Outra Pessoa"}, S={"disponivel_na_api": True}).values())
+    bd = _mundo(monkeypatch, api, linhas)
+    r = asyncio.run(sync.sync_imoveis_todos("cron", dry=False))
+    assert (r["atualizados"], r["adiados"]) == (1, 1) and bd.updates[0][1][0] == ("eq", "imovel_ref", "A")

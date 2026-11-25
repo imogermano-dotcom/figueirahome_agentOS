@@ -643,6 +643,7 @@ async def validar_disponibilidade_crm(
 ESTADO_IMOVEL = {2: "Disponível", 3: "Vendido", 4: "Reservado", 5: "Arrendado", 7: "Em Prospecção", 8: "Retirado", 9: "Por validar"}
 _NEGOCIO_VENDA, _NEGOCIO_ARRENDAMENTO = 1, 2  # `businesses[].businessTypeId`
 _LOTE_INSERT = 200
+_MAX_ESCRITAS = 500  # UPDATE linha a linha: o cron tem limite de tempo; o resto fica para a volta seguinte (primeiro o que muda estado ou angariador)
 
 
 def _lisboa_para_utc(valor: str | None) -> str | None:
@@ -722,17 +723,17 @@ def planear_imoveis_todos(api: dict[str, dict], existentes: dict[str, dict]) -> 
     """Decide o que fazer, sem tocar na BD (serve ao `dry`). `api` e `existentes` vão por `imovel_ref`.
 
     - novo → insere (`disponivel_na_api=False`);
-    - existente `fonte='manual'` → NÃO se escreve; divergência só no resumo;
-    - existente que a Web API vê (`disponivel_na_api`) → se o estado ou o «no site» do eGO diferem, atualiza
-      `disponibilidade`, `disponivel_na_api` (= `no_site`) e `ego_atualizado_em`; o resto (angariador) é da Web API;
-    - o resto → atualiza `disponibilidade`, `ego_atualizado_em` e `disponivel_na_api` se mudaram, e preenche
-      `angariador` se estiver vazio (nunca troca um que já lá está).
+    - existente que a Web API vê (`disponivel_na_api` e não `manual`) → se o estado ou o «no site» do eGO diferem,
+      atualiza `disponibilidade`, `disponivel_na_api` (= `no_site`) e `ego_atualizado_em`; o resto (angariador) é da Web API;
+    - o resto, `fonte='manual'` incluída (carga antiga, sem edição à mão; 25/11) → atualiza `disponibilidade`,
+      `ego_atualizado_em` e `disponivel_na_api` se mudaram, e põe o `angariador` do eGO se o nome for outro.
+      Nos `manual` a flag herdada (4 000 a `true`) não quer dizer «a Web API mantém»: só o eGO a corrige.
     `publicado` é GENERATED (Disponível + preço + `disponivel_na_api`): com o `disponivel_na_api` vindo do `portals`,
     um imóvel Disponível mas fora do site (FH2574) fica Disponível e não publicado. Se nenhum imóvel da API traz o
     site (resposta estragada), `disponivel_na_api` não se mexe."""
     nomes = nomes_por_broker(api, existentes)
     site_fiavel = any(no_site(i) for i in api.values())
-    plano = {"inserir": [], "atualizar": [], "divergencias_web_api": [], "divergencias_manual": [], "desconhecidos": 0}
+    plano = {"inserir": [], "atualizar": [], "divergencias_web_api": [], "desconhecidos": 0}
     for ref, item in api.items():
         estado = ESTADO_IMOVEL.get(item.get("realestateStatusId"))
         if estado is None:
@@ -743,23 +744,22 @@ def planear_imoveis_todos(api: dict[str, dict], existentes: dict[str, dict]) -> 
             plano["inserir"].append(mapear_imovel_novo(item, nomes))
             continue
         diverge = atual.get("disponibilidade") != estado
-        if atual.get("fonte") == "manual":
-            if diverge:
-                plano["divergencias_manual"].append({"imovel_ref": ref, "no_supabase": atual.get("disponibilidade"), "no_ego": estado})
-            continue
-        web = bool(atual.get("disponivel_na_api"))
-        flag_muda = site_fiavel and no_site(item) != web
+        flag = bool(atual.get("disponivel_na_api"))
+        web = flag and atual.get("fonte") != "manual"
+        flag_muda = site_fiavel and no_site(item) != flag
         if web and diverge:
             plano["divergencias_web_api"].append({"imovel_ref": ref, "no_supabase": atual.get("disponibilidade"), "no_ego": estado})
         novo_em = _lisboa_para_utc(item.get("lastUpdate"))
         mais_recente = bool(novo_em and (not atual.get("ego_atualizado_em") or novo_em > str(atual["ego_atualizado_em"])))
-        nome = None if web or (atual.get("angariador") or "").strip() else nomes.get(item.get("brokerId"))
+        nome = None if web else nomes.get(item.get("brokerId"))
+        if nome == (atual.get("angariador") or "").strip():
+            nome = None
         if diverge or flag_muda or nome or (mais_recente and not web):
             valores = {"disponibilidade": estado}
             if novo_em:
                 valores["ego_atualizado_em"] = novo_em
             if flag_muda:
-                valores["disponivel_na_api"] = not web
+                valores["disponivel_na_api"] = no_site(item)
             if nome:
                 valores["angariador"] = nome
             plano["atualizar"].append((ref, valores))
@@ -914,11 +914,14 @@ async def sync_imoveis_todos(origem: str = "manual", dry: bool = False) -> dict:
         "dry": dry, "no_ego": len(api), "no_supabase": len(existentes),
         "a_inserir": len(plano["inserir"]), "a_atualizar": len(plano["atualizar"]),
         "no_site_a_mudar": sum(1 for _, v in plano["atualizar"] if "disponivel_na_api" in v),
-        "angariador_a_preencher": sum(1 for _, v in plano["atualizar"] if "angariador" in v)
+        "angariador_a_preencher": sum(1 for r, v in plano["atualizar"] if "angariador" in v and not (existentes[r].get("angariador") or "").strip())
         + sum(1 for r in plano["inserir"] if r.get("angariador")),
-        "divergencias_web_api": plano["divergencias_web_api"], "divergencias_manual": plano["divergencias_manual"],
+        "angariador_a_trocar": sum(1 for r, v in plano["atualizar"] if "angariador" in v and (existentes[r].get("angariador") or "").strip()),
+        "divergencias_web_api": plano["divergencias_web_api"],
         "desconhecidos": plano["desconhecidos"], "inseridos": 0, "atualizados": 0, "erros": 0,
     }
+    por_prioridade = sorted(plano["atualizar"], key=lambda rv: "angariador" not in rv[1] and rv[1]["disponibilidade"] == existentes[rv[0]].get("disponibilidade"))
+    resumo["adiados"] = max(0, len(por_prioridade) - _MAX_ESCRITAS)
     if not dry:
         for i in range(0, len(plano["inserir"]), _LOTE_INSERT):
             lote = plano["inserir"][i:i + _LOTE_INSERT]
@@ -929,12 +932,12 @@ async def sync_imoveis_todos(origem: str = "manual", dry: bool = False) -> dict:
             except Exception:
                 logger.exception("Falha a inserir um lote de imóveis do eGO")
                 resumo["erros"] += len(lote)
-        for ref, valores in plano["atualizar"]:
+        for ref, valores in por_prioridade[:_MAX_ESCRITAS]:
             atual = existentes[ref]
-            try:  # só se a linha ainda estiver como a lemos (a Web API ou o CRM podem tê-la mudado) e não for manual
+            try:  # só se a linha ainda estiver como a lemos (a Web API ou o CRM podem tê-la mudado)
                 await _run(lambda ref=ref, valores=valores, atual=atual: get_supabase().table("imoveis").update(valores)
                            .eq("imovel_ref", ref).eq("disponivel_na_api", bool(atual.get("disponivel_na_api")))
-                           .eq("disponibilidade", atual.get("disponibilidade")).neq("fonte", "manual").execute())
+                           .eq("disponibilidade", atual.get("disponibilidade")).execute())
                 resumo["atualizados"] += 1
             except Exception:
                 logger.exception("Falha a atualizar o imóvel %s", ref)
