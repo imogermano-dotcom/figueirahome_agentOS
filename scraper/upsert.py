@@ -12,6 +12,9 @@ Regras da doc (`PIPELINE_SYNC_EGO_SUPABASE_DEV.md` §6/§7), replicadas aqui:
   IS NULL` (protege extração por IA já feita).
 """
 import logging
+import os
+import re
+import unicodedata
 
 from postgrest.exceptions import APIError
 
@@ -114,11 +117,80 @@ _ERROS_POR_REGISTO = {
 }
 
 
+_LIGACAO_NOME = {"de", "da", "do", "dos", "das", "e", "a", "o"}
+
+
+def _digitos9(texto: str | None) -> set[str]:
+    """Números de um campo pelos 9 últimos dígitos, mesmo com vários («912 345 678, 00351 233 111 222»).
+    Cópia de `backend/scripts/criar_contactos_em_falta.py` (esta app não importa o backend)."""
+    achados = set()
+    for parte in re.split(r"[,;/|]", texto or ""):
+        d = re.sub(r"\D", "", parte)
+        if len(d) >= 9:
+            achados.add(d[-9:])
+    return achados
+
+
+def _mesmo_nome(a: str | None, b: str | None) -> bool:
+    """Nomes iguais, ou um contido no outro; nunca com um dos lados vazio."""
+    def tokens(n):
+        s = unicodedata.normalize("NFKD", n or "").encode("ascii", "ignore").decode().lower()
+        return {t for t in re.split(r"[^a-z0-9]+", s) if t and t not in _LIGACAO_NOME}
+    A, B = tokens(a), tokens(b)
+    return bool(A and B and (A <= B or B <= A))
+
+
+def _gemeos_por_telefone(supabase, limpos: list[dict], completar: bool) -> dict:
+    """Pedido #27 (25/11): antes de criar uma linha com `ego_link` novo, ver se a pessoa já existe sem identificação do eGO
+    (pipeline, site) com o mesmo telefone noutro formato. Uma só candidata e nome compatível: completa-a (`ego_link`,
+    `ego_person_id`) para o upsert a atualizar em vez de criar outra. Várias ou nome sem relação: cria como hoje e conta.
+    Com `completar=False` só conta. Nunca levanta e nunca devolve nomes. ponytail: `ilike %9 dígitos%` não apanha números
+    guardados com espaços (~4 % das linhas); coluna normalizada na base se a medição o justificar."""
+    r = {"completados_por_telefone": 0, "completaria_por_telefone": 0, "duplicados_por_resolver": 0, "erros_procura": 0}
+    com_tel = [x for x in limpos if x.get("ego_link") and (_digitos9(x.get("telefone")) | _digitos9(x.get("telemovel")))]
+    if not com_tel:
+        return r
+    try:
+        links = [x["ego_link"] for x in com_tel]
+        existentes = set()
+        for i in range(0, len(links), _LOTE_LINKS):
+            existentes |= {c["ego_link"] for c in supabase.table("contactos").select("ego_link").in_("ego_link", links[i : i + _LOTE_LINKS]).execute().data}
+    except Exception:
+        logger.exception("Falha a ver que ego_link já existem (gémeos por telefone)")
+        r["erros_procura"] += 1
+        return r
+    for x in (y for y in com_tel if y["ego_link"] not in existentes):
+        try:
+            candidatas: dict[str, dict] = {}
+            for n in _digitos9(x.get("telefone")) | _digitos9(x.get("telemovel")):
+                for coluna in ("telefone", "telemovel"):
+                    linhas = (supabase.table("contactos").select("id,nome,telefone,telemovel")
+                              .is_("ego_link", "null").is_("ego_person_id", "null").ilike(coluna, f"%{n}%").limit(5).execute().data)
+                    candidatas.update({c["id"]: c for c in linhas if n in (_digitos9(c.get("telefone")) | _digitos9(c.get("telemovel")))})
+            if not candidatas:
+                continue
+            if len(candidatas) == 1 and _mesmo_nome(x.get("nome"), next(iter(candidatas.values())).get("nome")):
+                if not completar:
+                    r["completaria_por_telefone"] += 1
+                    continue
+                (cid,) = candidatas
+                ok = (supabase.table("contactos").update({"ego_link": x["ego_link"], "ego_person_id": x.get("ego_person_id")})
+                      .eq("id", cid).is_("ego_link", "null").is_("ego_person_id", "null").execute().data)
+                r["completados_por_telefone"] += 1 if ok else 0
+            else:
+                r["duplicados_por_resolver"] += 1
+        except Exception as e:  # nunca pára o lote nem mostra o texto (traz nomes)
+            logger.warning("Gémeos por telefone: falha na procura (%s)", getattr(e, "code", None) or type(e).__name__)
+            r["erros_procura"] += 1
+    return r
+
+
 def _upsert_contactos(supabase, records: list[dict]) -> dict:
     """Registo a registo: sucesso conta, registo impossível salta e fica no
     resumo. O que não pode acontecer é um registo mau levar o lote atrás."""
     chave = _CONFLICT_KEYS["contactos"]
     limpos = _dedupe([_strip_none(r) for r in records], chave)
+    gemeos = _gemeos_por_telefone(supabase, limpos, bool(os.environ.get("COMPLETAR_POR_TELEFONE")))
     ok = 0
     ignorados: dict[str, list[str]] = {}
     on_conflict = ",".join(chave)
@@ -141,6 +213,7 @@ def _upsert_contactos(supabase, records: list[dict]) -> dict:
         "gravados": ok,
         "ignorados": sum(len(n) for n in ignorados.values()),
         "por_motivo": {m: len(n) for m, n in ignorados.items()},
+        **{k: v for k, v in gemeos.items() if v},  # só o que aconteceu: o resumo diário não enche de zeros
     }
 
 
@@ -309,6 +382,80 @@ def demo() -> None:
         pass
     else:
         raise AssertionError("erro desconhecido devia ter rebentado")
+
+    # Gémeos por telefone (pedido #27, 25/11): a pessoa já existe sem `ego_link` com o número noutro formato.
+    class _Gem:
+        def __init__(self, linhas):
+            self.linhas, self.atualizacoes, self.filtros, self.valores = linhas, [], [], None
+
+        def table(self, _):
+            self.filtros, self.valores = [], None
+            return self
+
+        def select(self, *_):
+            return self
+
+        def in_(self, col, v):
+            self.filtros.append(lambda l: l.get(col) in v)
+            return self
+
+        def is_(self, col, _v):
+            self.filtros.append(lambda l: l.get(col) is None)
+            return self
+
+        def ilike(self, col, padrao):
+            self.filtros.append(lambda l: padrao.strip("%") in (l.get(col) or ""))
+            return self
+
+        def eq(self, col, v):
+            self.filtros.append(lambda l: l.get(col) == v)
+            return self
+
+        def limit(self, _):
+            return self
+
+        def update(self, valores):
+            self.valores = valores
+            return self
+
+        def execute(self):
+            achadas = [l for l in self.linhas if all(f(l) for f in self.filtros)]
+            if self.valores is not None:
+                self.atualizacoes += [(l["id"], self.valores) for l in achadas]
+            return type("R", (), {"data": achadas})()
+
+    base = [
+        {"id": "a", "nome": "Ana Maria Silva", "telefone": "912345678", "telemovel": None, "ego_link": None, "ego_person_id": None},
+        {"id": "b", "nome": "Bruno Costa", "telefone": "00351933333333", "telemovel": None, "ego_link": None, "ego_person_id": None},
+        {"id": "c", "nome": "Carla Dias", "telefone": "934444444", "telemovel": None, "ego_link": None, "ego_person_id": None},
+        {"id": "d", "nome": "Carla Dias Filha", "telefone": "+351934444444", "telemovel": None, "ego_link": None, "ego_person_id": None},
+        {"id": "e", "nome": "Eva Reis", "telefone": "935555555", "telemovel": None, "ego_link": "JA", "ego_person_id": 5},
+    ]
+    reg = lambda nome, link, tel, pid: {"nome": nome, "ego_link": link, "telefone": tel, "telemovel": tel, "ego_person_id": pid}
+    novos = [reg("Ana Silva", "L1", "00351912345678", 1),    # mesmo número noutro formato, nome contido: completa
+             reg("Bruno Outro", "L2", "933333333", 2),        # mesmo número, nome sem relação: não adivinha
+             reg("Carla Dias", "L3", "934444444", 3),         # duas candidatas: não adivinha
+             reg("Eva Reis", "L4", "935555555", 4),           # a linha já tem ego_link: não é gémea sem identificação
+             reg("Nova Pessoa", "L5", "936666666", 5),        # sem gémea
+             reg("Sem Telefone", "L6", None, 6)]
+    bd = _Gem(base)
+    r = _gemeos_por_telefone(bd, novos, completar=True)
+    assert r == {"completados_por_telefone": 1, "completaria_por_telefone": 0, "duplicados_por_resolver": 2, "erros_procura": 0}, r
+    assert bd.atualizacoes == [("a", {"ego_link": "L1", "ego_person_id": 1})], bd.atualizacoes
+    bd = _Gem(base)
+    r = _gemeos_por_telefone(bd, novos, completar=False)
+    assert r["completaria_por_telefone"] == 1 and r["completados_por_telefone"] == 0 and bd.atualizacoes == [], (r, bd.atualizacoes)
+    # `ego_link` que já existe na tabela: é uma atualização normal, nunca procura gémeos
+    bd = _Gem(base + [{"id": "z", "nome": "Ana Silva", "telefone": "1", "telemovel": None, "ego_link": "L1", "ego_person_id": 1}])
+    assert _gemeos_por_telefone(bd, novos[:1], completar=True)["completados_por_telefone"] == 0
+    # falha na procura: conta e deixa o lote seguir (o upsert cria como hoje)
+    class _Rebenta(_Gem):
+        def ilike(self, *_a):
+            raise RuntimeError("ligação perdida")
+    r = _gemeos_por_telefone(_Rebenta(base), novos[:1], completar=True)
+    assert r["erros_procura"] == 1 and r["completados_por_telefone"] == 0, r
+    assert _digitos9("912 345 678, 00351 233 111 222") == {"912345678", "233111222"} and _digitos9("12345") == set()
+    assert _mesmo_nome("Ana Silva", "ANA  Maria da Silva") and not _mesmo_nome("Bruno Outro", "Bruno Costa") and not _mesmo_nome("", "Ana")
 
     # _ligar_contactos: lê o id pelo ego_link, e só liga o que tem contacto.
     chamadas = []
