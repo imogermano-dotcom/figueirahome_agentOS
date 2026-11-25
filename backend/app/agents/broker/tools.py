@@ -172,6 +172,9 @@ TOOL_DEFINITIONS = [
                 "nome": {"type": "string"},
                 "telefone": {"type": "string"},
                 "imovel_ref": {"type": "string", "description": "Imóvel em causa, se houver"},
+                "tipo_imovel": {"type": "string", "description": "Só em angariação: tipo do imóvel a vender/arrendar (ex: 'apartamento T2')"},
+                "zona_imovel": {"type": "string", "description": "Só em angariação: morada ou zona do imóvel"},
+                "outra_agencia": {"type": "string", "description": "Só em angariação: se já está com outra agência ou só particular"},
             },
             "required": ["motivo", "resumo"],
         },
@@ -877,6 +880,18 @@ async def _encerrar_lead(inputs: dict, contexto: dict) -> str:
 # interno (`a1_vendedor`), ilegível para quem recebe o aviso.
 _NOME_AGENTE = {A1: NOME_A1, A2: "Maria", A3: NOME_A3, A4: NOME_A4, BROKER: "Broker"}
 
+def _bloco_imovel_a_angariar(inputs: dict) -> str | None:
+    """Dados do imóvel que a Bárbara recolheu (pedido #20): só as linhas com valor; sem nenhuma, sem bloco."""
+    linhas = [
+        f"  {rotulo} {valor}"
+        for rotulo, campo in (
+            ("Tipo:          ", "tipo_imovel"), ("Zona/morada:   ", "zona_imovel"), ("Outra agência: ", "outra_agencia"),
+        )
+        if (valor := str(inputs.get(campo) or "").strip())
+    ]
+    return "Imóvel a angariar:\n" + "\n".join(linhas) if linhas else None
+
+
 # Toda a escalada sai urgente (pedido #20, 25/11): o modelo já não decide, a rede em código passa pela mesma tool.
 _PREFIXO_URGENTE = "URGENTE — "
 
@@ -942,6 +957,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
                     f"Canal: {contexto.get('canal', '?')}",
                     f"Contacto: {nome or '?'} — {telefone or '?'}",
                     f"Motivo: {motivo}",
+                    _bloco_imovel_a_angariar(inputs),
                     inputs.get("resumo"),
                 ) if p
             ),
@@ -981,6 +997,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
             f"Conversa: {contexto['conversa_id']} ({agente}, {contexto.get('canal', '?')}) — ver em Painel › Agentes › Conversas"
             if contexto.get("conversa_id") else None,
             "",
+            _bloco_imovel_a_angariar(inputs),
             inputs.get("resumo"),
             "",
             "O consultor entra em contacto directamente (próximo dia útil se for fora de horas).",

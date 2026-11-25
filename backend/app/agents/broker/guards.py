@@ -365,6 +365,19 @@ def _avisar_lead_ja_no_ego(supabase, cliente: dict, lead: dict, titulo: str, age
     logger.info("Lead %s já no eGO; consultora avisada", lead["id"])
 
 
+_MAX_RESUMO_AVISO = 600
+
+
+def _resumo_para_aviso(notas: str | None) -> str:
+    """O que a pessoa disse, para o email e a tarefa de «lead qualificada» (pedido #20). Corta a 600, de preferência no fim de frase."""
+    texto = (notas or "").strip()
+    if len(texto) <= _MAX_RESUMO_AVISO:
+        return texto
+    corte = texto[:_MAX_RESUMO_AVISO]
+    ponto = max(corte.rfind(". "), corte.rfind("\n"))
+    return (corte[:ponto + 1] if ponto > _MAX_RESUMO_AVISO // 2 else corte.rstrip()) + " […]"
+
+
 def _promover_lead(
     supabase, cliente: dict, estados: tuple[str, ...] = ("contactada",),
     agente: str | None = None,
@@ -430,6 +443,7 @@ def _promover_lead(
 
     quem = cliente.get("nome") or telefone or email
     titulo = f"{_TAREFA_QUALIFICADA} — {quem}"
+    resumo = _resumo_para_aviso(cliente.get("notas"))
     # Um aviso por pessoa: a lead já ficou `qualificada` (cada lead é um registo próprio), mas
     # várias leads da mesma pessoa ou a tool repetida davam 3 tarefas e 3 emails em 29 s (08/10).
     # ponytail: a chave é o título (nome ou telefone); duas pessoas com o mesmo nome e sem
@@ -461,6 +475,7 @@ def _promover_lead(
             f"orçamento: {cliente.get('orcamento')}, "
             f"zona: {cliente.get('zona_preferida')}). "
             "Criar o contacto no eGO e associar a oportunidade."
+            + (f"\n\nO que a pessoa disse: {resumo}" if resumo else "")
         ),
     }).execute()
     logger.info("Lead %s qualificada (cliente %s)", lead["id"], cliente.get("id"))
@@ -483,6 +498,7 @@ def _promover_lead(
             "",
             f"Imóvel do anúncio: {lead.get('imovel_ref') or '—'}",
             "",
+            *(("O que a pessoa disse:", resumo, "") if resumo else ()),
             "Passo seguinte: criar o contacto no eGO e associar a oportunidade.",
             "A tarefa também está no painel.",
         )),
@@ -801,7 +817,7 @@ async def promover_se_qualificada(telefone: str | None, agente: str | None = Non
         supabase = get_supabase()
         resp = (
             supabase.table("agente_clientes")
-            .select("id,nome,telefone,email,tipo_interesse,orcamento,zona_preferida")
+            .select("id,nome,telefone,email,tipo_interesse,orcamento,zona_preferida,notas")
             .in_("telefone", variantes_telefone(numero))
             .limit(1)
             .execute()

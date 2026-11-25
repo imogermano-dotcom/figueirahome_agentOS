@@ -70,3 +70,26 @@ def test_marca_de_entrada_anterior_nao_e_ja_no_ego(monkeypatch):
     bd, avisos = _corre(monkeypatch, [{"id": "c1", "ego_lead_em": "2026-10-26T10:00:00+00:00", "meta_created_at": "2026-11-21T09:00:00+00:00"}])
     assert [t["tipo"] for t in bd.tarefas] == ["lead_ego"]
     assert len(avisos) == 1 and "já no eGO" not in avisos[0][0]
+
+
+def test_email_e_tarefa_da_lead_qualificada_levam_o_que_a_pessoa_disse(monkeypatch):
+    """Pedido #20 (25/11): o resumo da conversa chega à consultora no email e na tarefa `lead_ego`."""
+    avisos = []
+    monkeypatch.setattr(guards, "notificar", lambda assunto, corpo, **k: avisos.append((assunto, corpo, k)))
+    monkeypatch.setattr(guards, "marcar_interesse_real", lambda *a: False)
+    bd = _BD([])
+    guards._promover_lead(bd, {**CLIENTE, "notas": "Quer visitar na quinta às 18h."})
+    assert "O que a pessoa disse:\nQuer visitar na quinta às 18h." in avisos[0][1]
+    assert "O que a pessoa disse: Quer visitar na quinta às 18h." in bd.tarefas[0]["descricao"]
+
+
+def test_sem_notas_o_email_e_a_tarefa_ficam_como_antes(monkeypatch):
+    bd, avisos = _corre(monkeypatch, [])
+    assert "O que a pessoa disse" not in avisos[0][1] and "O que a pessoa disse" not in bd.tarefas[0]["descricao"]
+
+
+def test_resumo_longo_corta_a_600_no_fim_de_frase():
+    longo = "Frase um. " * 100
+    r = guards._resumo_para_aviso(longo)
+    assert len(r) <= 600 + 4 and r.endswith("[…]") and r.startswith("Frase um.")
+    assert guards._resumo_para_aviso("  curto ") == "curto" and guards._resumo_para_aviso(None) == ""

@@ -219,6 +219,8 @@ FLUXO:
    e o essencial do imóvel.
 5. Só depois de confirmação explícita, regista com escalar_para_humano
    (motivo="visita de avaliação"), resumo com nome, telefone, imóvel, zona.
+   Passa também tipo_imovel, zona_imovel e outra_agencia (o que a pessoa disse
+   nas respostas ao passo 1; deixa em branco o que não disse).
    Descreve com rigor o que o cliente disse — nunca escrevas "pediu" se ele
    só confirmou ou não fez objecção a uma pergunta diferente.
 

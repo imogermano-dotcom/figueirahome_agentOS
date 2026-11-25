@@ -161,6 +161,36 @@ def test_o_esquema_da_tool_ja_nao_tem_urgente():
     assert "urgente" not in esquema["properties"]
 
 
+def test_angariacao_leva_o_bloco_do_imovel_no_email_e_na_tarefa(escalar):
+    """Pedido #20 (25/11): tipo, zona e outra agência saem em linhas fixas; só as que têm valor."""
+    chamar, registo = escalar
+    chamar(SEM, motivo="visita de avaliação", tipo_imovel="apartamento T2", zona_imovel="Buarcos", outra_agencia="  ")
+    (_, corpo, _, _), = registo["avisos"]
+    assert "Imóvel a angariar:\n  Tipo:           apartamento T2\n  Zona/morada:    Buarcos" in corpo
+    assert "Outra agência" not in corpo
+    assert "Imóvel a angariar:" in registo["tarefas"][0]["descricao"]
+
+
+def test_sem_dados_do_imovel_nao_ha_bloco(escalar):
+    chamar, registo = escalar
+    chamar(SEM)
+    assert "Imóvel a angariar" not in registo["avisos"][0][1] and "Imóvel a angariar" not in registo["tarefas"][0]["descricao"]
+
+
+def test_atualizacao_da_escalada_nao_repete_o_bloco(escalar, monkeypatch):
+    chamar, registo = escalar
+    monkeypatch.setattr(tools, "_tarefa_ja_registada", lambda *a: True)
+    monkeypatch.setattr(tools, "_atualizar_escalada", lambda *a: True)
+    chamar(SEM, tipo_imovel="moradia", resumo="Afinal prefere sábado")
+    assert "Imóvel a angariar" not in registo["avisos"][0][1]
+
+
+def test_os_campos_do_imovel_existem_e_nao_sao_obrigatorios():
+    esquema = next(t for t in tools.TOOL_DEFINITIONS if t["name"] == "escalar_para_humano")["input_schema"]
+    assert {"tipo_imovel", "zona_imovel", "outra_agencia"} <= set(esquema["properties"])
+    assert not {"tipo_imovel", "zona_imovel", "outra_agencia"} & set(esquema["required"])
+
+
 def test_responsavel_principal_prefere_a_op_citada_e_depois_a_maioria():
     from app.notificacoes import responsavel_principal
 
