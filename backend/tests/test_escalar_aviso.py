@@ -143,6 +143,24 @@ def test_atualizacao_da_escalada_tambem_avisa_as_consultoras(escalar, monkeypatc
     assert registo["tarefas"] == []
 
 
+def test_toda_a_escalada_sai_urgente_na_tarefa_e_no_email(escalar, monkeypatch):
+    """Pedido #20 (25/11): urgência alta, critério «sempre»; o modelo já não decide."""
+    chamar, registo = escalar
+    chamar(LIGACAO)
+    assert registo["tarefas"][0]["titulo"].startswith("URGENTE — ESCALAR")
+    assert registo["avisos"][0][0].startswith("URGENTE — Escalado pelo assistente")
+
+    monkeypatch.setattr(tools, "_tarefa_ja_registada", lambda *a: True)
+    monkeypatch.setattr(tools, "_atualizar_escalada", lambda *a: True)
+    chamar(LIGACAO, resumo="Afinal pode ser às 19:00")
+    assert registo["avisos"][1][0].startswith("URGENTE — Atualização da escalada")
+
+
+def test_o_esquema_da_tool_ja_nao_tem_urgente():
+    esquema = next(t for t in tools.TOOL_DEFINITIONS if t["name"] == "escalar_para_humano")["input_schema"]
+    assert "urgente" not in esquema["properties"]
+
+
 def test_responsavel_principal_prefere_a_op_citada_e_depois_a_maioria():
     from app.notificacoes import responsavel_principal
 

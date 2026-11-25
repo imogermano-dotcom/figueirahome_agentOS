@@ -75,7 +75,7 @@ def test_informacao_nova_e_acrescentada_e_avisa(mundo):
     assert "Resumo inicial." in tarefa["descricao"]  # acrescenta, não substitui
     assert "Atualização às" in tarefa["descricao"] and "próxima semana" in tarefa["descricao"]
     assert len(linhas) == 1  # nenhuma tarefa nova
-    assert len(avisos) == 1 and avisos[0][0].startswith("Atualização da escalada") and "próxima semana" in avisos[0][1]
+    assert len(avisos) == 1 and avisos[0][0].startswith("URGENTE — Atualização da escalada") and "próxima semana" in avisos[0][1]
     assert resposta.startswith("Atualizado")
 
 
@@ -123,7 +123,7 @@ def test_motivo_diferente_continua_a_criar_tarefa_nova(mundo):
     _, linhas, avisos, escalar = mundo
     escalar("Quer vender uma casa.", motivo="venda")
     assert len(linhas) == 2 and linhas[1]["motivo"] == "venda"
-    assert avisos and avisos[0][0].startswith("Escalado pelo assistente")
+    assert avisos and avisos[0][0].startswith("URGENTE — Escalado pelo assistente")
 
 
 # ── P1: instrução na chamada final ──────────────────────────────────────────

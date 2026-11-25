@@ -172,7 +172,6 @@ TOOL_DEFINITIONS = [
                 "nome": {"type": "string"},
                 "telefone": {"type": "string"},
                 "imovel_ref": {"type": "string", "description": "Imóvel em causa, se houver"},
-                "urgente": {"type": "boolean", "description": "True para reclamações e assuntos legais"},
             },
             "required": ["motivo", "resumo"],
         },
@@ -878,6 +877,9 @@ async def _encerrar_lead(inputs: dict, contexto: dict) -> str:
 # interno (`a1_vendedor`), ilegível para quem recebe o aviso.
 _NOME_AGENTE = {A1: NOME_A1, A2: "Maria", A3: NOME_A3, A4: NOME_A4, BROKER: "Broker"}
 
+# Toda a escalada sai urgente (pedido #20, 25/11): o modelo já não decide, a rede em código passa pela mesma tool.
+_PREFIXO_URGENTE = "URGENTE — "
+
 
 async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
     telefone = normalizar_telefone(inputs.get("telefone") or contexto.get("telefone"))
@@ -891,12 +893,11 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
         # candidata foi avisada de que o responsável "teria isso em conta"): acrescenta à tarefa e avisa.
         resumo_novo = (inputs.get("resumo") or "").strip()
         if await _run(_atualizar_escalada, contexto.get("conversa_id"), motivo, resumo_novo):
-            prefixo = "URGENTE — " if inputs.get("urgente") else ""
             ligacao = await _run(consultoras_do_telefone, telefone)
             nome = nome or ligacao.get("cliente_nome")
             await _run(
                 notificar,
-                f"{prefixo}Atualização da escalada — {motivo} — {nome or telefone or 'contacto'}",
+                f"{_PREFIXO_URGENTE}Atualização da escalada — {motivo} — {nome or telefone or 'contacto'}",
                 "\n".join(p for p in (
                     f"A conversa escalada ({motivo}) ganhou informação nova.",
                     "",
@@ -929,7 +930,7 @@ async def _escalar_para_humano(inputs: dict, contexto: dict) -> str:
         agente=contexto.get("agente"), **mql,
     )
 
-    prefixo = "URGENTE — " if inputs.get("urgente") else ""
+    prefixo = _PREFIXO_URGENTE
     ligacao = await _run(consultoras_do_telefone, telefone)  # quem trata deste telefone no eGO (pedido #20)
     nome = nome or ligacao.get("cliente_nome")  # o modelo nem sempre o passa; a oportunidade ligada ao telefone sabe-o
     await _run(
