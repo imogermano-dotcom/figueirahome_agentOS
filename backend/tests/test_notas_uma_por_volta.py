@@ -114,3 +114,11 @@ def test_gravar_conta_autor_e_tipo_desconhecidos_e_sobrevive_ao_mapa_em_baixo(mo
     monkeypatch.setattr(ego_notas.ego_api, "utilizadores", _rebenta)
     r = ego_notas.gravar(novas[:1], "cron")
     assert r["inseridas"] == 1 and "nota_autor" not in inseridas[0], "sem o mapa grava sem autor"
+
+
+def test_codigos_de_motivo_medidos_dao_o_nome_e_os_isolados_ficam_vazios():
+    base = {"ego_id": 1, "ref": "VEN_1", "dia": "2026-11-26", "texto": "a", "user_id": 7}
+    for codigo, nome in ((82, "Email enviado"), (34898448, "engano"), (34887372, "Outra"), (34899663, "impossível contactar")):
+        assert ego_notas.linha_de_nota({**base, "tipo_id": codigo})["nota_tipo"] == nome
+    # um só par no relatório não chega para fixar o nome (Desistência, Agência…): continua a contar como desconhecido
+    assert "nota_tipo" not in ego_notas.linha_de_nota({**base, "tipo_id": 34887296})

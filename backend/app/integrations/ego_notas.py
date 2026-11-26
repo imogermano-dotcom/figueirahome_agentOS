@@ -45,7 +45,10 @@ def so_na_api(api: list[dict], nome_de: dict[int, str], na_bd: set[tuple], ids_n
 
 # `historicTypeId` da API → `nota_tipo` do relatório (medido a 26/11 em 2 325 notas das duas vias). 0 = nota normal, sem tipo.
 _TIPOS = {58: "Tarefa concluída", 81: "Ponto de Situação", 2: "Sistema", 88: "Criação de oportunidade", 4: "Estado oportunidade",
-          65: "Clique em Newsletter"}
+          65: "Clique em Newsletter",
+          # medidos a 26/11 cruzando a API com o relatório (≥4 notas iguais e nome sempre o mesmo); os códigos grandes são motivos
+          82: "Email enviado", 34898448: "engano", 34899106: "Duplicada", 34887372: "Outra", 34899663: "impossível contactar",
+          34889459: "Curioso", 34897825: "Vendido", 34892775: "Não é particular"}
 
 
 def linha_de_nota(n: dict, utilizadores: dict[int, str] | None = None) -> dict:
