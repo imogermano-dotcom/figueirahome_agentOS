@@ -153,3 +153,11 @@ def test_ref_com_espaco_e_procurada_como_veio_antes_de_comprimida():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_disponivel_nao_publicado_nao_diz_indisponivel(indisponivel):
+    """FH2585 (26/11): anúncio antes do site. Disponível ≠ «não está disponível»."""
+    r = indisponivel("Disponível")
+    assert "está disponível, mas" in r and "Nunca digas que não está disponível" in r
+    assert "não está disponível de momento" not in r
+    assert "escalar_para_humano" in r

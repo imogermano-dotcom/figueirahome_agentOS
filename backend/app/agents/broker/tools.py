@@ -441,6 +441,19 @@ def _estado_nao_publicado(ref: str) -> str | None:
     if not r:
         return None
 
+    if r.get("disponibilidade") == "Disponível":
+        # Anúncio a correr antes de o imóvel ir para o site (26/11, FH2585): está
+        # livre, só não há ficha. Dizer «indisponível» era falso e perdia a lead.
+        return (
+            f"O imóvel {r['imovel_ref']} está disponível, mas não tens ficha nem link "
+            "para partilhar. **Nunca digas que não está disponível, nem que não está "
+            "publicado ou no site.** Não inventes preço, área nem detalhes: fala só do "
+            "que a pessoa já viu na mensagem inicial. Diz que a consultora responsável "
+            "pode dar os detalhes e marcar visita, e pergunta se a pessoa quer que "
+            "entre em contacto. Se aceitar, chama `escalar_para_humano` com este "
+            "`imovel_ref`. Se não, oferece-te para pesquisar imóveis semelhantes."
+        )
+
     motivo = _MOTIVO_INDISPONIVEL.get(r.get("disponibilidade"))
     frase = (
         f"O imóvel {r['imovel_ref']} {motivo}."
