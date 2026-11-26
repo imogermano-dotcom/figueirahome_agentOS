@@ -53,7 +53,10 @@ def _ids(v, campo: str) -> list[int]:
     return list(x or [])
 
 
-def comparar(api: list[dict], bd: list[dict], nome_de_lead: dict[int, str], ref_de_imovel: dict[int, str], utilizadores: dict[int, str]) -> dict:
+def comparar(api: list[dict], bd: list[dict], nome_de_lead: dict[int, str], ref_de_imovel: dict[int, str], utilizadores: dict[int, str],
+             resp_da_oportunidade: dict[str, str] | None = None) -> dict:
+    """Ids sem nome na tabela ignoram-se (o relatório também os omite: são opções que já não aparecem). Responsável da visita = o utilizador
+    da visita e, se já saiu do eGO, o responsável da oportunidade (96 % contra o relatório)."""
     por_ref = {v["visitReference"]: v for v in api if v.get("visitReference")}
     bd_por_ref = {x["visita_ref_ego"]: x for x in bd}
     r = {"api": len(por_ref), "bd": len(bd_por_ref), "so_bd": sorted(set(bd_por_ref) - set(por_ref)), "so_api": len(set(por_ref) - set(bd_por_ref)),
@@ -78,13 +81,14 @@ def comparar(api: list[dict], bd: list[dict], nome_de_lead: dict[int, str], ref_
         if not ok:
             r["motivos"]["responsavel"]["utilizador fora do mapa" if v.get("securityUserId") not in utilizadores else "BD sem responsável" if not b.get("visita_responsavel") else "nome diferente"] += 1
         c["responsavel(ownerId)"][_n(utilizadores.get(v.get("ownerId"))) == _n(b.get("visita_responsavel"))] += 1
+        c["responsavel(visita, senão oportunidade)"][(_n(utilizadores.get(v.get("securityUserId"))) or _n((resp_da_oportunidade or {}).get(b["oportunidade_ref"])))
+                                                      == _n(b.get("visita_responsavel"))] += 1
         for ca, col in campos:
             tab = r["tabelas"][ca][0]
-            api_nomes = {_n(tab.get(i, "?")) for i in _ids(v, ca)}
+            api_nomes = {_n(tab[i]) for i in _ids(v, ca) if i in tab}
             c[col][ok := api_nomes == {_n(x) for x in _nomes(b.get(col))}] += 1
             if not ok:
-                r["motivos"][col]["id sem nome na tabela" if any(i not in tab for i in _ids(v, ca)) else "BD vazia" if not _nomes(b.get(col)) else
-                                 "API vazia" if not _ids(v, ca) else "nomes diferentes"] += 1
+                r["motivos"][col]["BD vazia" if not _nomes(b.get(col)) else "API vazia" if not api_nomes else "nomes diferentes"] += 1
     return r
 
 
@@ -145,7 +149,7 @@ def demo() -> None:
     assert r["tabelas"]["positivePoints"][0] == {5: "Boa localização", 6: "Potencial de negócio"}, "aprende o 5 pelo caso de 1 e o 6 por exclusão"
     assert r["tabelas"]["interested"][0] == {7: "Interessado"}
     for col, c in r["col"].items():
-        if col != "responsavel(ownerId)":
+        if col not in ("responsavel(ownerId)", "responsavel(securityUserId)"):
             assert c[False] == 0, f"{col} devia bater: {dict(c)}"
     assert r["col"]["responsavel(ownerId)"][True] == 0, "ownerId é o dono do imóvel, não a consultora"
     print("comparar visitas OK")

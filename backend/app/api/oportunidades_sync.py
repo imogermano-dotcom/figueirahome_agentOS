@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import require_auth, require_sync_access
 from app.config import settings
-from app.integrations import ego_api, ego_notas, ego_oportunidades, tarefas_api
+from app.integrations import ego_api, ego_notas, ego_oportunidades, tarefas_api, visitas_api
 from app.notificacoes import falha_de_sync
 from app.db.supabase_client import get_supabase
 
@@ -247,6 +247,23 @@ async def sync_notas_endpoint(acesso=Depends(require_sync_access)):
         await falha_de_sync("egorealestate_notas", "notas", origem, repr(e))
         raise HTTPException(status_code=502, detail="Falha a reconciliar as notas.")
     await _log_execucao(resumo, origem, tipo="egorealestate_notas")
+    return resumo
+
+
+@router.post("/oportunidades/sync/visitas")
+async def sync_visitas_endpoint(dry: bool = True, acesso=Depends(require_sync_access)):
+    """Visitas das oportunidades ativas pela API do eGO (P2 do plano acelerado). `dry=1` por omissão; só grava com `?dry=0` **e** `VISITAS_API_EGO`
+    ligado. Só INSERT das novas e UPDATE dos campos vazios: nunca apaga nem sobrescreve."""
+    origem = "cron" if acesso == "sync-secret" else "manual"
+    try:
+        resumo = await asyncio.get_event_loop().run_in_executor(None, visitas_api.sincronizar, get_supabase(), dry)
+    except Exception as e:
+        logger.exception("Falha no sync das visitas pela API")
+        if not dry:
+            await falha_de_sync("egorealestate_visitas", "visitas (API)", origem, repr(e))
+        raise HTTPException(status_code=502, detail="Falha a sincronizar as visitas.")
+    if not dry:
+        await _log_execucao(resumo, origem, tipo="egorealestate_visitas")
     return resumo
 
 
