@@ -15,17 +15,20 @@ Uma oportunidade criada no eGO (as leads promovidas, como as do FH2585) só cheg
 
 ## Desenho
 
-### 0. Verificações antes de código (só leitura)
-1. **Esquema da `oportunidades`:** colunas obrigatórias e valores por omissão, o `check` de `oportunidade_estado` (já recusou «Criada» noutra altura), o tipo de `origem_lista` e de `ego_data_criacao`/`ego_editado_em`, triggers de INSERT. A `oportunidades` é de fora do repo (o portal do Miguel lê-a), por isso lê-se do próprio Supabase e não do `database-schema.md`.
-2. **Como o scraper escreve uma oportunidade hoje** (`mapping_todas_colunas.py`: formatos de `cliente_telefone`, `ego_data_criacao`, `tipo_pedido`, `url`), para o esqueleto usar exatamente os mesmos formatos.
-3. **Ligação ao contacto:** se o `ego_link` da pessoa (`potencialClientId`) já existe em `contactos`; se não existe, o `contacto_id` fica por ligar até o relatório criar o contacto (como acontece hoje).
-4. **O que o portal faz com uma linha parcial** (sem etapa, imóvel nem preferências): pergunta ao Miguel.
+### 0. Verificações (feitas a 26/11, só leitura)
+1. **Esquema da `oportunidades`** (OpenAPI do Supabase): só `oportunidade_ref` é obrigatória (o `id` é gerado e `apagada_no_ego` tem `false` por omissão); `origem_lista` tem `Ativas` por omissão; `ego_data_criacao`/`ego_editado_em` são `date`; `tipo_oportunidade` é um enum. **Por saber:** o `check` de `oportunidade_estado` (o scraper normaliza para `Ativa`).
+2. **Como o scraper escreve:** `url` = `https://admin.egorealestate.com/egocore/Leads/<id>` e o `ego_lead_id` sai do fim do URL; `cliente_telefone`/`cliente_email` não vêm do relatório, copiam-se do contacto ligado.
+3. **Mapas medidos** (2 648 ativas da BD cruzadas com a API): `masterLeadType.id` 1 → «Angariação», 2 → «Venda», 3 → «Arrendamento»; `leadTypeId` 4 → «Pedido de Informação», 3 → «Pedido de Visita», 1 → «Procura», 7 → «Pedido de Contacto», 0 → vazio. `originId` 11 + `leadSubOriginId` 34798477 → `origem='Outros'`, `sub_origem='Facebook campanha'` (194 de 194). As 12 em falta são «Venda» + «Pedido de Informação».
+4. **A lista de «ativas» do eGO inclui oportunidades que a BD tem como `Perdida` (533) e `Ganha` (49):** o esqueleto não pode gravar `Ativa` à cega.
+5. **Contacto das 12 (por telefone ou email da lista, só contagens):** 8 têm exatamente 1 contacto sem `ego_link` (leads da Meta), 1 tem 1 contacto com `ego_link`, 3 têm 2 ou mais (duplicados do #27); nenhuma fica sem contacto. Pelo `ego_link` (`potencialClientId`) **0 de 12** existem.
+6. **O que o portal faz com uma linha parcial** (sem etapa, imóvel nem preferências): **por perguntar ao Miguel**.
 
 ### 1. Criar o esqueleto das oportunidades em falta
 Em `app/integrations` (módulo pequeno, junto de `ego_notas`):
 - `em_falta(ativas)`: as ativas do eGO cuja `name` não está em `oportunidades` (máx. 50 por volta).
-- `criar_esqueleto(o)`: **só INSERT** (nunca UPDATE, nunca toca em linha que exista) com `oportunidade_ref`, `oportunidade_estado='Ativa'`, `cliente_nome`, `cliente_email`, `cliente_telefone`, `ego_lead_id`, `ego_data_criacao`, `ego_editado_em`, `imovel_ref`, `origem`, `sub_origem`, `tipo_oportunidade`, `tipo_pedido`, `responsavel` (pelo mapa de utilizadores, como as notas). O resto fica vazio e o relatório completa-o quando a oportunidade for editada (o upsert só escreve os campos que traz).
-- Ligação ao contacto por `set_contacto_oportunidades`/`propagar_contacto_id`, como o scraper, se o contacto existe.
+- `criar_esqueleto(o)`: **só INSERT** (nunca UPDATE, nunca toca em linha que exista) com `oportunidade_ref`, `oportunidade_estado='Ativa'`, `cliente_nome`, `cliente_email`, `cliente_telefone`, `ego_lead_id` (o `id` da oportunidade no `url`), `url` (`.../egocore/Leads/<id>`), `ego_data_criacao`, `ego_editado_em` (só a data), `imovel_ref`, `origem`/`sub_origem` e `tipo_oportunidade`/`tipo_pedido` pelos mapas medidos (ponto 0.3), `responsavel` (pelo mapa de utilizadores, como as notas). O resto fica vazio e o relatório completa-o quando a oportunidade for editada (o upsert só escreve os campos que traz).
+- **Só se cria a oportunidade realmente aberta** (sem `closedDate` e sem estado de ganha ou perdida); as outras ficam para o relatório e contam em `esqueleto_saltados`. Um código de tipo ou de origem fora dos mapas também salta, em vez de se inventar o valor.
+- **Ligação ao contacto:** o `ego_link` das pessoas ainda não existe (0 de 12), por isso liga-se por telefone/email **quando há um só contacto** (`contacto_match='telefone'` ou `'email'`, a confiança menor que o `ego_link`); com 2 ou mais contactos fica **vazio**, sem adivinhar, até à fusão dos duplicados (#27). Nunca se completa o `ego_link` de uma linha da Meta (reescreveria a PK). Quando o relatório trouxer a pessoa e a oportunidade, o elo passa a `ego_link`. Pelo RPC `set_contacto_oportunidades`, nunca por escrita direta.
 - Corre no início de `reconciliar_notas` (cron `sync-notas`, de hora a hora), antes de gravar as notas, para as notas dessa volta já terem onde se prender.
 - Falha numa oportunidade (check, FK) salta-a e conta `esqueleto_erros`; nunca pára a volta.
 - **Interruptor `OPORTUNIDADES_API_EGO`** (vazio = só conta `oportunidades_em_falta` no resumo da volta; `1` = cria), ligado em dois tempos como nos outros casos.
@@ -46,7 +49,7 @@ Nunca se escreve no eGO. Nunca se altera nem se apaga uma oportunidade existente
 - 1.ª volta real: as notas das 12 oportunidades entram (`sem_oportunidade` desce), nenhuma linha duplicada e o relatório das 03:37 seguinte completa-as sem erros.
 
 ## Passos (cada um com OK próprio)
-1. Verificações 0.1 a 0.3 (só leitura) e pergunta ao Miguel (0.4).
+1. **Feito:** verificações 0.1 a 0.5 (só leitura). **Falta:** (a) ler as RPCs `set_contacto_oportunidades` e `propagar_contacto_id` para ver se aceitam ligar por `contacto_id` conhecido (a camada «telefone» do backfill de 05/10 já o fazia); se não, decidir com o utilizador antes de escrever `contacto_id`; (b) o `check` de `oportunidade_estado`; (c) a pergunta ao Miguel (0.6).
 2. Código e testes, sem tocar em produção; commit, push, deploy do agentos (interruptor vazio).
 3. Ver `oportunidades_em_falta` numa volta; ligar `OPORTUNIDADES_API_EGO=1` (`secrets deploy`) com a resposta do Miguel.
 4. Ver a volta seguinte e o relatório das 03:37 (sem erros, `sem_oportunidade` a 0); nota no registo (#28) e CLAUDE.md.
