@@ -193,7 +193,8 @@ def reconciliar_notas() -> dict:
     agora, adiadas = ego_notas.uma_por_oportunidade(por_gravar)  # evita a corrida da IA nos triggers (ego-api-notas-rotina-plano.md)
     r = ego_notas.gravar(agora, "cron")
     return {"por_gravar": len(por_gravar), "gravadas": r["inseridas"], "adiadas": adiadas, "erros": len(r["erros"]),
-            "sem_oportunidade": r.get("sem_oportunidade", 0), "ligado": True}
+            "sem_oportunidade": r.get("sem_oportunidade", 0), "autor_desconhecido": r.get("autor_desconhecido", 0),
+            "tipo_desconhecido": r.get("tipo_desconhecido", 0), "ligado": True}
 
 
 @router.post("/oportunidades/sync/propostas")

@@ -4,6 +4,7 @@ A nota não conta como edição da oportunidade, por isso o sync por relatório 
 Chave de comparação com o histórico (sem `nota_ego_id`): (referência, dia, 50 primeiros caracteres do texto sem HTML)."""
 
 import html
+import logging
 import re
 
 import httpx
@@ -11,6 +12,8 @@ import httpx
 from app.config import settings
 from app.db.supabase_client import get_supabase
 from app.integrations import ego_api
+
+logger = logging.getLogger(__name__)
 
 
 def texto_de(description: str | None) -> str:
@@ -35,18 +38,30 @@ def so_na_api(api: list[dict], nome_de: dict[int, str], na_bd: set[tuple], ids_n
         k = chave(ref, dia, texto)
         if k not in vistas:
             vistas.add(k)
-            saida.append({"ego_id": n["id"], "ref": ref, "dia": dia, "texto": texto})
+            saida.append({"ego_id": n["id"], "ref": ref, "dia": dia, "texto": texto,
+                          "user_id": n.get("securityUserId"), "tipo_id": n.get("historicTypeId")})
     return saida
 
 
-def linha_de_nota(n: dict) -> dict:
-    """Linha para `notas`. O que a API não dá (url, cliente_nome, autor) fica de fora; `contacto_id` herda-se por RPC."""
+# `historicTypeId` da API → `nota_tipo` do relatório (medido a 26/11 em 2 325 notas das duas vias). 0 = nota normal, sem tipo.
+_TIPOS = {58: "Tarefa concluída", 81: "Ponto de Situação", 2: "Sistema", 88: "Criação de oportunidade", 4: "Estado oportunidade",
+          65: "Clique em Newsletter"}
+
+
+def linha_de_nota(n: dict, utilizadores: dict[int, str] | None = None) -> dict:
+    """Linha para `notas`. Autor (`securityUserId` → nome) e tipo (`historicTypeId`) só se conhecidos; url e cliente_nome copiam-se da
+    oportunidade em `gravar`; `contacto_id` herda-se por RPC."""
     d = n["dia"]
-    return {
+    linha = {
         "oportunidade_ref": n["ref"], "nota_texto": n["texto"][:1200], "nota_ego_id": n["ego_id"],
         "nota_data_raw": f"{d[8:10]}/{d[5:7]}/{d[:4]}", "nota_data_iso": d,
         "nota_origem": "crm", "origem_lista": "todas_as_colunas",
     }
+    if nome := (utilizadores or {}).get(n.get("user_id")):
+        linha["nota_autor"] = nome
+    if tipo := _TIPOS.get(n.get("tipo_id")):
+        linha["nota_tipo"] = tipo
+    return linha
 
 
 def notas_da_api(ids: list[int]) -> list[dict]:
@@ -114,14 +129,21 @@ def gravar(novas_: list[dict], origem: str = "manual") -> dict:
     for i in range(0, len(refs), 100):
         for o in sb.table("oportunidades").select("oportunidade_ref,url,cliente_nome,tipo_oportunidade").in_("oportunidade_ref", refs[i:i + 100]).execute().data:
             opp[o["oportunidade_ref"]] = {k: v for k, v in o.items() if k != "oportunidade_ref" and v is not None}
-    r = {"inseridas": 0, "ego_ids": [], "erros": {}, "sem_oportunidade": 0}
+    try:
+        utilizadores = ego_api.utilizadores()
+    except Exception as e:  # sem o mapa grava sem autor; nunca pára a volta
+        logger.warning("notas: utilizadores do eGO indisponíveis (%s)", type(e).__name__)
+        utilizadores = {}
+    r = {"inseridas": 0, "ego_ids": [], "erros": {}, "sem_oportunidade": 0, "autor_desconhecido": 0, "tipo_desconhecido": 0}
     for n in sorted(novas_, key=lambda x: (x["ref"], x["dia"])):
         if n["ref"] not in opp:  # oportunidade criada hoje no eGO: o relatório das 03:37 ainda não a trouxe (FK); tenta-se na volta seguinte
             r["sem_oportunidade"] += 1
             continue
         try:
-            sb.table("notas").insert({**opp.get(n["ref"], {}), **linha_de_nota(n)}).execute()
+            sb.table("notas").insert({**opp.get(n["ref"], {}), **linha_de_nota(n, utilizadores)}).execute()
             r["inseridas"] += 1
+            r["autor_desconhecido"] += n.get("user_id") not in utilizadores
+            r["tipo_desconhecido"] += n.get("tipo_id") not in _TIPOS and n.get("tipo_id") not in (0, None)
             r["ego_ids"].append(n["ego_id"])
         except Exception as e:
             r["erros"][str(n["ego_id"])] = repr(e)[:200]
