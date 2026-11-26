@@ -202,3 +202,11 @@ def test_responsavel_principal_prefere_a_op_citada_e_depois_a_maioria():
     assert responsavel_principal(ligacao, "Amanhã às 18h30 posso visitar?") == "Rita"  # senão, quem tem mais oportunidades
     assert responsavel_principal({"ops": [{"oportunidade_ref": "CAP_1", "responsavel": "Ana"}, {"oportunidade_ref": "CAP_2", "responsavel": "Rita"}]}) == "Ana"  # empate: a primeira
     assert responsavel_principal({"ops": []}) is None and responsavel_principal({"ops": [{"oportunidade_ref": "CAP_1", "responsavel": None}]}) is None
+
+
+def test_prompt_da_matilde_nao_promete_avisar_quando_surgir_imovel():
+    """C3 (25/11): «assim que surgir um T2, a equipa entra em contacto» — nada o dispara."""
+    from app.agents.broker.assistants import _PROMPT_A1
+
+    assert "NUNCA ofereças «registar o\n   seu interesse»" in _PROMPT_A1
+    assert "nada na plataforma dispara isso" in _PROMPT_A1
