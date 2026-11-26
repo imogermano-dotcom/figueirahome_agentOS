@@ -73,6 +73,67 @@ def _contacto_unico(sb, o: dict) -> tuple[str, str] | None:
     return None
 
 
+_NEGOCIO = {1: "Venda", 2: "Arrendamento"}  # `BusinessSearch`; os outros (trespasse, férias…) não se usam na agência: ficam vazios
+
+
+def _ids(texto) -> list[int]:
+    return [int(x) for x in str(texto or "").split(",") if x.strip().isdigit()]
+
+
+def pref_de_api(p: dict, naturezas: dict[int, str], estados: dict[int, str], local_de) -> dict:
+    """Preferências da API → colunas `pref_*` (mesmos formatos do relatório). Só o que se traduz com certeza: um código desconhecido
+    deixa o campo todo vazio, nunca se grava o código cru. `local_de(id)` → nome ou `None` (país não é zona)."""
+    pref = {"pref_negocio": _NEGOCIO.get((_ids(p.get("BusinessSearch")) or [0])[0]),
+            "pref_preco_min": p.get("PriceMin"), "pref_orcamento_max": p.get("PriceMax"),
+            "pref_tipologia": f"T{int(p['RoomMin'])}" if p.get("RoomMin") is not None else None}
+    for campo, ids, tabela in (("pref_natureza", _ids(p.get("NatureSearch")), naturezas), ("pref_disponibilidade", _ids(p.get("RealestateStatusSearch")), estados)):
+        if ids and all(i in tabela for i in ids):
+            pref[campo] = ",".join(sorted(tabela[i] for i in ids)) if campo == "pref_natureza" else ",".join(tabela[i] for i in ids)
+    nomes = [local_de(i) for i in _ids(p.get("LocationSearch"))]
+    if nomes and all(nomes):  # um país ou uma falha (nome vazio) deixa a zona toda vazia
+        pref["pref_zona"] = ", ".join(nomes)
+    return {k: v for k, v in pref.items() if v not in (None, "")}
+
+
+def _gravar_prefs(sb, criadas: list[dict]) -> dict:
+    """Preferências do eGO das oportunidades recém-criadas, pelo RPC `bulk_update_prefs` (COALESCE, só se `pref_extraido_em` é nulo:
+    a extração por IA a partir das notas, que é mais rica, prevalece sempre). Nunca pára a volta."""
+    r = {"com_prefs": 0, "erros": 0}
+    try:
+        naturezas, estados = ego_api.naturezas_de_imovel(), ego_api.estados_de_imovel()
+    except Exception as e:
+        logger.warning("oportunidades: tabelas de preferências indisponíveis (%s)", type(e).__name__)
+        naturezas, estados = {}, {}
+    locais: dict[int, str] = {}
+
+    def local_de(i: int):  # "" = não é zona (país) ou falhou: o campo todo fica vazio
+        if i not in locais:
+            try:
+                nome, nivel = ego_api.localizacao(i)
+                locais[i] = nome if nome and (nivel or 0) >= 3 else ""
+            except Exception:
+                locais[i] = ""
+        return locais[i]
+
+    updates = []
+    for o in criadas:
+        try:
+            p = ego_api.preferencias(o["id"])
+            if p and (pref := pref_de_api(p, naturezas, estados, local_de)):
+                updates.append({"oportunidade_ref": o["name"], **pref})
+        except Exception as e:
+            r["erros"] += 1
+            logger.warning("oportunidades: preferências de %s por ler (%s)", o.get("name"), type(e).__name__)
+    if updates:
+        try:
+            sb.rpc("bulk_update_prefs", {"updates": updates}).execute()
+            r["com_prefs"] = len(updates)
+        except Exception as e:
+            r["erros"] += 1
+            logger.warning("oportunidades: RPC bulk_update_prefs falhou (%s)", getattr(e, "code", type(e).__name__))
+    return r
+
+
 def _distritos(sb, concelhos: set[str]) -> dict[str, str]:
     """concelho → distrito, lido de oportunidades já gravadas (o relatório trazia-o). Vazio se falhar ou não houver."""
     if not concelhos:
@@ -126,11 +187,12 @@ def criar_em_falta(ativas: list[dict], gravar: bool) -> dict:
         r["criaria"] = len(prontas)
         return r
     r.update({"criadas": 0, "erros": 0, "ligadas": 0})
-    pares = []
+    pares, novas = [], []
     for o, e in prontas:
         try:
             sb.table("oportunidades").insert(e).execute()
             r["criadas"] += 1
+            novas.append(o)
         except Exception as ex:  # chave duplicada = o relatório chegou entretanto: não é erro; só o código, a mensagem pode ter pessoas
             if getattr(ex, "code", None) != "23505":
                 r["erros"] += 1
@@ -141,6 +203,8 @@ def criar_em_falta(ativas: list[dict], gravar: bool) -> dict:
                 pares.append({"oportunidade_ref": e["oportunidade_ref"], "contacto_id": par[0], "contacto_match": par[1]})
         except Exception as ex:
             logger.warning("oportunidades: contacto de %s por ligar (%s)", e["oportunidade_ref"], getattr(ex, "code", type(ex).__name__))
+    if novas:
+        r["prefs"] = _gravar_prefs(sb, novas)
     if pares:
         try:
             sb.rpc("set_contacto_oportunidades", {"pares": pares}).execute()  # também propaga às notas, tarefas e visitas

@@ -333,6 +333,36 @@ def tipos_de_nota() -> dict[int, str]:
     return {x["id"]: (x["name"].get("PT-PT") if isinstance(x["name"], dict) else x["name"]) for x in lista if x.get("id") and x.get("name")}
 
 
+def preferencias(lead_id: int) -> dict | None:
+    """Preferências de pesquisa da oportunidade (`ListOpportunityPreference`, um pedido por oportunidade; `leadIDList` dá 400).
+    `None` se não tem. Chegam em códigos: `LocationSearch`, `NatureSearch`, `RealestateStatusSearch` (listas separadas por vírgula), `BusinessSearch`."""
+    d = _pedido("GET", "/lead/Opportunity/ListOpportunityPreference", params={"leadID": lead_id})
+    return d[0] if d else None
+
+
+def _nomes_pt(caminho: str) -> dict[int, str]:
+    d = _pedido("GET", caminho)
+    lista = next((v for v in d.values() if isinstance(v, list)), []) if isinstance(d, dict) else d
+    return {x["id"]: x["name"].get("PT-PT") for x in lista if x.get("id") and isinstance(x.get("name"), dict) and x["name"].get("PT-PT")}
+
+
+def naturezas_de_imovel() -> dict[int, str]:
+    """`NatureSearch` → nome (`ListNatureType`, 189 a 26/11): «Apartamento», «Moradia»…"""
+    return _nomes_pt("/realestate/Nature/ListNatureType")
+
+
+def estados_de_imovel() -> dict[int, str]:
+    """`RealestateStatusSearch` → nome (`ListRealestateStatus`): 2 Disponível, 4 Reservado, 7 Em Prospecção, 9 Por validar…"""
+    return _nomes_pt("/realestate/RealestateStatus/ListRealestateStatus")
+
+
+def localizacao(loc_id: int) -> tuple[str | None, int | None]:
+    """`LocationSearch` → (nome, nível): 0 país, 3 concelho, 4 freguesia. Um id por pedido (a lista dá 400)."""
+    d = _pedido("GET", "/metadata/Location/ListLocationById", params={"locationIds": loc_id})
+    x = d[0] if d else {}
+    return x.get("name"), x.get("level")
+
+
 def tipos_de_tarefa() -> dict[int, str]:
     """`eventTypeId` → nome em PT-PT (`ListTaskType`, 33 a 17/11). É o `tarefa_titulo` que o relatório sempre deu."""
     d = _pedido("GET", "/task/TaskMetadata/ListTaskType")

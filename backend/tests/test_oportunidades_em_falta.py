@@ -105,6 +105,9 @@ def bd(monkeypatch):
         monkeypatch.setattr(eo, "get_supabase", lambda: b)
         monkeypatch.setattr(eo.ego_api, "utilizadores", lambda: {7: "Consultora Teste"})
         monkeypatch.setattr(eo.ego_api, "etapas_ativas", lambda: {"VEN_1": "4-Qualificação"})
+        monkeypatch.setattr(eo.ego_api, "naturezas_de_imovel", lambda: {})
+        monkeypatch.setattr(eo.ego_api, "estados_de_imovel", lambda: {})
+        monkeypatch.setattr(eo.ego_api, "preferencias", lambda i: None)
         return b
     return montar
 
@@ -246,3 +249,42 @@ def test_distrito_sai_das_oportunidades_ja_gravadas_e_falha_nao_impede(bd, monke
     monkeypatch.setattr(eo, "_distritos", lambda sb, c: {})
     b = bd(imoveis=[{"imovel_ref": "FH0001", "concelho": "Figueira da Foz"}])
     assert eo.criar_em_falta([_o("VEN_1")], gravar=True)["criadas"] == 1 and "imovel_distrito" not in b.inseridas[0]
+
+
+_NAT = {2: "Apartamento", 19: "Moradia", 1: "Andar de Moradia"}
+_EST = {2: "Disponível", 4: "Reservado"}
+_LOC = {73672: "Tavarede", 73517: "Figueira da Foz", 620: ""}  # "" = país
+
+
+def test_pref_de_api_traduz_os_codigos_para_os_nomes_do_relatorio():
+    p = {"BusinessSearch": "1", "NatureSearch": "19,2", "RealestateStatusSearch": "2,4", "LocationSearch": "73672", "RoomMin": 3,
+         "PriceMin": 100000.0, "PriceMax": 150000.0}
+    assert eo.pref_de_api(p, _NAT, _EST, _LOC.get) == {
+        "pref_negocio": "Venda", "pref_natureza": "Apartamento,Moradia", "pref_disponibilidade": "Disponível,Reservado",
+        "pref_zona": "Tavarede", "pref_tipologia": "T3", "pref_preco_min": 100000.0, "pref_orcamento_max": 150000.0}
+
+
+def test_pref_de_api_nunca_grava_o_codigo_cru():
+    p = {"BusinessSearch": 99, "NatureSearch": "2,999", "RealestateStatusSearch": "2,999", "LocationSearch": "620", "RoomMin": None}
+    assert eo.pref_de_api(p, _NAT, _EST, _LOC.get) == {}, "negócio, natureza, estado e país fora das tabelas: tudo vazio"
+    assert eo.pref_de_api({"LocationSearch": "73672,620"}, _NAT, _EST, _LOC.get) == {}, "uma zona sem nome deixa a zona toda vazia"
+    assert eo.pref_de_api({"BusinessSearch": 2}, {}, {}, _LOC.get) == {"pref_negocio": "Arrendamento"}
+
+
+def test_cria_e_grava_as_preferencias_pelo_rpc_sem_parar_se_falharem(bd, monkeypatch):
+    b = bd()
+    monkeypatch.setattr(eo.ego_api, "naturezas_de_imovel", lambda: _NAT)
+    monkeypatch.setattr(eo.ego_api, "estados_de_imovel", lambda: _EST)
+    monkeypatch.setattr(eo.ego_api, "localizacao", lambda i: ("Tavarede", 4))
+    monkeypatch.setattr(eo.ego_api, "preferencias", lambda i: {"BusinessSearch": 1, "LocationSearch": "73672", "RoomMin": 2})
+    r = eo.criar_em_falta([_o("VEN_1")], gravar=True)
+    assert r["prefs"] == {"com_prefs": 1, "erros": 0}
+    nome, args = [x for x in b.rpcs if x[0] == "bulk_update_prefs"][0]
+    assert args == {"updates": [{"oportunidade_ref": "VEN_1", "pref_negocio": "Venda", "pref_zona": "Tavarede", "pref_tipologia": "T2"}]}
+
+    def _rebenta(i):
+        raise RuntimeError("503")
+
+    monkeypatch.setattr(eo.ego_api, "preferencias", _rebenta)
+    r = eo.criar_em_falta([_o("VEN_1")], gravar=True)
+    assert r["criadas"] == 1 and r["prefs"] == {"com_prefs": 0, "erros": 1}, "falha nas preferências não desfaz a criação"
