@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import require_auth, require_sync_access
 from app.config import settings
-from app.integrations import ego_api, ego_notas, tarefas_api
+from app.integrations import ego_api, ego_notas, ego_oportunidades, tarefas_api
 from app.notificacoes import falha_de_sync
 from app.db.supabase_client import get_supabase
 
@@ -187,14 +187,20 @@ _JANELA_NOTAS_DIAS = 7  # notas escritas nos últimos dias (1 por oportunidade e
 def reconciliar_notas() -> dict:
     """Notas novas das oportunidades ativas pela API (fase A2). Com `NOTAS_API_EGO` vazio só conta; ligado, grava (INSERT linha a linha).
     Os triggers de IA disparam por nota (ver plano): duas notas da mesma oportunidade no mesmo dia podem repetir a extração."""
-    por_gravar = ego_notas.novas((date.today() - timedelta(days=_JANELA_NOTAS_DIAS)).isoformat())
+    ativas = ego_api.oportunidades_ativas()
+    try:  # primeiro as oportunidades novas que o relatório ainda não trouxe, para as notas delas terem onde se prender (FK)
+        oportunidades = ego_oportunidades.criar_em_falta(ativas, bool(settings.oportunidades_api_ego))
+    except Exception:
+        logger.exception("Falha a criar as oportunidades em falta")
+        oportunidades = {"erro": True}
+    por_gravar = ego_notas.novas((date.today() - timedelta(days=_JANELA_NOTAS_DIAS)).isoformat(), ativas)
     if not settings.notas_api_ego:
-        return {"por_gravar": len(por_gravar), "gravadas": 0, "ligado": False}
+        return {"por_gravar": len(por_gravar), "gravadas": 0, "ligado": False, "oportunidades": oportunidades}
     agora, adiadas = ego_notas.uma_por_oportunidade(por_gravar)  # evita a corrida da IA nos triggers (ego-api-notas-rotina-plano.md)
     r = ego_notas.gravar(agora, "cron")
     return {"por_gravar": len(por_gravar), "gravadas": r["inseridas"], "adiadas": adiadas, "erros": len(r["erros"]),
             "sem_oportunidade": r.get("sem_oportunidade", 0), "autor_desconhecido": r.get("autor_desconhecido", 0),
-            "tipo_desconhecido": r.get("tipo_desconhecido", 0), "ligado": True}
+            "tipo_desconhecido": r.get("tipo_desconhecido", 0), "ligado": True, "oportunidades": oportunidades}
 
 
 @router.post("/oportunidades/sync/propostas")

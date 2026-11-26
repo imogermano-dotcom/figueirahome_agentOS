@@ -106,9 +106,9 @@ def da_bd(refs: set[str], desde: str = "") -> tuple[set[tuple], set[int]]:
             return ks, ids
 
 
-def novas(desde: str = "") -> list[dict]:
-    """Notas com texto das oportunidades ativas que ainda não estão em `notas` (só leitura)."""
-    ativas = ego_api.oportunidades_ativas()
+def novas(desde: str = "", ativas: list[dict] | None = None) -> list[dict]:
+    """Notas com texto das oportunidades ativas que ainda não estão em `notas` (só leitura). `ativas`: a lista já lida, para não a repetir."""
+    ativas = ativas if ativas is not None else ego_api.oportunidades_ativas()
     nome_de = {o["id"]: o["name"] for o in ativas if o.get("name")}
     ks, ids = da_bd(set(nome_de.values()), desde)
     return so_na_api(notas_da_api(list(nome_de)), nome_de, ks, ids, desde)

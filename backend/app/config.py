@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     lead_nova_depois_desde: str = ""
     # Fase A2: grava as notas novas das oportunidades ativas lidas pela API do eGO (cron das 04:17). Vazio = só conta (dry-run).
     notas_api_ego: str = ""
+    # Cria o esqueleto das oportunidades novas do eGO que o relatório ainda não trouxe (docs/fases/oportunidades-em-falta-pela-api-plano.md).
+    # Vazio = só conta (`criaria` no resumo da volta das notas).
+    oportunidades_api_ego: str = ""
     # F2: o endpoint das tarefas lê pela API do eGO em vez do scraper (docs/fases/tarefas-pela-api-plano.md). Vazio = scraper.
     tarefas_via_api: str = ""
 
