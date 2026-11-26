@@ -1,6 +1,6 @@
 # Oportunidades novas do eGO que o relatório demora a trazer (pedido #28, 26/11)
 
-**Plano antes de código; nada deste plano está implementado.** Sem nomes, telefones nem emails de pessoas (só contagens e referências de oportunidades).
+**Plano; implementado e ligado a 26/11 (`ego_oportunidades.py`, `OPORTUNIDADES_API_EGO=1`; o esqueleto leva também imóvel, etapa e preferências).** Sem nomes, telefones nem emails de pessoas (só contagens e referências de oportunidades).
 Continuação de `notas-dedup-e-cadencia-plano.md` e `notas-autor-e-tipo-plano.md`. É um passo pequeno da A5 de `ego-api-substituir-scrapers-plano.md`.
 
 ## Problema
