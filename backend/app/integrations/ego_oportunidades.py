@@ -27,8 +27,9 @@ def _pt(campo: dict | None) -> str | None:
 
 def esqueleto(o: dict, utilizadores: dict[int, str], etapa: str | None = None, imovel: dict | None = None) -> dict | None:
     """Linha mínima para `oportunidades`, ou `None` se não se deve criar (fechada, tipo desconhecido, sem referência).
-    `etapa` (`IsReport`) e `imovel` (a linha de `imoveis`: natureza, concelho, freguesia) só se conhecidos; preços, distrito e proprietário
-    ficam para o relatório (os preços da oportunidade são os da altura e diferem dos do imóvel em 18 % das linhas)."""
+    `etapa` (`IsReport`) e `imovel` (linha de `imoveis` + `distrito`: natureza, localização, proprietário, preços de venda e arrendamento)
+    só se conhecidos. Os preços da oportunidade são os da altura e diferem dos do imóvel em ~20 % das linhas antigas, mas numa oportunidade
+    criada hoje coincidem. `imovel_preco` (o da proposta) e a proposta ficam para o relatório."""
     if not o.get("name") or o.get("leadStage") not in _ABERTA:
         return None
     tipo = _TIPO_OPORTUNIDADE.get((o.get("masterLeadType") or {}).get("id"))
@@ -44,7 +45,11 @@ def esqueleto(o: dict, utilizadores: dict[int, str], etapa: str | None = None, i
         "origem": _pt(o.get("leadOrigin")), "sub_origem": _pt(o.get("leadSubOrigin")),
         "responsavel": utilizadores.get(o.get("assignToSecurityUserId")), "etapa_atual": etapa,
         "imovel_natureza": (imovel or {}).get("natureza"), "imovel_concelho": (imovel or {}).get("concelho"),
-        "imovel_freguesia": (imovel or {}).get("freguesia"),
+        "imovel_freguesia": (imovel or {}).get("freguesia"), "imovel_distrito": (imovel or {}).get("distrito"),
+        "imovel_proprietario": (imovel or {}).get("proprietario"),
+        "imovel_venda": (imovel or {}).get("venda_preco") or None, "imovel_arrendamento": (imovel or {}).get("arrendamento_preco") or None,
+        "ponto_situacao": o.get("situationPoint"),
+        "ponto_situacao_alterado_em": (o.get("situationPointAlterDate") or "")[:10] if o.get("situationPoint") else None,
     }
     return {k: v for k, v in linha.items() if v not in (None, "")}
 
@@ -66,6 +71,18 @@ def _contacto_unico(sb, o: dict) -> tuple[str, str] | None:
         if len(ids) == 1:
             return next(iter(ids)), "email"
     return None
+
+
+def _distritos(sb, concelhos: set[str]) -> dict[str, str]:
+    """concelho → distrito, lido de oportunidades já gravadas (o relatório trazia-o). Vazio se falhar ou não houver."""
+    if not concelhos:
+        return {}
+    try:
+        linhas = sb.table("oportunidades").select("imovel_concelho,imovel_distrito").in_("imovel_concelho", sorted(concelhos)).not_.is_("imovel_distrito", "null").limit(500).execute().data
+    except Exception as e:
+        logger.warning("oportunidades: distritos por ler (%s)", getattr(e, "code", type(e).__name__))
+        return {}
+    return {x["imovel_concelho"]: x["imovel_distrito"] for x in linhas if x.get("imovel_distrito")}
 
 
 def criar_em_falta(ativas: list[dict], gravar: bool) -> dict:
@@ -94,9 +111,12 @@ def criar_em_falta(ativas: list[dict], gravar: bool) -> dict:
     refs_im = sorted({o["realestateReference"] for o in falta if o.get("realestateReference")})
     for i in range(0, len(refs_im), 300):
         try:
-            imoveis |= {x["imovel_ref"]: x for x in sb.table("imoveis").select("imovel_ref,natureza,concelho,freguesia").in_("imovel_ref", refs_im[i:i + 300]).execute().data}
+            imoveis |= {x["imovel_ref"]: x for x in sb.table("imoveis").select("imovel_ref,natureza,concelho,freguesia,proprietario,venda_preco,arrendamento_preco").in_("imovel_ref", refs_im[i:i + 300]).execute().data}
         except Exception as e:
             logger.warning("oportunidades: imóveis por ler (%s)", getattr(e, "code", type(e).__name__))
+    distritos = _distritos(sb, {x["concelho"] for x in imoveis.values() if x.get("concelho")})
+    for x in imoveis.values():  # `imoveis` não tem distrito: sai do que as oportunidades já gravaram para o mesmo concelho
+        x["distrito"] = distritos.get(x.get("concelho"))
     prontas = [(o, esqueleto(o, utilizadores, etapas.get(o["name"]), imoveis.get(o.get("realestateReference")))) for o in falta]
     r = {"em_falta": len(falta), "saltadas": sum(1 for _, e in prontas if e is None)}
     prontas = [(o, e) for o, e in prontas if e][:MAX_POR_VOLTA]

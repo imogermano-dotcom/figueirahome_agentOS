@@ -42,15 +42,24 @@ def test_sem_pedido_nem_responsavel_os_campos_ficam_de_fora():
 
 
 class _BD:
-    def __init__(self, existem=(), contactos=None, erro_insert=None, imoveis=()):
+    def __init__(self, existem=(), contactos=None, erro_insert=None, imoveis=(), distritos=()):
         self.existem, self.contactos, self.erro_insert, self.imoveis = set(existem), contactos or {}, erro_insert, list(imoveis)
-        self.inseridas, self.rpcs, self._t, self._ph = [], [], None, None
+        self.distritos = list(distritos)
+        self.inseridas, self.rpcs, self._t, self._ph, self._cols = [], [], None, None, ""
 
     def table(self, nome):
         self._t, self._ph = nome, None
         return self
 
-    def select(self, *_):
+    def select(self, cols="*"):
+        self._cols = cols
+        return self
+
+    @property
+    def not_(self):
+        return self
+
+    def is_(self, *_):
         return self
 
     def in_(self, *_):
@@ -78,6 +87,8 @@ class _BD:
         return self
 
     def execute(self):
+        if self._t == "oportunidades" and "imovel_distrito" in self._cols:
+            return type("R", (), {"data": self.distritos})()
         if self._t == "oportunidades":
             return type("R", (), {"data": [{"oportunidade_ref": r} for r in self.existem]})()
         if self._t == "imoveis":
@@ -179,7 +190,7 @@ def test_esqueleto_leva_a_etapa_e_a_natureza_concelho_freguesia_do_imovel():
     e = eo.esqueleto(_o(), {}, "4-Qualificação", imovel)
     assert e["etapa_atual"] == "4-Qualificação" and e["imovel_natureza"] == "Apartamento"
     assert e["imovel_concelho"] == "Figueira da Foz" and e["imovel_freguesia"] == "Buarcos"
-    assert "imovel_venda" not in e and "imovel_preco" not in e and "imovel_proprietario" not in e, "os preços e o dono ficam para o relatório"
+    assert "imovel_preco" not in e and "proposta" not in e, "o preço da proposta e a proposta ficam para o relatório"
     sem = eo.esqueleto(_o(), {}, None, {"imovel_ref": "FH0001", "natureza": None, "concelho": None, "freguesia": None})
     assert "etapa_atual" not in sem and "imovel_concelho" not in sem, "sem valor não se escreve"
 
@@ -213,3 +224,25 @@ def test_etapas_ativas_tira_a_marca_de_lingua(monkeypatch):
     monkeypatch.setattr(ego_api, "_pedido", lambda *a, **k: {"totalRows": 9, "items": [{"name": "VEN_1"}]})
     with pytest.raises(ego_api.EgoApiErro):
         ego_api.etapas_ativas()
+
+
+def test_esqueleto_leva_distrito_proprietario_precos_e_ponto_de_situacao():
+    imovel = {"natureza": "Apartamento", "concelho": "Figueira da Foz", "freguesia": "Buarcos", "distrito": "Coimbra",
+              "proprietario": "Dono Teste", "venda_preco": 185000, "arrendamento_preco": 0}
+    e = eo.esqueleto(_o(situationPoint="Visita marcada", situationPointAlterDate="2026-11-26T16:59:49"), {}, None, imovel)
+    assert e["imovel_distrito"] == "Coimbra" and e["imovel_proprietario"] == "Dono Teste" and e["imovel_venda"] == 185000
+    assert "imovel_arrendamento" not in e, "preço 0 não se grava"
+    assert e["ponto_situacao"] == "Visita marcada" and e["ponto_situacao_alterado_em"] == "2026-11-26"
+    sem = eo.esqueleto(_o(situationPoint=None, situationPointAlterDate="2026-11-26T16:59:49"), {})
+    assert "ponto_situacao" not in sem and "ponto_situacao_alterado_em" not in sem
+
+
+def test_distrito_sai_das_oportunidades_ja_gravadas_e_falha_nao_impede(bd, monkeypatch):
+    b = bd(imoveis=[{"imovel_ref": "FH0001", "natureza": "Apartamento", "concelho": "Figueira da Foz", "freguesia": "Buarcos",
+                     "proprietario": None, "venda_preco": 1, "arrendamento_preco": None}],
+           distritos=[{"imovel_concelho": "Figueira da Foz", "imovel_distrito": "Coimbra"}])
+    eo.criar_em_falta([_o("VEN_1")], gravar=True)
+    assert b.inseridas[0]["imovel_distrito"] == "Coimbra" and "imovel_proprietario" not in b.inseridas[0]
+    monkeypatch.setattr(eo, "_distritos", lambda sb, c: {})
+    b = bd(imoveis=[{"imovel_ref": "FH0001", "concelho": "Figueira da Foz"}])
+    assert eo.criar_em_falta([_o("VEN_1")], gravar=True)["criadas"] == 1 and "imovel_distrito" not in b.inseridas[0]
