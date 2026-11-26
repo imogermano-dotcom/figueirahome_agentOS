@@ -227,6 +227,21 @@ async def sync_propostas_endpoint(acesso=Depends(require_sync_access)):
     return resumo
 
 
+@router.post("/oportunidades/sync/notas")
+async def sync_notas_endpoint(acesso=Depends(require_sync_access)):
+    """Só as notas novas pela API (pedido #28, 26/11): corre de hora a hora e grava 1 por oportunidade e por volta, por isso
+    3 notas da mesma oportunidade entram em 3 horas e não em 3 dias. O passo diário das propostas também as reconcilia."""
+    origem = "cron" if acesso == "sync-secret" else "manual"
+    try:
+        resumo = await asyncio.get_event_loop().run_in_executor(None, reconciliar_notas)
+    except Exception as e:
+        logger.exception("Falha na reconciliação das notas")
+        await falha_de_sync("egorealestate_notas", "notas", origem, repr(e))
+        raise HTTPException(status_code=502, detail="Falha a reconciliar as notas.")
+    await _log_execucao(resumo, origem, tipo="egorealestate_notas")
+    return resumo
+
+
 @router.get("/oportunidades/sync/log", dependencies=[Depends(require_auth)])
 async def oportunidades_sync_log_endpoint(limit: int = 20):
     def _fetch():

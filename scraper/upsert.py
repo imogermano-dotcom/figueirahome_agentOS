@@ -92,6 +92,50 @@ def _upsert_tabela(supabase, tabela: str, records: list[dict], ignoradas: dict |
     return gravados
 
 
+# Notas que o portal do Miguel copia para o eGO (`InsertNote`): voltam no relatório com este sufixo no texto, e a linha do
+# portal (com `nota_ego_id`, sem o sufixo) já está em `notas`. A chave de upsert inclui o texto, por isso não conflitavam e
+# entrava uma 2.ª linha (4 casos a 25–26/11, pedido #28). Compara-se (oportunidade, dia, 40 primeiros caracteres).
+_SUFIXO_PORTAL = "registado no portal figueira home por"
+
+
+def _chave_nota(ref: str, dia: str, texto: str | None) -> tuple[str, str, str]:
+    t = re.sub(r"\s+", " ", texto or "").strip().lower()
+    i = t.find(_SUFIXO_PORTAL)
+    if i >= 0:  # sem o sufixo, senão uma nota curta leva-o para dentro dos 40 caracteres e nunca bate
+        t = t[:i].rstrip(" —–-")
+    return ref, dia, t[:40]
+
+
+def _dia_da_nota(nota: dict) -> str:
+    if nota.get("nota_data_iso"):
+        return str(nota["nota_data_iso"])[:10]
+    m = re.match(r"(\d\d)/(\d\d)/(\d{4})", nota.get("nota_data_raw") or "")
+    return f"{m[3]}-{m[2]}-{m[1]}" if m else ""
+
+
+def _sem_notas_do_portal(supabase, notas: list[dict], saltar: bool) -> tuple[list[dict], dict]:
+    """Tira as notas do relatório que repetem uma linha do portal. `saltar` falso (DEDUP_NOTAS_PORTAL vazio) só conta
+    (`saltaria`). Uma falha na procura deixa as notas como estão: nunca se perde uma nota por isto."""
+    r = {"saltadas": 0, "saltaria": 0, "erros_procura": 0}
+    do_portal = [n for n in notas if n.get("oportunidade_ref") and _SUFIXO_PORTAL in (n.get("nota_texto") or "").lower()]
+    if not do_portal:
+        return notas, {}
+    refs = sorted({n["oportunidade_ref"] for n in do_portal})
+    ja: set = set()
+    for i in range(0, len(refs), _LOTE_LINKS):
+        try:
+            linhas = (supabase.table("notas").select("oportunidade_ref,nota_data_iso,nota_texto")
+                      .in_("oportunidade_ref", refs[i:i + _LOTE_LINKS]).not_.is_("nota_ego_id", "null").limit(1000).execute().data or [])
+        except Exception as e:  # só o código: a mensagem pode trazer texto de notas
+            logger.warning("notas do portal: procura falhou (%s)", getattr(e, "code", type(e).__name__))
+            r["erros_procura"] += 1
+            continue
+        ja |= {_chave_nota(x["oportunidade_ref"], str(x.get("nota_data_iso") or "")[:10], x.get("nota_texto")) for x in linhas}
+    repetidas = {id(n) for n in do_portal if _chave_nota(n["oportunidade_ref"], _dia_da_nota(n), n.get("nota_texto")) in ja}
+    r["saltadas" if saltar else "saltaria"] = len(repetidas)
+    return ([n for n in notas if id(n) not in repetidas] if saltar else notas), {k: v for k, v in r.items() if v}
+
+
 # Erros do Postgres que significam "este registo não dá, os outros dão" — saltar
 # e continuar, nunca abortar o lote:
 #
@@ -316,10 +360,19 @@ def run(supabase, batch: dict) -> dict:
     refs = [r["oportunidade_ref"] for r in batch["oportunidades"] if r.get("oportunidade_ref")]
     vindos = {r["oportunidade_ref"]: {k: r[k] for k in _FORA_DO_LOTE if r.get(k)} for r in batch["oportunidades"] if r.get("oportunidade_ref")}
     oportunidades = [{k: v for k, v in r.items() if k not in _FORA_DO_LOTE} for r in batch["oportunidades"]]
+    notas = batch["notas"]
+    try:  # DEDUP_NOTAS_PORTAL vazio = só conta o que saltaria
+        notas, portal = _sem_notas_do_portal(supabase, notas, bool(os.environ.get("DEDUP_NOTAS_PORTAL")))
+        if portal:
+            resumo["notas_portal"] = portal
+    except Exception:
+        logger.exception("Falha a comparar as notas com as do portal")
+        notas = batch["notas"]
+    dados = {"oportunidades": oportunidades, "notas": notas}
     for tabela in ("oportunidades", "notas", "tarefas", "visitas"):
         try:
             ignoradas: dict = {}
-            resumo[tabela] = _upsert_tabela(supabase, tabela, oportunidades if tabela == "oportunidades" else batch[tabela], ignoradas)
+            resumo[tabela] = _upsert_tabela(supabase, tabela, dados.get(tabela, batch[tabela]), ignoradas)
             if ignoradas:  # à vista no resumo do sync (agente_sync_log), não só nos logs do Fly
                 resumo[f"{tabela}_ignoradas"] = {m: len(r) for m, r in ignoradas.items()}
         except Exception:
@@ -642,6 +695,57 @@ def demo() -> None:
     ign = {}
     assert _upsert_tabela(_Op("C", codigo="23503"), "oportunidades", regs_e, ign) == 1
     assert list(ign) == ["23503: violates check constraint [estado=Criada]"], ign
+
+    # Notas do portal (pedido #28, 26/11): a cópia que volta do eGO com o sufixo repete a linha do portal.
+    class _N:
+        def __init__(self, linhas, falha=False):
+            self.linhas, self.falha, self.pedidos = linhas, falha, 0
+
+        def table(self, _):
+            return self
+
+        def select(self, *_):
+            return self
+
+        def in_(self, col, v):
+            self.refs = v
+            return self
+
+        @property
+        def not_(self):
+            return self
+
+        def is_(self, *_):
+            return self
+
+        def limit(self, _):
+            return self
+
+        def execute(self):
+            self.pedidos += 1
+            if self.falha:
+                raise APIError({"message": "texto de uma nota", "code": "57014"})
+            return type("R", (), {"data": [l for l in self.linhas if l["oportunidade_ref"] in self.refs]})()
+
+    suf = " — registado no portal Figueira Home por Fulana a 25/11/2026 11:25"
+    portal = [{"oportunidade_ref": "A", "nota_data_iso": "2026-11-25", "nota_texto": "Ligar amanhã ao  proprietário"}]
+    notas = [
+        {"oportunidade_ref": "A", "nota_data_iso": "2026-11-25", "nota_texto": "Ligar amanhã ao proprietário" + suf},   # repete o portal
+        {"oportunidade_ref": "A", "nota_data_raw": "25/11/2026", "nota_texto": "Ligar amanhã ao proprietário" + suf},   # idem, só com a data crua
+        {"oportunidade_ref": "A", "nota_data_iso": "2026-11-25", "nota_texto": "Outra nota do portal" + suf},          # não existe no portal: grava
+        {"oportunidade_ref": "A", "nota_data_iso": "2026-11-24", "nota_texto": "Ligar amanhã ao proprietário" + suf},   # outro dia: grava
+        {"oportunidade_ref": "B", "nota_data_iso": "2026-11-25", "nota_texto": "Ligar amanhã ao proprietário" + suf},   # outra oportunidade: grava
+        {"oportunidade_ref": "A", "nota_data_iso": "2026-11-25", "nota_texto": "Ligar amanhã ao proprietário"},         # sem sufixo: nem se procura
+    ]
+    bd = _N(portal)
+    fora, r = _sem_notas_do_portal(bd, notas, saltar=True)
+    assert r == {"saltadas": 2} and len(fora) == 4 and notas[0] not in fora and notas[1] not in fora, (r, len(fora))
+    fora, r = _sem_notas_do_portal(_N(portal), notas, saltar=False)
+    assert r == {"saltaria": 2} and fora == notas, "interruptor desligado: só conta"
+    fora, r = _sem_notas_do_portal(_N(portal, falha=True), notas, saltar=True)
+    assert r == {"erros_procura": 1} and fora == notas, "a procura falhou: grava tudo como hoje"
+    bd = _N(portal)
+    assert _sem_notas_do_portal(bd, [notas[5]], saltar=True) == ([notas[5]], {}) and bd.pedidos == 0, "sem sufixo não consulta"
 
     print("upsert OK")
 

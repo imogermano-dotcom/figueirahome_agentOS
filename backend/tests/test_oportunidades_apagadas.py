@@ -292,3 +292,20 @@ def test_oportunidade_apagada_ja_nao_bloqueia_a_lead(monkeypatch):
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── notas de hora a hora (pedido #28, 26/11) ─────────────────────────────
+
+def test_endpoint_das_notas_corre_so_as_notas_e_regista(monkeypatch):
+    c, avisos, registos = _cliente(monkeypatch)
+    monkeypatch.setattr(sync, "reconciliar_propostas", lambda: pytest.fail("não é para as propostas"))
+    monkeypatch.setattr(sync, "reconciliar_notas", lambda: {"por_gravar": 3, "gravadas": 1, "adiadas": 2, "ligado": True})
+    r = c.post("/api/oportunidades/sync/notas")
+    assert r.status_code == 200 and r.json()["adiadas"] == 2 and avisos == []
+    assert registos == [({"por_gravar": 3, "gravadas": 1, "adiadas": 2, "ligado": True}, "egorealestate_notas")]
+
+
+def test_falha_do_endpoint_das_notas_avisa_e_devolve_502(monkeypatch):
+    c, avisos, registos = _cliente(monkeypatch)
+    monkeypatch.setattr(sync, "reconciliar_notas", lambda: (_ for _ in ()).throw(RuntimeError("503")))
+    assert c.post("/api/oportunidades/sync/notas").status_code == 502 and len(avisos) == 1 and registos == []
