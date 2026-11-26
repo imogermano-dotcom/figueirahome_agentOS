@@ -67,8 +67,8 @@ def linha_de_nota(n: dict, utilizadores: dict[int, str] | None = None, tipos: di
     return linha
 
 
-def notas_da_api(ids: list[int]) -> list[dict]:
-    """`ListNotesByPage` das oportunidades (ids da API), em lotes de 200. `applicationId` também no corpo, senão HTTP 400."""
+def notas_da_api(ids: list[int], objeto: int = 3) -> list[dict]:
+    """`ListNotesByPage` dos objetos `ids` (3 = oportunidade, 2 = pessoa, 14 = lead de internet), em lotes de 200. `applicationId` também no corpo, senão HTTP 400."""
     saida: list[dict] = []
     with httpx.Client(timeout=120, headers={"User-Agent": ego_api._UA}) as c:
         s = ego_api._sessao_valida(c)
@@ -76,7 +76,7 @@ def notas_da_api(ids: list[int]) -> list[dict]:
             pag = 0
             while True:
                 r = c.post(f"{settings.egoapi_base_url}/note/Note/ListNotesByPage", params={"applicationId": s["application_id"]},
-                           json={"objectName": 3, "objectIds": ids[i:i + 200], "pageIndex": pag, "numberOfRecords": 1000,
+                           json={"objectName": objeto, "objectIds": ids[i:i + 200], "pageIndex": pag, "numberOfRecords": 1000,
                                  "applicationId": s["application_id"]},
                            headers={"Authorization": f"Bearer {s['token']}"})
                 r.raise_for_status()
