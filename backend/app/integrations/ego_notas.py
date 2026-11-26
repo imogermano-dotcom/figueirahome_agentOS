@@ -51,7 +51,7 @@ _TIPOS = {58: "Tarefa concluída", 81: "Ponto de Situação", 2: "Sistema", 88: 
           34889459: "Curioso", 34897825: "Vendido", 34892775: "Não é particular"}
 
 
-def linha_de_nota(n: dict, utilizadores: dict[int, str] | None = None) -> dict:
+def linha_de_nota(n: dict, utilizadores: dict[int, str] | None = None, tipos: dict[int, str] | None = None) -> dict:
     """Linha para `notas`. Autor (`securityUserId` → nome) e tipo (`historicTypeId`) só se conhecidos; url e cliente_nome copiam-se da
     oportunidade em `gravar`; `contacto_id` herda-se por RPC."""
     d = n["dia"]
@@ -62,7 +62,7 @@ def linha_de_nota(n: dict, utilizadores: dict[int, str] | None = None) -> dict:
     }
     if nome := (utilizadores or {}).get(n.get("user_id")):
         linha["nota_autor"] = nome
-    if tipo := _TIPOS.get(n.get("tipo_id")):
+    if tipo := (tipos or {}).get(n.get("tipo_id")) or _TIPOS.get(n.get("tipo_id")):  # `_TIPOS` é a reserva se o `ListNoteType` falhar
         linha["nota_tipo"] = tipo
     return linha
 
@@ -137,16 +137,21 @@ def gravar(novas_: list[dict], origem: str = "manual") -> dict:
     except Exception as e:  # sem o mapa grava sem autor; nunca pára a volta
         logger.warning("notas: utilizadores do eGO indisponíveis (%s)", type(e).__name__)
         utilizadores = {}
+    try:
+        tipos = ego_api.tipos_de_nota()
+    except Exception as e:
+        logger.warning("notas: tipos de nota do eGO indisponíveis (%s)", type(e).__name__)
+        tipos = {}
     r = {"inseridas": 0, "ego_ids": [], "erros": {}, "sem_oportunidade": 0, "autor_desconhecido": 0, "tipo_desconhecido": 0}
     for n in sorted(novas_, key=lambda x: (x["ref"], x["dia"])):
         if n["ref"] not in opp:  # oportunidade criada hoje no eGO: o relatório das 03:37 ainda não a trouxe (FK); tenta-se na volta seguinte
             r["sem_oportunidade"] += 1
             continue
         try:
-            sb.table("notas").insert({**opp.get(n["ref"], {}), **linha_de_nota(n, utilizadores)}).execute()
+            sb.table("notas").insert({**opp.get(n["ref"], {}), **linha_de_nota(n, utilizadores, tipos)}).execute()
             r["inseridas"] += 1
             r["autor_desconhecido"] += n.get("user_id") not in utilizadores
-            r["tipo_desconhecido"] += n.get("tipo_id") not in _TIPOS and n.get("tipo_id") not in (0, None)
+            r["tipo_desconhecido"] += n.get("tipo_id") not in tipos and n.get("tipo_id") not in _TIPOS and n.get("tipo_id") not in (0, None)
             r["ego_ids"].append(n["ego_id"])
         except Exception as e:
             r["erros"][str(n["ego_id"])] = repr(e)[:200]

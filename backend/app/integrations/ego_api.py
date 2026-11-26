@@ -326,6 +326,13 @@ def tarefas_pendentes(por_pagina: int = 500) -> list[dict]:
     return todas
 
 
+def tipos_de_nota() -> dict[int, str]:
+    """`historicTypeId` → nome (`ListNoteType`, 90 a 26/11). Os 14 nomes que se tinham deduzido cruzando com o relatório saíram iguais, letra a letra."""
+    d = _pedido("GET", "/note/Note/ListNoteType")
+    lista = next((v for v in d.values() if isinstance(v, list)), []) if isinstance(d, dict) else d
+    return {x["id"]: (x["name"].get("PT-PT") if isinstance(x["name"], dict) else x["name"]) for x in lista if x.get("id") and x.get("name")}
+
+
 def tipos_de_tarefa() -> dict[int, str]:
     """`eventTypeId` → nome em PT-PT (`ListTaskType`, 33 a 17/11). É o `tarefa_titulo` que o relatório sempre deu."""
     d = _pedido("GET", "/task/TaskMetadata/ListTaskType")

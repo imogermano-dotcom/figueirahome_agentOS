@@ -50,6 +50,8 @@ def test_gravar_salta_a_nota_de_oportunidade_que_ainda_nao_existe(monkeypatch):
             return type("R", (), {"data": dados})()
 
     monkeypatch.setattr(ego_notas, "get_supabase", lambda: _BD())
+    monkeypatch.setattr(ego_notas.ego_api, "utilizadores", lambda: {})
+    monkeypatch.setattr(ego_notas.ego_api, "tipos_de_nota", lambda: {})
     novas = [{"ego_id": 1, "ref": "VEN_1", "dia": "2026-11-26", "texto": "a"},
              {"ego_id": 2, "ref": "VEN_NOVA", "dia": "2026-11-26", "texto": "b"}]
     r = ego_notas.gravar(novas, "cron")
@@ -104,6 +106,7 @@ def test_gravar_conta_autor_e_tipo_desconhecidos_e_sobrevive_ao_mapa_em_baixo(mo
              {"ego_id": 2, "ref": "VEN_1", "dia": "2026-11-26", "texto": "b", "user_id": 99, "tipo_id": 12345},
              {"ego_id": 3, "ref": "VEN_1", "dia": "2026-11-26", "texto": "c", "user_id": 7, "tipo_id": 0}]
     monkeypatch.setattr(ego_notas.ego_api, "utilizadores", lambda: {7: "Consultora Teste"})
+    monkeypatch.setattr(ego_notas.ego_api, "tipos_de_nota", lambda: {})
     r = ego_notas.gravar(novas, "cron")
     assert r["inseridas"] == 3 and r["autor_desconhecido"] == 1 and r["tipo_desconhecido"] == 1, r
     assert [l.get("nota_autor") for l in inseridas] == ["Consultora Teste", None, "Consultora Teste"]
@@ -123,3 +126,19 @@ def test_codigos_de_motivo_medidos_dao_o_nome_e_os_isolados_ficam_vazios():
         assert ego_notas.linha_de_nota({**base, "tipo_id": codigo})["nota_tipo"] == nome
     # um só par no relatório não chega para fixar o nome (Desistência, Agência…): continua a contar como desconhecido
     assert "nota_tipo" not in ego_notas.linha_de_nota({**base, "tipo_id": 34887296})
+
+
+def test_tipo_da_nota_vem_do_endpoint_e_a_reserva_cobre_a_falha(monkeypatch):
+    """26/11: `ListNoteType` dá o nome de qualquer código (o 34 é «Com Tel Out»); o mapa fixo só serve se o endpoint falhar."""
+    base = {"ego_id": 1, "ref": "VEN_1", "dia": "2026-11-26", "texto": "a", "user_id": 7}
+    assert ego_notas.linha_de_nota({**base, "tipo_id": 34}, {}, {34: "Com Tel Out"})["nota_tipo"] == "Com Tel Out"
+    assert ego_notas.linha_de_nota({**base, "tipo_id": 82}, {}, {})["nota_tipo"] == "Email enviado", "reserva"
+    assert ego_notas.linha_de_nota({**base, "tipo_id": 82}, {}, {82: "Outro nome"})["nota_tipo"] == "Outro nome", "o endpoint manda"
+    assert "nota_tipo" not in ego_notas.linha_de_nota({**base, "tipo_id": 777}, {}, {34: "Com Tel Out"})
+
+
+def test_tipos_de_nota_le_o_nome_em_pt_pt(monkeypatch):
+    from app.integrations import ego_api
+
+    monkeypatch.setattr(ego_api, "_pedido", lambda *a, **k: {"items": [{"id": 34, "name": "Com Tel Out"}, {"id": 5, "name": {"PT-PT": "Sistema"}}, {"id": 0, "name": "x"}]})
+    assert ego_api.tipos_de_nota() == {34: "Com Tel Out", 5: "Sistema"}
