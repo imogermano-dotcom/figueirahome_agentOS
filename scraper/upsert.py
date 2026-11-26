@@ -117,6 +117,8 @@ _ERROS_POR_REGISTO = {
 }
 
 
+_MAX_IDS_COMPLETADOS = 200  # por corrida; o resto só se conta
+
 _LIGACAO_NOME = {"de", "da", "do", "dos", "das", "e", "a", "o"}
 
 
@@ -144,9 +146,12 @@ def _gemeos_por_telefone(supabase, limpos: list[dict], completar: bool) -> dict:
     """Pedido #27 (25/11): antes de criar uma linha com `ego_link` novo, ver se a pessoa já existe sem identificação do eGO
     (pipeline, site) com o mesmo telefone noutro formato. Uma só candidata e nome compatível: completa-a (`ego_link`,
     `ego_person_id`) para o upsert a atualizar em vez de criar outra. Várias ou nome sem relação: cria como hoje e conta.
-    Com `completar=False` só conta. Nunca levanta e nunca devolve nomes. ponytail: `ilike %9 dígitos%` não apanha números
-    guardados com espaços (~4 % das linhas); coluna normalizada na base se a medição o justificar."""
-    r = {"completados_por_telefone": 0, "completaria_por_telefone": 0, "duplicados_por_resolver": 0, "erros_procura": 0}
+    Com `completar=False` só conta. Nunca levanta e nunca devolve nomes. Candidata de assistente ou da Meta (`agente`,
+    `meta_lead_id`) não se completa: o upsert seguinte reescrevia-lhe a PK `(nome, criado_em)` (158 de 7 552, medido a 26/11).
+    `ids_completados` (só uuids) é a reversão: `ego_link` e `ego_person_id` a NULL nessa linha.
+    ponytail: `ilike %9 dígitos%` não apanha números guardados com espaços (0 nos duplicados medidos a 26/11)."""
+    r = {"completados_por_telefone": 0, "completaria_por_telefone": 0, "duplicados_por_resolver": 0, "erros_procura": 0,
+         "ids_completados": [], "ids_completados_omitidos": 0}
     com_tel = [x for x in limpos if x.get("ego_link") and (_digitos9(x.get("telefone")) | _digitos9(x.get("telemovel")))]
     if not com_tel:
         return r
@@ -164,19 +169,25 @@ def _gemeos_por_telefone(supabase, limpos: list[dict], completar: bool) -> dict:
             candidatas: dict[str, dict] = {}
             for n in _digitos9(x.get("telefone")) | _digitos9(x.get("telemovel")):
                 for coluna in ("telefone", "telemovel"):
-                    linhas = (supabase.table("contactos").select("id,nome,telefone,telemovel")
+                    linhas = (supabase.table("contactos").select("id,nome,telefone,telemovel,agente,meta_lead_id")
                               .is_("ego_link", "null").is_("ego_person_id", "null").ilike(coluna, f"%{n}%").limit(5).execute().data)
                     candidatas.update({c["id"]: c for c in linhas if n in (_digitos9(c.get("telefone")) | _digitos9(c.get("telemovel")))})
             if not candidatas:
                 continue
-            if len(candidatas) == 1 and _mesmo_nome(x.get("nome"), next(iter(candidatas.values())).get("nome")):
+            unica = next(iter(candidatas.values()))
+            if len(candidatas) == 1 and _mesmo_nome(x.get("nome"), unica.get("nome")) and not (unica.get("agente") or unica.get("meta_lead_id")):
                 if not completar:
                     r["completaria_por_telefone"] += 1
                     continue
                 (cid,) = candidatas
                 ok = (supabase.table("contactos").update({"ego_link": x["ego_link"], "ego_person_id": x.get("ego_person_id")})
                       .eq("id", cid).is_("ego_link", "null").is_("ego_person_id", "null").execute().data)
-                r["completados_por_telefone"] += 1 if ok else 0
+                if ok:
+                    r["completados_por_telefone"] += 1
+                    if len(r["ids_completados"]) < _MAX_IDS_COMPLETADOS:
+                        r["ids_completados"].append(cid)
+                    else:
+                        r["ids_completados_omitidos"] += 1
             else:
                 r["duplicados_por_resolver"] += 1
         except Exception as e:  # nunca pára o lote nem mostra o texto (traz nomes)
@@ -440,8 +451,23 @@ def demo() -> None:
              reg("Sem Telefone", "L6", None, 6)]
     bd = _Gem(base)
     r = _gemeos_por_telefone(bd, novos, completar=True)
-    assert r == {"completados_por_telefone": 1, "completaria_por_telefone": 0, "duplicados_por_resolver": 2, "erros_procura": 0}, r
+    assert r == {"completados_por_telefone": 1, "completaria_por_telefone": 0, "duplicados_por_resolver": 2, "erros_procura": 0,
+                 "ids_completados": ["a"], "ids_completados_omitidos": 0}, r
     assert bd.atualizacoes == [("a", {"ego_link": "L1", "ego_person_id": 1})], bd.atualizacoes
+    # candidata de um assistente ou da Meta: não se completa (o upsert seguinte reescrevia-lhe a PK); conta como duplicado
+    for marca in ({"agente": "a1_vendedor"}, {"meta_lead_id": "123"}):
+        bd = _Gem([{"id": "m", "nome": "Ana Maria Silva", "telefone": "912345678", "telemovel": None, "ego_link": None, "ego_person_id": None, **marca}])
+        r = _gemeos_por_telefone(bd, novos[:1], completar=True)
+        assert r["duplicados_por_resolver"] == 1 and r["completados_por_telefone"] == 0 and bd.atualizacoes == [] and r["ids_completados"] == [], (marca, r)
+    # os ids guardados têm limite por corrida; o resto só se conta
+    global _MAX_IDS_COMPLETADOS
+    maximo, _MAX_IDS_COMPLETADOS = _MAX_IDS_COMPLETADOS, 1
+    try:
+        dois = [{"id": f"p{i}", "nome": f"Pessoa {i}", "telefone": f"93000000{i}", "telemovel": None, "ego_link": None, "ego_person_id": None} for i in (1, 2)]
+        r = _gemeos_por_telefone(_Gem(dois), [reg(f"Pessoa {i}", f"N{i}", f"93000000{i}", i) for i in (1, 2)], completar=True)
+    finally:
+        _MAX_IDS_COMPLETADOS = maximo
+    assert r["completados_por_telefone"] == 2 and r["ids_completados"] == ["p1"] and r["ids_completados_omitidos"] == 1, r
     bd = _Gem(base)
     r = _gemeos_por_telefone(bd, novos, completar=False)
     assert r["completaria_por_telefone"] == 1 and r["completados_por_telefone"] == 0 and bd.atualizacoes == [], (r, bd.atualizacoes)
