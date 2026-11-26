@@ -114,8 +114,11 @@ def gravar(novas_: list[dict], origem: str = "manual") -> dict:
     for i in range(0, len(refs), 100):
         for o in sb.table("oportunidades").select("oportunidade_ref,url,cliente_nome,tipo_oportunidade").in_("oportunidade_ref", refs[i:i + 100]).execute().data:
             opp[o["oportunidade_ref"]] = {k: v for k, v in o.items() if k != "oportunidade_ref" and v is not None}
-    r = {"inseridas": 0, "ego_ids": [], "erros": {}}
+    r = {"inseridas": 0, "ego_ids": [], "erros": {}, "sem_oportunidade": 0}
     for n in sorted(novas_, key=lambda x: (x["ref"], x["dia"])):
+        if n["ref"] not in opp:  # oportunidade criada hoje no eGO: o relatório das 03:37 ainda não a trouxe (FK); tenta-se na volta seguinte
+            r["sem_oportunidade"] += 1
+            continue
         try:
             sb.table("notas").insert({**opp.get(n["ref"], {}), **linha_de_nota(n)}).execute()
             r["inseridas"] += 1
