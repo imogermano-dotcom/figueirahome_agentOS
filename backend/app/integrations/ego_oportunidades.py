@@ -25,8 +25,10 @@ def _pt(campo: dict | None) -> str | None:
     return ((campo or {}).get("nameMls") or {}).get("PT-PT")
 
 
-def esqueleto(o: dict, utilizadores: dict[int, str]) -> dict | None:
-    """Linha mínima para `oportunidades`, ou `None` se não se deve criar (fechada, tipo desconhecido, sem referência)."""
+def esqueleto(o: dict, utilizadores: dict[int, str], etapa: str | None = None, imovel: dict | None = None) -> dict | None:
+    """Linha mínima para `oportunidades`, ou `None` se não se deve criar (fechada, tipo desconhecido, sem referência).
+    `etapa` (`IsReport`) e `imovel` (a linha de `imoveis`: natureza, concelho, freguesia) só se conhecidos; preços, distrito e proprietário
+    ficam para o relatório (os preços da oportunidade são os da altura e diferem dos do imóvel em 18 % das linhas)."""
     if not o.get("name") or o.get("leadStage") not in _ABERTA:
         return None
     tipo = _TIPO_OPORTUNIDADE.get((o.get("masterLeadType") or {}).get("id"))
@@ -40,7 +42,9 @@ def esqueleto(o: dict, utilizadores: dict[int, str]) -> dict | None:
         "ego_data_criacao": (o.get("createDate") or "")[:10] or None, "data_criacao_iso": (o.get("createDate") or "")[:10] or None,
         "ego_editado_em": (o.get("alterDate") or "")[:10] or None, "imovel_ref": o.get("realestateReference"),
         "origem": _pt(o.get("leadOrigin")), "sub_origem": _pt(o.get("leadSubOrigin")),
-        "responsavel": utilizadores.get(o.get("assignToSecurityUserId")),
+        "responsavel": utilizadores.get(o.get("assignToSecurityUserId")), "etapa_atual": etapa,
+        "imovel_natureza": (imovel or {}).get("natureza"), "imovel_concelho": (imovel or {}).get("concelho"),
+        "imovel_freguesia": (imovel or {}).get("freguesia"),
     }
     return {k: v for k, v in linha.items() if v not in (None, "")}
 
@@ -81,9 +85,23 @@ def criar_em_falta(ativas: list[dict], gravar: bool) -> dict:
     except Exception as e:  # sem o mapa cria sem responsável; o relatório completa-o
         logger.warning("oportunidades: utilizadores do eGO indisponíveis (%s)", type(e).__name__)
         utilizadores = {}
-    prontas = [(o, esqueleto(o, utilizadores)) for o in falta]
+    try:  # a etapa vem de outra lista da API; sem ela cria sem etapa e o relatório completa
+        etapas = ego_api.etapas_ativas()
+    except Exception as e:
+        logger.warning("oportunidades: etapas do eGO indisponíveis (%s)", type(e).__name__)
+        etapas = {}
+    imoveis: dict[str, dict] = {}
+    refs_im = sorted({o["realestateReference"] for o in falta if o.get("realestateReference")})
+    for i in range(0, len(refs_im), 300):
+        try:
+            imoveis |= {x["imovel_ref"]: x for x in sb.table("imoveis").select("imovel_ref,natureza,concelho,freguesia").in_("imovel_ref", refs_im[i:i + 300]).execute().data}
+        except Exception as e:
+            logger.warning("oportunidades: imóveis por ler (%s)", getattr(e, "code", type(e).__name__))
+    prontas = [(o, esqueleto(o, utilizadores, etapas.get(o["name"]), imoveis.get(o.get("realestateReference")))) for o in falta]
     r = {"em_falta": len(falta), "saltadas": sum(1 for _, e in prontas if e is None)}
     prontas = [(o, e) for o, e in prontas if e][:MAX_POR_VOLTA]
+    r["com_etapa"] = sum(1 for _, e in prontas if e.get("etapa_atual"))
+    r["com_imovel"] = sum(1 for _, e in prontas if e.get("imovel_concelho"))
     if not gravar:
         r["criaria"] = len(prontas)
         return r

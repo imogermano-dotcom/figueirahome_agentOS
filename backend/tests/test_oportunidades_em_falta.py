@@ -42,8 +42,8 @@ def test_sem_pedido_nem_responsavel_os_campos_ficam_de_fora():
 
 
 class _BD:
-    def __init__(self, existem=(), contactos=None, erro_insert=None):
-        self.existem, self.contactos, self.erro_insert = set(existem), contactos or {}, erro_insert
+    def __init__(self, existem=(), contactos=None, erro_insert=None, imoveis=()):
+        self.existem, self.contactos, self.erro_insert, self.imoveis = set(existem), contactos or {}, erro_insert, list(imoveis)
         self.inseridas, self.rpcs, self._t, self._ph = [], [], None, None
 
     def table(self, nome):
@@ -80,6 +80,8 @@ class _BD:
     def execute(self):
         if self._t == "oportunidades":
             return type("R", (), {"data": [{"oportunidade_ref": r} for r in self.existem]})()
+        if self._t == "imoveis":
+            return type("R", (), {"data": self.imoveis})()
         if self._t == "contactos":
             return type("R", (), {"data": [{"id": i} for i in self.contactos.get(self._ph, [])]})()
         return type("R", (), {"data": []})()
@@ -91,6 +93,7 @@ def bd(monkeypatch):
         b = _BD(**kw)
         monkeypatch.setattr(eo, "get_supabase", lambda: b)
         monkeypatch.setattr(eo.ego_api, "utilizadores", lambda: {7: "Consultora Teste"})
+        monkeypatch.setattr(eo.ego_api, "etapas_ativas", lambda: {"VEN_1": "4-Qualificação"})
         return b
     return montar
 
@@ -98,7 +101,7 @@ def bd(monkeypatch):
 def test_so_conta_quando_o_interruptor_esta_desligado(bd):
     b = bd(existem={"VEN_0"})
     r = eo.criar_em_falta([_o("VEN_0"), _o("VEN_1"), _o("VEN_2", leadStage=3)], gravar=False)
-    assert r == {"em_falta": 2, "saltadas": 1, "criaria": 1} and b.inseridas == []
+    assert r == {"em_falta": 2, "saltadas": 1, "criaria": 1, "com_etapa": 1, "com_imovel": 0} and b.inseridas == []
 
 
 def test_cria_so_as_que_faltam_e_nunca_toca_nas_que_existem(bd):
@@ -169,3 +172,44 @@ def test_volta_das_notas_cria_as_oportunidades_antes_e_nao_cai_se_falhar(monkeyp
 
     monkeypatch.setattr(sync.ego_oportunidades, "criar_em_falta", _rebenta)
     assert sync.reconciliar_notas()["oportunidades"] == {"erro": True}, "uma falha aqui não pára as notas"
+
+
+def test_esqueleto_leva_a_etapa_e_a_natureza_concelho_freguesia_do_imovel():
+    imovel = {"imovel_ref": "FH0001", "natureza": "Apartamento", "concelho": "Figueira da Foz", "freguesia": "Buarcos", "venda_preco": 1}
+    e = eo.esqueleto(_o(), {}, "4-Qualificação", imovel)
+    assert e["etapa_atual"] == "4-Qualificação" and e["imovel_natureza"] == "Apartamento"
+    assert e["imovel_concelho"] == "Figueira da Foz" and e["imovel_freguesia"] == "Buarcos"
+    assert "imovel_venda" not in e and "imovel_preco" not in e and "imovel_proprietario" not in e, "os preços e o dono ficam para o relatório"
+    sem = eo.esqueleto(_o(), {}, None, {"imovel_ref": "FH0001", "natureza": None, "concelho": None, "freguesia": None})
+    assert "etapa_atual" not in sem and "imovel_concelho" not in sem, "sem valor não se escreve"
+
+
+def test_cria_com_a_etapa_da_api_e_o_imovel_da_nossa_tabela(bd):
+    b = bd(imoveis=[{"imovel_ref": "FH0001", "natureza": "Apartamento", "concelho": "Figueira da Foz", "freguesia": "Buarcos"}])
+    r = eo.criar_em_falta([_o("VEN_1"), _o("VEN_2", realestateReference="FH9999")], gravar=True)
+    um, dois = b.inseridas
+    assert um["etapa_atual"] == "4-Qualificação" and um["imovel_concelho"] == "Figueira da Foz"
+    assert "etapa_atual" not in dois and "imovel_concelho" not in dois, "sem etapa na API nem imóvel na BD: cria sem eles"
+    assert r["com_etapa"] == 1 and r["com_imovel"] == 1
+
+
+def test_etapas_ou_imoveis_em_baixo_nao_impedem_de_criar(bd, monkeypatch):
+    b = bd()
+
+    def _rebenta():
+        raise RuntimeError("503")
+
+    monkeypatch.setattr(eo.ego_api, "etapas_ativas", _rebenta)
+    r = eo.criar_em_falta([_o("VEN_1")], gravar=True)
+    assert r["criadas"] == 1 and "etapa_atual" not in b.inseridas[0]
+
+
+def test_etapas_ativas_tira_a_marca_de_lingua(monkeypatch):
+    from app.integrations import ego_api
+
+    monkeypatch.setattr(ego_api, "_pedido", lambda *a, **k: {"totalRows": 3, "items": [
+        {"name": "VEN_1", "timelineName": "[PT-PT]8-Fecho[/PT-PT]"}, {"name": "VEN_2", "timelineName": "4-Qualificação"}, {"name": "VEN_3", "timelineName": None}]})
+    assert ego_api.etapas_ativas() == {"VEN_1": "8-Fecho", "VEN_2": "4-Qualificação"}
+    monkeypatch.setattr(ego_api, "_pedido", lambda *a, **k: {"totalRows": 9, "items": [{"name": "VEN_1"}]})
+    with pytest.raises(ego_api.EgoApiErro):
+        ego_api.etapas_ativas()

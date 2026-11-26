@@ -6,6 +6,7 @@ Escritas só pelo caminho de `leads_para_ego`: nunca `UpdateEntity` (ver o incid
 """
 
 import logging
+import re
 import threading
 import time
 from datetime import datetime, timedelta
@@ -278,6 +279,17 @@ def oportunidades_ativas() -> list[dict]:
     if isinstance(d, dict) and d.get("totalRows", len(lista)) > len(lista):
         raise EgoApiErro(f"oportunidades ativas: página incompleta ({len(lista)} de {d['totalRows']})")
     return lista
+
+
+def etapas_ativas() -> dict[str, str]:
+    """`referência → etapa` das ativas (`ListOpportunityByPageIsReport`, o mesmo corpo da lista; `timelineName` vem como `[PT-PT]4-Qualificação[/PT-PT]`).
+    Medido a 26/11: igual à `etapa_atual` da BD em 2 389 de 2 389 oportunidades com valor nos dois lados. Levanta se a página vier incompleta."""
+    d = _pedido("POST", "/lead/Opportunity/ListOpportunityByPageIsReport", json={"leadArchived": 0})
+    lista = next((v for v in d.values() if isinstance(v, list)), []) if isinstance(d, dict) else d
+    if isinstance(d, dict) and d.get("totalRows", len(lista)) > len(lista):
+        raise EgoApiErro(f"etapas das ativas: página incompleta ({len(lista)} de {d['totalRows']})")
+    limpa = lambda t: re.sub(r"\[/?PT-PT\]", "", str(t or "")).strip()
+    return {o["name"]: limpa(o.get("timelineName")) for o in lista if o.get("name") and limpa(o.get("timelineName"))}
 
 
 def refs_ativas() -> set[str]:
