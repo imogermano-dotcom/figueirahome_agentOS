@@ -240,7 +240,8 @@ def campos_da_api(o: dict, etapa: str | None, utilizadores: dict[int, str]) -> d
     v = {
         "oportunidade_estado": _ESTADO.get(o.get("leadStage")), "tipo_oportunidade": _TIPO_OPORTUNIDADE.get((o.get("masterLeadType") or {}).get("id")),
         "tipo_pedido": _TIPO_PEDIDO.get(o.get("leadTypeId")), "origem": _pt(o.get("leadOrigin")), "sub_origem": _pt(o.get("leadSubOrigin")),
-        "responsavel": utilizadores.get(o.get("assignToSecurityUserId")), "etapa_atual": etapa, "estado_fechado_em": _dia(o.get("closedDate")),
+        "responsavel": utilizadores.get(o.get("assignToSecurityUserId")), "etapa_atual": etapa,
+        "estado_fechado_em": _dia(o.get("closedDate")) if o.get("leadStage") in (2, 3) else None,  # numa Ativa (reaberta) o closedDate é histórico
         "ponto_situacao": o.get("situationPoint"), "ponto_situacao_alterado_em": _dia(o.get("situationPointAlterDate")) if o.get("situationPoint") else None,
         "valor_negocio": valor, "data_escritura": _dia(o.get("businessExecutionDate")), "portal": _PORTAL.get(o.get("portalId")),
         "ego_editado_em": _dia(o.get("alterDate")),

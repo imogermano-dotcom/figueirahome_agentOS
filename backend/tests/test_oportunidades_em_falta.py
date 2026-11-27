@@ -305,6 +305,8 @@ def test_campos_da_api_so_leva_o_que_a_api_da_e_traduz_o_portal():
     assert c["estado_fechado_em"] == "2026-11-20" and c["etapa_atual"] == "8-Fecho" and c["responsavel"] == "Consultora Teste"
     assert "cliente_nome" not in c and "imovel_venda" not in c and "pref_zona" not in c, "cliente, imóvel e preferências não se escrevem pela API"
     assert "portal" not in eo.campos_da_api(_o(portalId=99999), None, {}), "portal desconhecido fica vazio"
+    assert "estado_fechado_em" not in eo.campos_da_api(_o(leadStage=1, closedDate="2025-05-01T10:00:00"), None, {}), "Ativa reaberta: data de fecho histórica não se escreve"
+    assert eo.campos_da_api(_o(leadStage=2, closedDate="2026-06-01T10:00:00"), None, {})["estado_fechado_em"] == "2026-06-01"
 
 
 def test_atrasada_a_api_manda_e_atualiza_o_que_mudou():
