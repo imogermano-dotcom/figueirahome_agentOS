@@ -560,6 +560,152 @@ def test_cron_sem_consultora_conta_erro_e_nao_marca(monkeypatch):
     assert (r["criadas"], r["erros"]) == (0, 1) and bd.updates == []
 
 
+# ── lead criada à entrada (pedido #17, 27/11): o n8n chama `entrada_meta` logo a seguir ao RPC ─────────────────────────
+
+
+OPTIN_SIM = "sim, aceito receber informações pelo whatsapp"
+
+
+class _BDReserva(_BD):
+    """Como `_BD`, mas a reserva (update só de `ego_lead_em` com valor) pode perder a corrida."""
+
+    perde = False
+
+    def execute(self):
+        if self.perde and self._t == "contactos" and self._upd and self._upd.get("ego_lead_em") and len(self._upd) == 1:
+            return type("R", (), {"data": []})()
+        return super().execute()
+
+
+def _entrada(monkeypatch, linha=None, *, perde=False, **kw):
+    bd, enviados = _recusa(monkeypatch, linha, **kw)
+    bd = _BDReserva(bd.contactos, bd.oportunidade)
+    bd.perde = perde
+    monkeypatch.setattr(lp, "get_supabase", lambda: bd)
+    monkeypatch.setattr(settings, "lead_entrada_ego", "1")
+    return bd, enviados
+
+
+def test_entrada_cria_logo_com_obs_de_lead_nova_e_reserva_antes(monkeypatch):
+    bd, enviados = _entrada(monkeypatch)
+    r = lp.entrada_meta("m1", None, OPTIN_SIM)
+    assert r["resultado"] == "criada" and r["criada"] and len(enviados) == 1
+    obs = enviados[0][3]
+    assert "acabou de entrar" in obs and "recusou" not in obs and "sem resposta" not in obs
+    assert bd.updates[0][1].keys() == {"ego_lead_em"}, "1.º a reserva"
+    assert len(bd.updates) == 2 and "ego_lead_em" in bd.updates[1][1], "depois a marca final"
+    assert bd.registos[-1]["resumo"]["via"] == "entrada"
+
+
+@pytest.mark.parametrize("desde,entrada", [("2026-10-17T00:00:00+00:00", ""), ("", "1")])
+def test_entrada_desligada_nao_toca_em_nada(monkeypatch, desde, entrada):
+    monkeypatch.setattr(settings, "lead_compra_ego_desde", desde)
+    monkeypatch.setattr(settings, "lead_entrada_ego", entrada)
+    monkeypatch.setattr(lp, "get_supabase", lambda: pytest.fail("não devia tocar na BD"))
+    assert lp.entrada_meta("m1", None, OPTIN_SIM) == {"resultado": "desligado", "criada": False}
+
+
+@pytest.mark.parametrize("resposta", ["não, obrigado", "Nao", "", None])
+def test_entrada_de_quem_recusa_fica_para_o_ramo_da_recusa(monkeypatch, resposta):
+    monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
+    monkeypatch.setattr(settings, "lead_entrada_ego", "1")
+    monkeypatch.setattr(lp, "get_supabase", lambda: pytest.fail("não devia tocar na BD"))
+    assert lp.entrada_meta("m1", None, resposta) == {"resultado": "recusa", "criada": False}
+
+
+def test_entrada_ja_tratada_nao_repete(monkeypatch):
+    bd, enviados = _entrada(monkeypatch, linha=_linha(ego_lead_em=ISO(1), meta_lead_id="m1", criado_em=ISO(1)))
+    assert lp.entrada_meta("m1", None, OPTIN_SIM) == {"resultado": "ja_tratada"} and enviados == [] and bd.updates == []
+
+
+def test_entrada_que_perde_a_reserva_nao_chega_ao_eGO(monkeypatch):
+    """Webhook da Meta repetido ou n8n em repetição: só uma chamada cria a lead."""
+    bd, enviados = _entrada(monkeypatch, perde=True)
+    assert lp.entrada_meta("m1", None, OPTIN_SIM) == {"resultado": "ja_tratada"} and enviados == []
+
+
+def test_entrada_com_falha_do_eGO_liberta_a_reserva_e_levanta(monkeypatch):
+    bd, _ = _entrada(monkeypatch)
+
+    def rebenta(*a):
+        raise RuntimeError("PUT falhou")
+
+    monkeypatch.setattr(lp.egorealestate, "inserir_lead_webapi", rebenta)
+    with pytest.raises(RuntimeError):
+        lp.entrada_meta("m1", None, OPTIN_SIM)
+    assert bd.updates[-1] == ("c1", {"ego_lead_em": None}), "o cron apanha-a 2 h depois"
+
+
+def test_entrada_sem_consultora_liberta_a_reserva_e_diz_porque(monkeypatch):
+    bd, _ = _entrada(monkeypatch)
+
+    def sem(*a, **k):
+        raise lp.SemConsultora("sem imóvel")
+
+    monkeypatch.setattr(lp, "_criar_lead", sem)
+    r = lp.entrada_meta("m1", None, OPTIN_SIM)
+    assert r["resultado"] == "sem_consultora" and not r["criada"] and bd.updates[-1] == ("c1", {"ego_lead_em": None})
+
+
+def test_entrada_sem_email_liberta_a_reserva(monkeypatch):
+    bd, enviados = _entrada(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em=ISO(1), email=None, template_enviado_em=None))
+    r = lp.entrada_meta("m1", None, OPTIN_SIM)
+    assert r["resultado"] == "sem_email" and enviados == [] and bd.updates[-1] == ("c1", {"ego_lead_em": None})
+
+
+def test_entrada_de_pessoa_com_oportunidade_ativa_nao_cria_e_fica_marcada(monkeypatch):
+    bd, enviados = _entrada(monkeypatch, responsavel="Ana Teste")
+    r = lp.entrada_meta("m1", None, OPTIN_SIM)
+    assert r["resultado"] == "oportunidade_ativa" and r["email_responsavel"] == "ana@example.com" and enviados == []
+    assert bd.updates[-1][1]["ego_lead_em"], "a marca fica: o cron não volta a tratá-la"
+
+
+def test_entrada_o_imovel_do_n8n_manda_e_o_do_contacto_nao_e_reescrito(monkeypatch):
+    """Numa reentrada `contactos.imovel_ref` é o da 1.ª entrada: a lead leva o novo, o contacto fica como estava."""
+    vistos = []
+    bd, _ = _entrada(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em=ISO(1), imovel_ref="FH0001", template_enviado_em=None))
+    monkeypatch.setattr(lp, "_ego_id_do_imovel", lambda ref: vistos.append(ref) or 1)
+    assert lp.entrada_meta("m1", "FH0002", OPTIN_SIM)["criada"]
+    assert vistos == ["FH0002"] and "imovel_ref" not in bd.updates[-1][1]
+
+
+def test_entrada_grava_o_imovel_quando_o_contacto_nao_o_tem(monkeypatch):
+    """O RPC da compra só grava `imovel_ref` em `leads`: o n8n traz-o e fica no contacto para os follow-ups."""
+    bd, _ = _entrada(monkeypatch, linha=_linha(meta_lead_id="m1", criado_em=ISO(1), imovel_ref=None, template_enviado_em=None))
+    assert lp.entrada_meta("m1", "FH0002", OPTIN_SIM)["criada"] and bd.updates[-1][1]["imovel_ref"] == "FH0002"
+
+
+def test_entrada_de_contacto_inexistente(monkeypatch):
+    monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
+    monkeypatch.setattr(settings, "lead_entrada_ego", "1")
+    monkeypatch.setattr(lp, "get_supabase", lambda: _BD([]))
+    assert lp.entrada_meta("nao-existe", None, OPTIN_SIM) is None
+
+
+def test_endpoint_da_entrada_passa_os_parametros_e_avisa_com_502(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.api.deps import require_n8n_access
+    from app.main import app
+
+    url = "/api/leads/meta/m1/entrada?imovel_ref=FH0001&whatsapp_optin=sim"
+    assert TestClient(app).post(url).status_code == 401
+    app.dependency_overrides[require_n8n_access] = lambda: "teste"
+    try:
+        vistos = []
+        c = TestClient(app)
+        monkeypatch.setattr(lp, "entrada_meta", lambda *a: vistos.append(a) or None)
+        assert c.post(url).status_code == 404 and vistos == [("m1", "FH0001", "sim")]
+        for r in ("sem_consultora", "sem_email"):  # a lead fica por criar: o n8n tem de avisar
+            monkeypatch.setattr(lp, "entrada_meta", lambda *a, r=r: {"resultado": r, "criada": False})
+            resp = c.post(url)
+            assert resp.status_code == 502 and resp.json()["detail"]["resultado"] == r
+        for r in ("criada", "ja_na_caixa", "oportunidade_ativa", "ja_tratada", "recusa", "desligado"):
+            monkeypatch.setattr(lp, "entrada_meta", lambda *a, r=r: {"resultado": r})
+            assert c.post(url).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
 

@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     # de internetlead/insert no utilizador da API). Muda-se no Fly sem deploy.
     ego_criar_lead_por: str = "webapi"
     lead_compra_ego_desde: str = ""
+    # Pedido #17 (27/11): o n8n cria a lead no eGO à entrada (`POST /api/leads/meta/{id}/entrada`). Vazio = o endpoint não faz nada.
+    lead_entrada_ego: str = ""
     # Pedido #17: quem responde à Matilde com interesse real também vira lead no eGO. Vazio = desligado (nada se marca).
     lead_interesse_ego: str = ""
     # Compradores Meta que responderam à Matilde e deixaram a conversa parada: criar a lead no eGO (vazio = desligado).

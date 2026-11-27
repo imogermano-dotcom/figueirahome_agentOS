@@ -139,6 +139,9 @@ def observacao_da_lead(linha: dict, com_imovel: bool, recusou: bool = False, ja_
                "respondeu à Matilde mas a conversa parou sem pedido de visita.",
                f"Disse: {resumo}" if resumo else "", "Contactar por telefone ou WhatsApp."]
         obs = [o for o in obs if o]
+    elif linha.get("acabou_de_entrar"):  # criada à entrada (pedido #17, 27/11): ainda não há conversa
+        obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads",
+               "acabou de entrar: a Matilde vai contactá-la por WhatsApp (ainda sem conversa)."]
     else:
         obs = [f"Lead Meta Ads (anúncio {linha['ad_name']})" if linha.get("ad_name") else "Lead Meta Ads",
                "recusou o WhatsApp: contactar por telefone, nunca por WhatsApp." if recusou
@@ -874,22 +877,37 @@ def recusou_whatsapp(meta_lead_id: str, imovel_ref: str | None = None) -> dict |
     Desligado com `LEAD_COMPRA_EGO_DESDE` vazio, e nunca para contactos anteriores a essa data (o histórico não)."""
     if not settings.lead_compra_ego_desde:
         return {"resultado": "desligado", "criada": False}
+    linha = _ler_entrada(meta_lead_id)
+    if linha is None:
+        return None
+    if parar := _travao_da_entrada(linha):
+        return parar
+    # o RPC da compra não grava `imovel_ref` em `contactos` para quem recusa: vem do n8n, ou do nome do anúncio
+    linha["imovel_ref"] = linha.get("imovel_ref") or (imovel_ref or "").strip() or ref_do_anuncio(linha.get("ad_name"))
+    return _criar_pela_entrada(linha, datetime.now(timezone.utc), recusou=True, via="recusa")
+
+
+def _ler_entrada(meta_lead_id: str) -> dict | None:
     linhas = (get_supabase().table("contactos").select(_COLUNAS)
               .eq("meta_lead_id", meta_lead_id).limit(1).execute().data)
-    if not linhas:
-        return None
-    linha = linhas[0]
-    if vale_para_a_entrada(linha, "ego_lead_em"):  # uma marca de entrada anterior não trata esta recusa
+    return linhas[0] if linhas else None
+
+
+def _travao_da_entrada(linha: dict) -> dict | None:
+    """Resposta de quem não deve criar nada: já tratada, ou entrada anterior à ativação. `None` = pode seguir."""
+    if vale_para_a_entrada(linha, "ego_lead_em"):  # uma marca de entrada anterior não trata esta entrada
         return {"resultado": "ja_tratada"}
     # compara-se por dia (a data de ativação é um dia) e pela entrada da lead Meta, não pelo `criado_em` do contacto
     if entrou_pela_meta_em(linha) < str(settings.lead_compra_ego_desde)[:10]:
         return {"resultado": "anterior_a_ativacao", "criada": False}
-    agora = datetime.now(timezone.utc)
+    return None
+
+
+def _criar_pela_entrada(linha: dict, agora: datetime, *, recusou: bool, via: str, gravar_imovel: bool = True) -> dict:
+    """Parte comum da recusa e da entrada: confirma a caixa e as oportunidades ativas, cria a lead, marca, devolve o resultado.
+    Falha do PUT levanta (nada marcado); `gravar_imovel` falso deixa o `imovel_ref` do contacto como está."""
     tel = telefone_da_linha(linha)
     email = linha.get("email")
-    # o RPC da compra não grava `imovel_ref` em `contactos` para quem recusa: vem do n8n, ou do nome do anúncio
-    linha["imovel_ref"] = linha.get("imovel_ref") or (imovel_ref or "").strip() or ref_do_anuncio(linha.get("ad_name"))
-
     try:
         leads = ego_api.leads_abertas()
         na_caixa = bool(_lead_da_caixa(linha, leads))
@@ -911,19 +929,70 @@ def recusou_whatsapp(meta_lead_id: str, imovel_ref: str | None = None) -> dict |
     else:
         resultado = "criada"
         try:
-            id_lead = _criar_lead(linha, tel, recusou=True, ja_conhecido=_contacto_conhecido(linha, tel))
+            id_lead = _criar_lead(linha, tel, recusou=recusou, ja_conhecido=_contacto_conhecido(linha, tel))
         except SemConsultora as e:  # não marca: o email diz para criar à mão
-            logger.warning("Recusa %s: lead não criada (%s)", linha["id"], e)
+            logger.warning("Entrada %s (%s): lead não criada (%s)", linha["id"], via, e)
             return {"resultado": "sem_consultora", "criada": False, "verificado_no_ego": verificado,
                     "responsavel": None, "email_responsavel": None}
         if not id_lead and verificado:  # a Web API não devolve o id: apanha-se na caixa do eGO (melhor esforço)
             id_lead = _id_da_lead(tel, email)
         if id_lead:
             marca["ego_lead_id"] = id_lead
-    if linha.get("imovel_ref"):
+    if linha.get("imovel_ref") and gravar_imovel:
         marca["imovel_ref"] = linha["imovel_ref"]  # fica para os follow-ups e para quem ler o contacto
     get_supabase().table("contactos").update(marca).eq("id", linha["id"]).execute()
     fechar_tarefas_da_lead(linha)
-    registar_marcas("recusa", agora, [linha["id"]], resultado=resultado)
+    registar_marcas(via, agora, [linha["id"]], resultado=resultado)
     return {"resultado": resultado, "criada": resultado == "criada", "verificado_no_ego": verificado,
             "responsavel": responsavel, "email_responsavel": _email_do_responsavel(responsavel)}
+
+
+def aceitou_whatsapp(resposta: str | None) -> bool:
+    """A resposta crua do formulário começa por «sim»: a regra do `Guardas` do n8n. Nunca `whatsapp_permissao`, que o RPC pode
+    calcular de forma laxa (o de angariação marcava True a quem recusava). Sem resposta conta como recusa."""
+    return (resposta or "").strip().lower().startswith("sim")
+
+
+def _reservar(linha: dict, agora: datetime) -> bool:
+    """Reserva a criação: `ego_lead_em` só passa do valor que lemos para `agora` uma vez. Quem perde (webhook repetido da Meta,
+    n8n em repetição) não chega ao eGO e não cria uma 2.ª lead."""
+    q = get_supabase().table("contactos").update({"ego_lead_em": agora.isoformat()}).eq("id", linha["id"])
+    q = q.eq("ego_lead_em", linha["ego_lead_em"]) if linha.get("ego_lead_em") else q.is_("ego_lead_em", "null")
+    return bool(q.execute().data)
+
+
+def _libertar(linha: dict) -> None:
+    """Repõe a marca que a linha tinha antes da reserva (a lead não ficou criada: o cron apanha-a 2 h depois)."""
+    get_supabase().table("contactos").update({"ego_lead_em": linha.get("ego_lead_em")}).eq("id", linha["id"]).execute()
+
+
+def entrada_meta(meta_lead_id: str, imovel_ref: str | None = None, whatsapp_optin: str | None = None) -> dict | None:
+    """Lead de compra que acabou de entrar no Supabase: cria-a no eGO já, sem esperar a conversa (pedido #17, chamado pelo n8n logo
+    a seguir ao RPC). Mesmos casos de `recusou_whatsapp`, mais a reserva antes de chamar o eGO.
+
+    Só quem aceitou o WhatsApp: quem recusa já é tratado pelo ramo da recusa do fluxo do template (`resultado: recusa`, nada feito).
+    Desligado com `LEAD_ENTRADA_EGO` ou `LEAD_COMPRA_EGO_DESDE` vazios. `None` = contacto inexistente. Não cria sem email nem sem
+    consultora: nesses casos liberta a reserva e diz porquê (o endpoint responde 502 para o n8n avisar). Falha do eGO levanta."""
+    if not (settings.lead_compra_ego_desde and settings.lead_entrada_ego):
+        return {"resultado": "desligado", "criada": False}
+    if not aceitou_whatsapp(whatsapp_optin):
+        return {"resultado": "recusa", "criada": False}
+    linha = _ler_entrada(meta_lead_id)
+    if linha is None:
+        return None
+    if parar := _travao_da_entrada(linha):
+        return parar
+    tinha_imovel = linha.get("imovel_ref")  # numa reentrada é o da 1.ª entrada: o do n8n manda e o do contacto fica como está
+    linha["imovel_ref"] = (imovel_ref or "").strip() or tinha_imovel or ref_do_anuncio(linha.get("ad_name"))
+    linha["acabou_de_entrar"] = True
+    agora = datetime.now(timezone.utc)
+    if not _reservar(linha, agora):
+        return {"resultado": "ja_tratada"}
+    try:
+        r = _criar_pela_entrada(linha, agora, recusou=False, via="entrada", gravar_imovel=not tinha_imovel)
+    except Exception:
+        _libertar(linha)
+        raise
+    if r["resultado"] in ("sem_email", "sem_consultora"):
+        _libertar(linha)
+    return r
