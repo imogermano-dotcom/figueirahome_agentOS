@@ -193,6 +193,11 @@ def reconciliar_notas() -> dict:
     except Exception:
         logger.exception("Falha a criar as oportunidades em falta")
         oportunidades = {"erro": True}
+    try:  # depois: as que já existem ficam em dia com o eGO (a API manda nas editadas depois do relatório)
+        oportunidades["atualizar"] = ego_oportunidades.atualizar_existentes(ativas, bool(settings.oportunidades_atualizar_api_ego))
+    except Exception:
+        logger.exception("Falha a atualizar as oportunidades existentes")
+        oportunidades["atualizar"] = {"erro": True}
     por_gravar = ego_notas.novas((date.today() - timedelta(days=_JANELA_NOTAS_DIAS)).isoformat(), ativas)
     if not settings.notas_api_ego:
         return {"por_gravar": len(por_gravar), "gravadas": 0, "ligado": False, "oportunidades": oportunidades}

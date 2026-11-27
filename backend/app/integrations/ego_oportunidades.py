@@ -212,3 +212,101 @@ def criar_em_falta(ativas: list[dict], gravar: bool) -> dict:
         except Exception as ex:
             logger.warning("oportunidades: RPC set_contacto_oportunidades falhou (%s)", getattr(ex, "code", type(ex).__name__))
     return r
+
+
+# ---- P3 do plano acelerado: atualizar as oportunidades que já existem --------------------------------------------------------------
+# Medido a 26/11 em 2 669 ativas contra o relatório (`scripts/comparar_oportunidades_api_relatorio.py`): estado, tipo, origem, responsável e
+# datas ≥ 99,7 % iguais; 56 oportunidades (2,1 %) editadas no eGO depois de o relatório as ver. NÃO se escrevem pela API: cliente_* (a lista só traz
+# o título da lead, é a pessoa que o tem: P4), imovel_* (o preço da oportunidade é o da altura) e preferências (já têm extração por IA).
+MAX_ATUALIZACOES_POR_VOLTA = 300
+_PORTAL = {33: "Página Web", 700: "Idealista PT", 3500: "SUPERCASA", 328: "Imovirtual", 680: "Properstar (Free)", 24: "Casa Sapo",
+           51: "Pack Portais Mundo", 459: "Kyero Portugal"}  # `portalId` → nome (medido a 26/11 contra o relatório; um id novo fica vazio)
+COLUNAS_ATUALIZAVEIS = ("oportunidade_estado", "tipo_oportunidade", "tipo_pedido", "origem", "sub_origem", "responsavel", "etapa_atual",
+                        "estado_fechado_em", "ponto_situacao", "ponto_situacao_alterado_em", "valor_negocio", "data_escritura", "portal",
+                        "ego_editado_em")
+_ESTADO = {0: "Ativa", 1: "Ativa", 2: "Ganha", 3: "Perdida"}  # `leadStage`; o 0 era «Criada» e o scraper também o guarda como Ativa
+
+
+def _dia(v) -> str | None:
+    return str(v)[:10] if v else None
+
+
+def campos_da_api(o: dict, etapa: str | None, utilizadores: dict[int, str]) -> dict:
+    """Valores das `COLUNAS_ATUALIZAVEIS` que a API dá, no formato da BD. O que vem vazio fica de fora: nunca se escreve nulo."""
+    try:
+        valor = round(float(o["businessFinalPrice"]), 2) if o.get("businessFinalPrice") else None
+    except (TypeError, ValueError):
+        valor = None
+    v = {
+        "oportunidade_estado": _ESTADO.get(o.get("leadStage")), "tipo_oportunidade": _TIPO_OPORTUNIDADE.get((o.get("masterLeadType") or {}).get("id")),
+        "tipo_pedido": _TIPO_PEDIDO.get(o.get("leadTypeId")), "origem": _pt(o.get("leadOrigin")), "sub_origem": _pt(o.get("leadSubOrigin")),
+        "responsavel": utilizadores.get(o.get("assignToSecurityUserId")), "etapa_atual": etapa, "estado_fechado_em": _dia(o.get("closedDate")),
+        "ponto_situacao": o.get("situationPoint"), "ponto_situacao_alterado_em": _dia(o.get("situationPointAlterDate")) if o.get("situationPoint") else None,
+        "valor_negocio": valor, "data_escritura": _dia(o.get("businessExecutionDate")), "portal": _PORTAL.get(o.get("portalId")),
+        "ego_editado_em": _dia(o.get("alterDate")),
+    }
+    return {k: x for k, x in v.items() if x not in (None, "")}
+
+
+def _igual(a, b) -> bool:
+    if isinstance(a, (int, float)) or isinstance(b, (int, float)):
+        try:
+            return round(float(a), 2) == round(float(b), 2)
+        except (TypeError, ValueError):
+            return False
+    return str(a).strip().lower() == str(b).strip().lower()
+
+
+def planear_atualizacao(o: dict, linha: dict, api: dict) -> tuple[dict, bool]:
+    """(campos a escrever, atrasada). Atrasada = a edição da API é de um dia posterior ao `ego_editado_em` da BD: o relatório ainda não a viu,
+    por isso a API manda e corrige o que mudou. Senão só se preenchem os campos que a BD tem vazios. Nunca nulo, nunca apagar."""
+    editado, alterado = _dia(linha.get("ego_editado_em")), _dia(o.get("alterDate"))
+    atrasada = bool(editado and alterado and editado < alterado)
+    if atrasada:
+        campos = {c: x for c, x in api.items() if linha.get(c) in (None, "") or not _igual(linha.get(c), x)}
+    else:
+        campos = {c: x for c, x in api.items() if c != "ego_editado_em" and linha.get(c) in (None, "")}
+    return campos, atrasada
+
+
+def atualizar_existentes(ativas: list[dict], gravar: bool) -> dict:
+    """Atualiza as `oportunidades` que já existem (máx. `MAX_ATUALIZACOES_POR_VOLTA` por volta). `gravar` falso só conta."""
+    sb = get_supabase()
+    nomes = [o["name"] for o in ativas if o.get("name")]
+    bd: dict[str, dict] = {}
+    for i in range(0, len(nomes), 300):
+        for x in sb.table("oportunidades").select("oportunidade_ref," + ",".join(COLUNAS_ATUALIZAVEIS)).in_("oportunidade_ref", nomes[i:i + 300]).execute().data:
+            bd[x["oportunidade_ref"]] = x
+    try:
+        utilizadores = ego_api.utilizadores()
+    except Exception as e:
+        logger.warning("oportunidades: utilizadores do eGO indisponíveis (%s)", type(e).__name__)
+        utilizadores = {}
+    try:  # sem etapas a etapa fica como está
+        etapas = ego_api.etapas_ativas()
+    except Exception as e:
+        logger.warning("oportunidades: etapas do eGO indisponíveis (%s)", type(e).__name__)
+        etapas = {}
+    plano, atrasadas, por_coluna = {}, 0, {}
+    for o in ativas:
+        linha = bd.get(o.get("name"))
+        if not linha:
+            continue
+        campos, atrasada = planear_atualizacao(o, linha, campos_da_api(o, etapas.get(o["name"]), utilizadores))
+        atrasadas += atrasada
+        if campos:
+            plano[o["name"]] = campos
+            for c in campos:
+                por_coluna[c] = por_coluna.get(c, 0) + 1
+    r = {"atrasadas": atrasadas, "a_atualizar": len(plano), "por_coluna": por_coluna}
+    if not gravar:
+        return r
+    r.update({"atualizadas": 0, "erros": 0})
+    for ref, campos in list(plano.items())[:MAX_ATUALIZACOES_POR_VOLTA]:
+        try:
+            sb.table("oportunidades").update(campos).eq("oportunidade_ref", ref).execute()
+            r["atualizadas"] += 1
+        except Exception as e:  # só o código: a mensagem pode ter pessoas
+            r["erros"] += 1
+            logger.warning("oportunidades: %s por atualizar (%s)", ref, getattr(e, "code", type(e).__name__))
+    return r

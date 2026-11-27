@@ -173,10 +173,11 @@ def test_volta_das_notas_cria_as_oportunidades_antes_e_nao_cai_se_falhar(monkeyp
     monkeypatch.setattr(sync.ego_api, "oportunidades_ativas", lambda: [{"name": "VEN_1"}])
     monkeypatch.setattr(ego_notas, "novas", lambda desde="", ativas=None: chamadas.append(("novas", ativas)) or [])
     monkeypatch.setattr(sync.ego_oportunidades, "criar_em_falta", lambda a, g: chamadas.append(("criar", g)) or {"em_falta": 1, "criaria": 1})
+    monkeypatch.setattr(sync.ego_oportunidades, "atualizar_existentes", lambda a, g: {"a_atualizar": 0})
     monkeypatch.setattr(settings, "oportunidades_api_ego", "")
     r = sync.reconciliar_notas()
     assert chamadas == [("criar", False), ("novas", [{"name": "VEN_1"}])], "só conta (interruptor vazio) e antes das notas; a lista lê-se uma vez"
-    assert r["oportunidades"] == {"em_falta": 1, "criaria": 1}
+    assert r["oportunidades"] == {"em_falta": 1, "criaria": 1, "atualizar": {"a_atualizar": 0}}, "depois de criar, atualiza as que já existem"
     monkeypatch.setattr(settings, "oportunidades_api_ego", "1")
     sync.reconciliar_notas()
     assert chamadas[-2] == ("criar", True)
@@ -185,7 +186,7 @@ def test_volta_das_notas_cria_as_oportunidades_antes_e_nao_cai_se_falhar(monkeyp
         raise RuntimeError("503")
 
     monkeypatch.setattr(sync.ego_oportunidades, "criar_em_falta", _rebenta)
-    assert sync.reconciliar_notas()["oportunidades"] == {"erro": True}, "uma falha aqui não pára as notas"
+    assert sync.reconciliar_notas()["oportunidades"]["erro"] is True, "uma falha aqui não pára as notas"
 
 
 def test_esqueleto_leva_a_etapa_e_a_natureza_concelho_freguesia_do_imovel():
@@ -288,3 +289,95 @@ def test_cria_e_grava_as_preferencias_pelo_rpc_sem_parar_se_falharem(bd, monkeyp
     monkeypatch.setattr(eo.ego_api, "preferencias", _rebenta)
     r = eo.criar_em_falta([_o("VEN_1")], gravar=True)
     assert r["criadas"] == 1 and r["prefs"] == {"com_prefs": 0, "erros": 1}, "falha nas preferências não desfaz a criação"
+
+
+# ---- P3: atualizar as oportunidades que já existem ----------------------------------------------------------------------------------
+
+def _linha(**extra):
+    base = {"oportunidade_ref": "VEN_1", "oportunidade_estado": "Ativa", "tipo_oportunidade": "Venda", "ego_editado_em": "2026-11-26", "responsavel": "Consultora Teste"}
+    return {**base, **extra}
+
+
+def test_campos_da_api_so_leva_o_que_a_api_da_e_traduz_o_portal():
+    c = eo.campos_da_api(_o(leadStage=3, portalId=700, businessFinalPrice=250000.0, closedDate="2026-11-20T10:00:00", assignToSecurityUserId=7),
+                         "8-Fecho", {7: "Consultora Teste"})
+    assert c["oportunidade_estado"] == "Perdida" and c["portal"] == "Idealista PT" and c["valor_negocio"] == 250000.0
+    assert c["estado_fechado_em"] == "2026-11-20" and c["etapa_atual"] == "8-Fecho" and c["responsavel"] == "Consultora Teste"
+    assert "cliente_nome" not in c and "imovel_venda" not in c and "pref_zona" not in c, "cliente, imóvel e preferências não se escrevem pela API"
+    assert "portal" not in eo.campos_da_api(_o(portalId=99999), None, {}), "portal desconhecido fica vazio"
+
+
+def test_atrasada_a_api_manda_e_atualiza_o_que_mudou():
+    o = _o(alterDate="2026-11-27T09:00:00", leadStage=2, situationPoint="Proposta aceite", situationPointAlterDate="2026-11-27T08:00:00")
+    api = eo.campos_da_api(o, "7-CPCV", {7: "Consultora Teste"})
+    campos, atrasada = eo.planear_atualizacao(o, _linha(etapa_atual="4-Qualificação", ponto_situacao="Antigo"), api)
+    assert atrasada and campos["oportunidade_estado"] == "Ganha" and campos["etapa_atual"] == "7-CPCV"
+    assert campos["ponto_situacao"] == "Proposta aceite" and campos["ego_editado_em"] == "2026-11-27"
+    assert "responsavel" not in campos and "tipo_oportunidade" not in campos, "o que já é igual não se reescreve"
+
+
+def test_em_dia_so_preenche_vazios_e_nunca_sobrescreve():
+    o = _o(alterDate="2026-11-26T09:00:00", leadStage=3, leadTypeId=4, situationPoint="Novo")
+    api = eo.campos_da_api(o, "4-Qualificação", {7: "Consultora Teste"})
+    campos, atrasada = eo.planear_atualizacao(o, _linha(ponto_situacao="Já tinha", oportunidade_estado="Ativa"), api)
+    assert not atrasada
+    assert campos["tipo_pedido"] == "Pedido de Informação" and campos["etapa_atual"] == "4-Qualificação", "vazios na BD: a API preenche"
+    assert "ponto_situacao" not in campos and "oportunidade_estado" not in campos and "ego_editado_em" not in campos, "o que a BD tem, não se toca"
+
+
+class _BDAtualizar:
+    def __init__(self, linhas, erro=None):
+        self.linhas, self.erro, self.updates, self._u, self._t = linhas, erro, [], None, None
+
+    def table(self, nome):
+        self._t = nome
+        return self
+
+    def select(self, *_):
+        return self
+
+    def in_(self, *_):
+        return self
+
+    def update(self, campos):
+        self._u = campos
+        return self
+
+    def eq(self, _c, ref):
+        if self.erro:
+            raise self.erro
+        self.updates.append((ref, self._u))
+        return self
+
+    def execute(self):
+        return type("R", (), {"data": self.linhas})()
+
+
+def _preparar(monkeypatch, linhas, erro=None):
+    b = _BDAtualizar(linhas, erro)
+    monkeypatch.setattr(eo, "get_supabase", lambda: b)
+    monkeypatch.setattr(eo.ego_api, "utilizadores", lambda: {7: "Consultora Teste"})
+    monkeypatch.setattr(eo.ego_api, "etapas_ativas", lambda: {"VEN_1": "4-Qualificação"})
+    return b
+
+
+def test_atualizar_conta_sem_interruptor_e_grava_com_ele(monkeypatch):
+    b = _preparar(monkeypatch, [_linha(ego_editado_em="2026-11-20")])
+    ativas = [_o("VEN_1", alterDate="2026-11-26T10:00:00"), _o("VEN_2")]
+    r = eo.atualizar_existentes(ativas, gravar=False)
+    assert r["atrasadas"] == 1 and r["a_atualizar"] == 1 and b.updates == [] and "atualizadas" not in r, "VEN_2 não tem linha: ignorada"
+    r = eo.atualizar_existentes(ativas, gravar=True)
+    assert r["atualizadas"] == 1 and r["erros"] == 0 and b.updates[0][0] == "VEN_1" and b.updates[0][1]["ego_editado_em"] == "2026-11-26"
+
+
+def test_atualizar_erro_conta_so_o_codigo_e_respeita_o_maximo(monkeypatch):
+    class _E(Exception):
+        code = "23514"
+
+    b = _preparar(monkeypatch, [_linha(ego_editado_em="2026-11-20")], erro=_E())
+    assert eo.atualizar_existentes([_o("VEN_1", alterDate="2026-11-26T10:00:00")], gravar=True)["erros"] == 1
+    linhas = [{**_linha(ego_editado_em="2026-11-20"), "oportunidade_ref": f"VEN_{i}"} for i in range(5)]
+    b = _preparar(monkeypatch, linhas)
+    monkeypatch.setattr(eo, "MAX_ATUALIZACOES_POR_VOLTA", 2)
+    r = eo.atualizar_existentes([_o(f"VEN_{i}", alterDate="2026-11-26T10:00:00") for i in range(5)], gravar=True)
+    assert r["a_atualizar"] == 5 and r["atualizadas"] == 2 and len(b.updates) == 2, "o resto fica para a volta seguinte"

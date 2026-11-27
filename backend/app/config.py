@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # Cria o esqueleto das oportunidades novas do eGO que o relatório ainda não trouxe (docs/fases/oportunidades-em-falta-pela-api-plano.md).
     # Vazio = só conta (`criaria` no resumo da volta das notas).
     oportunidades_api_ego: str = ""
+    # P3 do mesmo plano: atualiza as oportunidades EXISTENTES pela API (a API manda nas editadas depois do relatório; senão só preenche vazios).
+    # Vazio = só conta (`atualizar` no resumo da volta das notas).
+    oportunidades_atualizar_api_ego: str = ""
     # P2 de docs/fases/api-a-substituir-scraper-acelerado-plano.md: grava as visitas lidas pela API do eGO. Vazio = só conta (dry-run).
     visitas_api_ego: str = ""
     # F2: o endpoint das tarefas lê pela API do eGO em vez do scraper (docs/fases/tarefas-pela-api-plano.md). Vazio = scraper.
