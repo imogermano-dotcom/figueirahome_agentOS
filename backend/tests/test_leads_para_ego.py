@@ -606,11 +606,21 @@ def test_entrada_desligada_nao_toca_em_nada(monkeypatch, desde, entrada):
 
 
 @pytest.mark.parametrize("resposta", ["não, obrigado", "Nao", "", None])
-def test_entrada_de_quem_recusa_fica_para_o_ramo_da_recusa(monkeypatch, resposta):
-    monkeypatch.setattr(settings, "lead_compra_ego_desde", "2026-10-17T00:00:00+00:00")
-    monkeypatch.setattr(settings, "lead_entrada_ego", "1")
-    monkeypatch.setattr(lp, "get_supabase", lambda: pytest.fail("não devia tocar na BD"))
-    assert lp.entrada_meta("m1", None, resposta) == {"resultado": "recusa", "criada": False}
+def test_entrada_de_quem_recusa_cria_com_obs_da_recusa_e_via_recusa(monkeypatch, resposta):
+    """Ponto único de criação: quem recusa o WhatsApp também é criado à entrada, com «contactar por telefone»."""
+    bd, enviados = _entrada(monkeypatch)
+    r = lp.entrada_meta("m1", None, resposta)
+    assert r["resultado"] == "criada" and r["criada"] and len(enviados) == 1
+    obs = enviados[0][3]
+    assert "recusou o WhatsApp" in obs and "acabou de entrar" not in obs
+    assert bd.updates[0][1].keys() == {"ego_lead_em"}, "1.º a reserva"
+    assert bd.registos[-1]["resumo"]["via"] == "recusa"
+
+
+def test_entrada_de_quem_recusa_ja_tratada_nao_repete(monkeypatch):
+    """A 2.ª via (nó antigo do fluxo do template) responde ja_tratada e não cria nada."""
+    bd, enviados = _entrada(monkeypatch, linha=_linha(ego_lead_em=ISO(1), meta_lead_id="m1", criado_em=ISO(1)))
+    assert lp.entrada_meta("m1", None, "não") == {"resultado": "ja_tratada"} and enviados == [] and bd.updates == []
 
 
 def test_entrada_ja_tratada_nao_repete(monkeypatch):

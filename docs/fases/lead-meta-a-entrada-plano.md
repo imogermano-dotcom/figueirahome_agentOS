@@ -104,3 +104,18 @@ Decisão do utilizador: em vez do cron a 2 min, o fluxo `Meta leads to supabase`
 ## Ordem e OKs
 
 F1 (código + testes, sem produção) → commit/push → deploy com `LEAD_ENTRADA_EGO` vazio → ligar → ver 1–2 leads reais. F2 (cliente de notas + teste com lead de teste, OK expresso). F3, F4 por fases, cada uma com o seu OK.
+
+## Unificação aceita/recusa (28/11)
+
+Duas vias para o mesmo resultado (nó novo para quem aceita, ramo do fluxo do template para quem recusa) davam a recusa a passar
+2 vezes pela criação. Decisão: **`/entrada` é o único ponto de criação**, para quem aceita e para quem recusa.
+
+- Backend: `entrada_meta` deixa de devolver `recusa`; quem não aceita (`aceitou_whatsapp` falso) cria com o OBS «recusou o WhatsApp:
+  contactar por telefone, nunca por WhatsApp» e a marca `via=recusa`. `/recusou-whatsapp` fica só como reversão.
+- n8n, por esta ordem, sem perder leads (quem recusa nunca recebe template, o cron das 2 h não o apanha):
+  1. deploy com `LEAD_ENTRADA_EGO` ainda vazio;
+  2. ligar a flag: a recusa passa a ser criada pelo nó do fluxo-pai; o nó antigo responde `ja_tratada` (o email da recusa diz
+     «já tratada», só texto);
+  3. fluxo do template: o email da recusa lê o resultado do `Lead para o eGO` (fluxo-pai, passado ao `Enviar template (01)`) e
+     sai o nó `Criar lead no eGO (recusou WhatsApp)`.
+- Opção 2 (mais tarde, se se quiser): o backend envia também o email de recusa e o ramo todo sai do n8n.

@@ -970,13 +970,12 @@ def entrada_meta(meta_lead_id: str, imovel_ref: str | None = None, whatsapp_opti
     """Lead de compra que acabou de entrar no Supabase: cria-a no eGO já, sem esperar a conversa (pedido #17, chamado pelo n8n logo
     a seguir ao RPC). Mesmos casos de `recusou_whatsapp`, mais a reserva antes de chamar o eGO.
 
-    Só quem aceitou o WhatsApp: quem recusa já é tratado pelo ramo da recusa do fluxo do template (`resultado: recusa`, nada feito).
-    Desligado com `LEAD_ENTRADA_EGO` ou `LEAD_COMPRA_EGO_DESDE` vazios. `None` = contacto inexistente. Não cria sem email nem sem
+    Único ponto de criação, para quem aceita e para quem recusa o WhatsApp (a recusa leva o OBS «contactar por telefone» e a
+    marca `via=recusa`; `recusou_whatsapp` fica só como reversão). Desligado com `LEAD_ENTRADA_EGO` ou `LEAD_COMPRA_EGO_DESDE` vazios. `None` = contacto inexistente. Não cria sem email nem sem
     consultora: nesses casos liberta a reserva e diz porquê (o endpoint responde 502 para o n8n avisar). Falha do eGO levanta."""
     if not (settings.lead_compra_ego_desde and settings.lead_entrada_ego):
         return {"resultado": "desligado", "criada": False}
-    if not aceitou_whatsapp(whatsapp_optin):
-        return {"resultado": "recusa", "criada": False}
+    recusou = not aceitou_whatsapp(whatsapp_optin)
     linha = _ler_entrada(meta_lead_id)
     if linha is None:
         return None
@@ -984,12 +983,13 @@ def entrada_meta(meta_lead_id: str, imovel_ref: str | None = None, whatsapp_opti
         return parar
     tinha_imovel = linha.get("imovel_ref")  # numa reentrada é o da 1.ª entrada: o do n8n manda e o do contacto fica como está
     linha["imovel_ref"] = (imovel_ref or "").strip() or tinha_imovel or ref_do_anuncio(linha.get("ad_name"))
-    linha["acabou_de_entrar"] = True
+    linha["acabou_de_entrar"] = not recusou  # quem recusou leva o OBS da recusa
     agora = datetime.now(timezone.utc)
     if not _reservar(linha, agora):
         return {"resultado": "ja_tratada"}
     try:
-        r = _criar_pela_entrada(linha, agora, recusou=False, via="entrada", gravar_imovel=not tinha_imovel)
+        r = _criar_pela_entrada(linha, agora, recusou=recusou, via="recusa" if recusou else "entrada",
+                                gravar_imovel=not tinha_imovel)
     except Exception:
         _libertar(linha)
         raise
