@@ -119,3 +119,33 @@ Duas vias para o mesmo resultado (nó novo para quem aceita, ramo do fluxo do te
   3. fluxo do template: o email da recusa lê o resultado do `Lead para o eGO` (fluxo-pai, passado ao `Enviar template (01)`) e
      sai o nó `Criar lead no eGO (recusou WhatsApp)`.
 - Opção 2 (mais tarde, se se quiser): o backend envia também o email de recusa e o ramo todo sai do n8n.
+
+## Fases 2–4 em detalhe (28/11; só plano, nada implementado)
+
+Contrato (OpenAPI local `docs/eGO-api/api-1.json`): `POST /note/Note/InsertNote?applicationId=` com `NoteRequestDto` = `objectId`, `objectName` (14 lead, 3 oportunidade),
+`description`, `securityUserId`, `applicationId` (+ `historicTypeId` opcional); devolve o id da nota. O texto é um tipo `string`; o `description` do eGO vem em HTML simples
+(`ego_notas.texto_de` já o limpa na leitura).
+
+### F2 — cliente de notas (sem escrita em produção até haver OK)
+- `ego_api.inserir_nota(lead_id, texto)`: `GetLead` → `upgradeUserID` preenchido ⇒ `objectName` 3, senão 14; devolve `{objeto, nota_id}`. Levanta se a resposta não for um id.
+- Teste local com respostas simuladas (as duas ramas, falha do eGO). **Teste real só com uma lead de teste criada para isso** (formulário à mão com telefone/email de teste,
+  `912345678`); a consultora/Miguel descarta, nada se apaga. Confirma-se: o nosso utilizador (92411) pode escrever `objectName` 14; o que a consultora vê; o autor da nota.
+
+### F3 — a conversa como notas
+- **Quando:** o cron `leads-compra-para-ego` (10 em 10 min) ganha um passo `notas_para_ego` — sem tocar no motor da conversa (risco zero para a Matilde) e sem migration. Atraso ≤10 min,
+  não «a cada resposta». Se o Miguel quiser mais perto do instante, o gatilho passa para o fim do turno (`diferir`), numa fase seguinte.
+- **O quê:** por entrada com `ego_lead_id` e sem recusa anterior, 1 nota por evento: (1) 1.ª resposta da pessoa; (2) interesse real / visita / qualificada; (3) escalada; (4) recusa
+  (`nao_contactar_em`: a nota diz-o, a consultora descarta); (5) sem resposta ao lembrete. Texto curto (≤600), as últimas mensagens, mesmas regras de privacidade do OBS atual.
+- **Não repetir:** registo em `agente_sync_log` (`tipo='ego_nota'`, `resumo={contacto_id, evento, entrada}`), sem coluna nova. Falha do eGO → não regista → repete na volta seguinte.
+- **Interruptor** `LEAD_NOTAS_EGO` (vazio = só conta, em `agente_sync_log`; mesma ideia do dry-run das notas lidas).
+- **Sem `ego_lead_id`** (`ja_na_caixa`, `oportunidade_ativa`): `oportunidade_ativa` → nota na OP existente (é o que o Miguel pediu a 06/11 e hoje só há email); `ja_na_caixa` → nota na lead da caixa
+  (id obtido por `_lead_da_caixa`). Os emails atuais mantêm-se.
+- As nossas notas na OP voltam pela importação das notas (`sync-notas`) para `public.notas` como notas normais (autor 92411): não é duplicado, mas dispara a IA do `notas`.
+
+### F4 — retirar o que deixa de decidir se a lead existe
+- `_candidatas_paradas` e `_candidatas_interesse` deixam de criar leads (a criação é à entrada); ficam só quando a entrada falhou (`sem_consultora` resolvido depois), como rede.
+- **«Lead nova depois» (decisão 2 acima):** na mesma entrada passa a nota na OP; entrada nova (reentrada) continua a criar lead nova. **Confirmar com o Miguel**: ele pediu a lead nova a reaparecer na caixa.
+- `LEAD_RESPONDEU_EGO`/`LEAD_INTERESSE_EGO` passam a controlar só notas. `CLAUDE.md` e registo do Miguel atualizados.
+
+### Ordem e OKs
+F2 código+testes → commit/push → deploy (nada escreve) → **teste real com lead de teste (OK expresso, escreve no eGO)** → F3 código+testes → commit/push → deploy com `LEAD_NOTAS_EGO` vazio → ligar → ver 1–2 leads reais → F4.

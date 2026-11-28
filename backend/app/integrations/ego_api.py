@@ -427,3 +427,35 @@ def inserir_lead(corpo: dict) -> int | None:
         d = _dados(r)
     novo = d.get("id") if isinstance(d, dict) else d
     return int(novo) if isinstance(novo, (int, str)) and str(novo).isdigit() else None
+
+
+_OBJETO_LEAD, _OBJETO_OPORTUNIDADE = 14, 3
+
+
+def objeto_da_lead(lead_id: int) -> int:
+    """Onde a nota vai: a lead promovida a oportunidade mantém o MESMO id (testado pelo Miguel a 02/11) e `GetLead` traz `upgradeUserID`
+    preenchido; as notas da lead (14) não passam para a oportunidade, por isso depois da promoção escreve-se com 3."""
+    lead = _pedido("GET", "/lead/Lead/GetLead", params={"leadId": lead_id})
+    return _OBJETO_OPORTUNIDADE if isinstance(lead, dict) and lead.get("upgradeUserID") else _OBJETO_LEAD
+
+
+def inserir_nota(lead_id: int, texto: str) -> dict:
+    """Nota na lead (`objectName` 14) ou, se já foi promovida, na oportunidade (3, mesmo id) — `InsertNote`. Devolve
+    `{objeto, nota_id}`; levanta se o eGO não devolver o id da nota. Nunca cria uma 2.ª lead nem altera nada além da nota."""
+    if not (texto or "").strip():
+        raise EgoApiErro("Nota vazia")
+    objeto = objeto_da_lead(lead_id)
+    with httpx.Client(timeout=30, headers={"User-Agent": _UA}) as c:
+        s = _sessao_valida(c)
+        corpo = {"objectId": lead_id, "objectName": objeto, "description": texto.strip(),
+                 "securityUserId": s["security_user_id"], "applicationId": s["application_id"]}
+        r = c.post(f"{settings.egoapi_base_url}/note/Note/InsertNote", params={"applicationId": s["application_id"]},
+                   json=corpo, headers={"Authorization": f"Bearer {s['token']}"})
+        if r.status_code == 401:
+            with _lock:
+                _sessao.clear()
+        d = _dados(r)
+    nota_id = d.get("id") if isinstance(d, dict) else d
+    if not (isinstance(nota_id, (int, str)) and str(nota_id).isdigit() and int(nota_id) > 0):
+        raise EgoApiErro(f"InsertNote {lead_id} não devolveu o id da nota (resposta {d!r})")
+    return {"objeto": objeto, "nota_id": int(nota_id)}
